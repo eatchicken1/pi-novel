@@ -5,12 +5,15 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type {
 	CheckContinuityParams,
 	CheckAiArtifactsParams,
+	CheckChaseWifeArcParams,
+	ChaseWifeBeat,
 	CompareDraftVersionsParams,
 	ContentFormat,
 	CreateVoiceFingerprintParams,
 	DocumentType,
 	ExtractChapterFactsParams,
 	FinalizeChapterParams,
+	Genre,
 	GetNovelStatusParams,
 	InitializeNovelParams,
 	LoadWorkflowCheckpointParams,
@@ -22,6 +25,7 @@ import type {
 	SaveChapterDraftParams,
 	SaveChapterPlanParams,
 	SaveContinuityReportParams,
+	SaveChaseWifeBeatSheetParams,
 	SaveQualityReportParams,
 	SaveSceneContractParams,
 	SaveStoryDocumentParams,
@@ -223,6 +227,16 @@ function countWords(content: string): number {
 	return content.trim() === "" ? 0 : content.trim().split(/\s+/u).length;
 }
 
+function normalizeGenre(genre: Genre): string {
+	const aliases: Record<string, string> = {
+		都市悬疑: "suspense",
+		都市情感: "urban-romance",
+		轻幻想: "light-fantasy",
+		追妻文: "chase-wife",
+	};
+	return aliases[genre] ?? genre;
+}
+
 export class NovelProjectStore {
 	private readonly novelsRoot: string;
 	private readonly fileQueues = new Map<string, Promise<void>>();
@@ -372,11 +386,12 @@ export class NovelProjectStore {
 			throw new Error(`Novel project "${params.projectId}" already exists. Initialization never overwrites an existing project.`);
 		}
 		const now = new Date().toISOString();
+		const genre = normalizeGenre(params.genre);
 		const project = {
 			version: 1,
 			projectId: params.projectId,
 			title: params.title,
-			genre: params.genre,
+			genre,
 			targetWordCount: params.targetWordCount ?? 30_000,
 			status: "planning",
 			nextChapter: 1,
@@ -391,7 +406,7 @@ export class NovelProjectStore {
 		for (const [relativePath, content] of Object.entries(files)) {
 			await this.writeAtomically(this.projectFile(params.projectId, relativePath), content, signal);
 		}
-		return { projectId: params.projectId, path: projectDir, title: params.title, genre: params.genre, createdAt: now, updatedAt: now, files: Object.keys(files) };
+		return { projectId: params.projectId, path: projectDir, title: params.title, genre, createdAt: now, updatedAt: now, files: Object.keys(files) };
 	}
 
 	async repairNovelProject(params: RepairNovelProjectParams, signal?: AbortSignal): Promise<{ projectId: string; createdFiles: string[]; existingFiles: string[] }> {
@@ -839,6 +854,55 @@ export class NovelProjectStore {
 		const relativePath = `evaluations/chapter/${chapterName(params.chapter)}-ai-artifacts-r${String(draft.revision).padStart(2, "0")}.json`;
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(result, null, 2)}\n`, signal);
 		return { ...result, path: relativePath };
+	}
+
+	private async ensureChaseWifeProject(projectId: string, signal?: AbortSignal): Promise<void> {
+		await this.ensureProject(projectId, signal);
+		const project = await this.readJsonIfExists(this.projectFile(projectId, "project.json"), signal);
+		if (!isJsonRecord(project) || project.genre !== "chase-wife") throw new Error("This tool is only available for the chase-wife genre branch.");
+	}
+
+	async saveChaseWifeBeatSheet(params: SaveChaseWifeBeatSheetParams, signal?: AbortSignal): Promise<{ projectId: string; path: string; beats: number }> {
+		await this.ensureChaseWifeProject(params.projectId, signal);
+		const beats = [...params.beats].sort((left, right) => left.beat - right.beat);
+		const beatNumbers = beats.map((beat) => beat.beat);
+		if (new Set(beatNumbers).size !== beatNumbers.length) throw new Error("Chase-wife beat numbers must be unique.");
+		if (beats.some((beat) => beat.phase === "paywall-hook" && beat.beat > 10)) throw new Error("The chase-wife paywall hook must appear in the opening half.");
+		const relativePath = "outline/genre/chase-wife-beat-sheet.json";
+		const document = { version: 1, genre: "chase-wife", projectId: params.projectId, beats, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, path: relativePath, beats: beats.length };
+	}
+
+	async checkChaseWifeArc(params: CheckChaseWifeArcParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: string[]; checkedBeats: number; path: string }> {
+		await this.ensureChaseWifeProject(params.projectId, signal);
+		const relativePath = "outline/genre/chase-wife-beat-sheet.json";
+		const value = await this.readJsonIfExists(this.projectFile(params.projectId, relativePath), signal);
+		const issues: string[] = [];
+		if (!isJsonRecord(value) || !Array.isArray(value.beats)) {
+			issues.push("missing or invalid chase-wife beat sheet");
+		} else {
+			const beats = value.beats.filter(
+				(beat): beat is ChaseWifeBeat =>
+					isJsonRecord(beat) &&
+					typeof beat.beat === "number" &&
+					typeof beat.phase === "string" &&
+					typeof beat.painPoint === "string" &&
+					typeof beat.rewardPoint === "string",
+			);
+			const phases = new Set<string>(beats.map((beat) => beat.phase));
+			if (beats.length < 12) issues.push("short-form beat sheet should normally contain 12-24 beats");
+			for (const phase of ["opening-injury", "paywall-hook", "exit", "self-rebuild", "male-pursuit", "public-consequence", "closure"]) if (!phases.has(phase)) issues.push(`missing required phase: ${phase}`);
+			const earlyPain = beats.filter((beat) => beat.beat <= Math.ceil(beats.length / 2) && beat.painPoint.trim().length > 0).length;
+			const lateReward = beats.filter((beat) => beat.beat > Math.ceil(beats.length / 2) && beat.rewardPoint.trim().length > 0).length;
+			if (earlyPain === 0) issues.push("opening half has no explicit pain-point accumulation");
+			if (lateReward === 0) issues.push("ending half has no explicit reward or consequence release");
+		}
+		const status = (issues.some((issue) => issue.startsWith("missing or invalid")) ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const report = { projectId: params.projectId, genre: "chase-wife", generatedAt: new Date().toISOString(), status, issues, checkedBeats: isJsonRecord(value) && Array.isArray(value.beats) ? value.beats.length : 0 };
+		const reportPath = "continuity/reports/chase-wife-arc.json";
+		await this.writeAtomically(this.projectFile(params.projectId, reportPath), `${JSON.stringify(report, null, 2)}\n`, signal);
+		return { ...report, path: reportPath };
 	}
 
 	private async writeTransaction(projectId: string, chapter: number, entries: Array<{ relativePath: string; content: string }>, signal?: AbortSignal): Promise<string> {

@@ -39,3 +39,4 @@
 - 检查：`story-review`、`continuity-review`
 - 修改：`prose-revision`
 - 读者体验：`reader-sim`
+- `genre=chase-wife` 时额外加载 `genre-chase-wife`；该分支的节拍、情绪和工具不能用于悬疑、都市情感或轻幻想。

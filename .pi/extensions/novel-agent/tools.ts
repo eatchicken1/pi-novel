@@ -2,6 +2,7 @@ import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type {
 	CheckContinuityParams,
 	CheckAiArtifactsParams,
+	CheckChaseWifeArcParams,
 	CompareDraftVersionsParams,
 	CreateVoiceFingerprintParams,
 	ExtractChapterFactsParams,
@@ -16,6 +17,7 @@ import type {
 	SaveChapterDraftParams,
 	SaveChapterPlanParams,
 	SaveContinuityReportParams,
+	SaveChaseWifeBeatSheetParams,
 	SaveSceneContractParams,
 	SaveQualityReportParams,
 	SaveStoryDocumentParams,
@@ -29,6 +31,7 @@ import type {
 import {
 	CheckContinuitySchema,
 	CheckAiArtifactsSchema,
+	CheckChaseWifeArcSchema,
 	CompareDraftVersionsSchema,
 	CreateVoiceFingerprintSchema,
 	ExtractChapterFactsSchema,
@@ -43,6 +46,7 @@ import {
 	SaveChapterDraftSchema,
 	SaveChapterPlanSchema,
 	SaveContinuityReportSchema,
+	SaveChaseWifeBeatSheetSchema,
 	SaveSceneContractSchema,
 	SaveQualityReportSchema,
 	SaveStoryDocumentSchema,
@@ -68,6 +72,34 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			async execute(_toolCallId, params: InitializeNovelParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).initializeNovel(params, signal);
 				return { content: [{ type: "text", text: `Novel project initialized: ${result.projectId}\n${result.path}` }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_chase_wife_beat_sheet",
+			label: "Save Chase-wife Beat Sheet",
+			description: "Save the chase-wife-specific emotional and plot beat sheet; rejects other genres.",
+			parameters: SaveChaseWifeBeatSheetSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveChaseWifeBeatSheetParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveChaseWifeBeatSheet(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_chase_wife_arc",
+			label: "Check Chase-wife Arc",
+			description: "Check chase-wife-specific opening injury, exit, pursuit, consequence, and closure phases.",
+			parameters: CheckChaseWifeArcSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckChaseWifeArcParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkChaseWifeArc(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),
 	);

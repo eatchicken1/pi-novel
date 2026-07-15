@@ -8,6 +8,12 @@ const ProjectIdSchema = Type.String({
 	description: "小说项目 ID，只允许小写字母、数字和连字符",
 });
 
+export const GenreSchema = Type.String({
+	minLength: 1,
+	maxLength: 80,
+	description: "小说类型。内置类型包括 suspense/都市悬疑、urban-romance/都市情感、light-fantasy/轻幻想、chase-wife/追妻文，也允许项目保留自定义类型。",
+});
+
 const ChapterNumberSchema = Type.Integer({
 	minimum: 1,
 	description: "从 1 开始的章节编号",
@@ -103,7 +109,7 @@ export const ContinuityIssueSchema = Type.Object({
 export const InitializeNovelSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	title: Type.String({ minLength: 1, maxLength: 200 }),
-	genre: Type.String({ minLength: 1, maxLength: 80 }),
+	genre: GenreSchema,
 	targetWordCount: Type.Optional(Type.Integer({ minimum: 1000 })),
 });
 
@@ -304,6 +310,40 @@ export const CheckAiArtifactsSchema = Type.Object({
 	draftRevision: Type.Optional(Type.Integer({ minimum: 1 })),
 });
 
+const ChaseWifePhaseSchema = Type.Union([
+	Type.Literal("opening-injury"),
+	Type.Literal("escalation"),
+	Type.Literal("paywall-hook"),
+	Type.Literal("exit"),
+	Type.Literal("self-rebuild"),
+	Type.Literal("male-pursuit"),
+	Type.Literal("exposure"),
+	Type.Literal("public-consequence"),
+	Type.Literal("closure"),
+]);
+
+export const ChaseWifeBeatSchema = Type.Object({
+	beat: Type.Integer({ minimum: 1, maximum: 24 }),
+	phase: ChaseWifePhaseSchema,
+	sceneCount: Type.Integer({ minimum: 1, maximum: 5 }),
+	goal: Type.String({ minLength: 1 }),
+	conflict: Type.String({ minLength: 1 }),
+	actionOrConsequence: Type.String({ minLength: 1 }),
+	emotionBefore: Type.String({ minLength: 1 }),
+	emotionAfter: Type.String({ minLength: 1 }),
+	emotionStack: Type.Array(Type.String(), { minItems: 1 }),
+	painPoint: Type.String({ minLength: 1 }),
+	rewardPoint: Type.String({ minLength: 1 }),
+	hook: Type.String({ minLength: 1 }),
+});
+
+export const SaveChaseWifeBeatSheetSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	beats: Type.Array(ChaseWifeBeatSchema, { minItems: 1, maxItems: 24 }),
+});
+
+export const CheckChaseWifeArcSchema = Type.Object({ projectId: ProjectIdSchema });
+
 export const FinalizeChapterSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	chapter: ChapterNumberSchema,
@@ -330,6 +370,7 @@ export type SaveWorkflowCheckpointParams = Static<typeof SaveWorkflowCheckpointS
 export type LoadWorkflowCheckpointParams = Static<typeof LoadWorkflowCheckpointSchema>;
 export type SaveQualityReportParams = Static<typeof SaveQualityReportSchema>;
 export type RecordWritingIssueParams = Static<typeof RecordWritingIssueSchema>;
+export type Genre = Static<typeof GenreSchema>;
 export type UpdateCharacterStateParams = Static<typeof UpdateCharacterStateSchema>;
 export type UpdateClueLedgerParams = Static<typeof UpdateClueLedgerSchema>;
 export type UpdateTimelineParams = Static<typeof UpdateTimelineSchema>;
@@ -339,6 +380,9 @@ export type CreateVoiceFingerprintParams = Static<typeof CreateVoiceFingerprintS
 export type CompareDraftVersionsParams = Static<typeof CompareDraftVersionsSchema>;
 export type ExportManuscriptParams = Static<typeof ExportManuscriptSchema>;
 export type CheckAiArtifactsParams = Static<typeof CheckAiArtifactsSchema>;
+export type ChaseWifeBeat = Static<typeof ChaseWifeBeatSchema>;
+export type SaveChaseWifeBeatSheetParams = Static<typeof SaveChaseWifeBeatSheetSchema>;
+export type CheckChaseWifeArcParams = Static<typeof CheckChaseWifeArcSchema>;
 export type FinalizeChapterParams = Static<typeof FinalizeChapterSchema>;
 export type ContextSection = Static<typeof ContextSectionSchema>;
 export type DocumentType = Static<typeof DocumentTypeSchema>;

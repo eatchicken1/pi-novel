@@ -25,6 +25,7 @@ description: 按编辑层级审查小说，输出结构、场景、连续性、�
 3. 区分事实、推断和建议；不自动把报告写入正史。
 4. 使用 `save_continuity_report` 或 `save_story_document` 保存报告，并绑定草稿 revision。
 5. 使用 `score_chapter` 和 `check_ai_artifacts` 形成可重复质量门；分数是诊断信号，不是文学质量证明。
+6. 追妻文还要检查女主退出是否不可逆、追悔是否有行动证据、现实后果是否兑现，以及结局是否把选择权交还给女主。
 
 ## Resource
 
