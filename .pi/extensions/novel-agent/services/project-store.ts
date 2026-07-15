@@ -39,6 +39,18 @@ import type {
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const DEFAULT_CONTEXT_CHARS = 50_000;
+const CHASE_WIFE_PHASES = [
+	"opening-injury",
+	"escalation",
+	"paywall-hook",
+	"exit",
+	"self-rebuild",
+	"male-pursuit",
+	"exposure",
+	"public-consequence",
+	"closure",
+] as const;
+const CHASE_WIFE_PHASE_ORDER = new Map<string, number>(CHASE_WIFE_PHASES.map((phase, index) => [phase, index]));
 
 type JsonRecord = Record<string, unknown>;
 
@@ -225,6 +237,23 @@ function requireConfirmation(status: "proposed" | "confirmed", confirmation: "US
 
 function countWords(content: string): number {
 	return content.trim() === "" ? 0 : content.trim().split(/\s+/u).length;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === "string" && value.trim().length > 0;
+}
+
+function isChaseWifeBeat(value: unknown): value is ChaseWifeBeat {
+	if (!isJsonRecord(value)) return false;
+	const beatNumber = value.beat;
+	if (typeof beatNumber !== "number" || !Number.isInteger(beatNumber) || beatNumber < 1 || beatNumber > 24) return false;
+	if (typeof value.phase !== "string" || !CHASE_WIFE_PHASE_ORDER.has(value.phase)) return false;
+	const sceneCount = value.sceneCount;
+	if (typeof sceneCount !== "number" || !Number.isInteger(sceneCount) || sceneCount < 1 || sceneCount > 5) return false;
+	if (!isNonEmptyString(value.goal) || !isNonEmptyString(value.conflict) || !isNonEmptyString(value.actionOrConsequence)) return false;
+	if (!isNonEmptyString(value.emotionBefore) || !isNonEmptyString(value.emotionAfter) || !isNonEmptyString(value.painPoint)) return false;
+	if (!isNonEmptyString(value.rewardPoint) || !isNonEmptyString(value.hook)) return false;
+	return Array.isArray(value.emotionStack) && value.emotionStack.length > 0 && value.emotionStack.every(isNonEmptyString);
 }
 
 function normalizeGenre(genre: Genre): string {
@@ -865,9 +894,11 @@ export class NovelProjectStore {
 	async saveChaseWifeBeatSheet(params: SaveChaseWifeBeatSheetParams, signal?: AbortSignal): Promise<{ projectId: string; path: string; beats: number }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
 		const beats = [...params.beats].sort((left, right) => left.beat - right.beat);
+		if (beats.length < 12 || beats.length > 24) throw new Error("Chase-wife beat sheets must contain 12-24 beats.");
 		const beatNumbers = beats.map((beat) => beat.beat);
 		if (new Set(beatNumbers).size !== beatNumbers.length) throw new Error("Chase-wife beat numbers must be unique.");
-		if (beats.some((beat) => beat.phase === "paywall-hook" && beat.beat > 10)) throw new Error("The chase-wife paywall hook must appear in the opening half.");
+		if (beatNumbers.some((beatNumber, index) => beatNumber !== index + 1)) throw new Error("Chase-wife beat numbers must be contiguous starting at 1.");
+		if (beats.some((beat) => beat.phase === "paywall-hook" && beat.beat > Math.ceil(beats.length / 2))) throw new Error("The chase-wife paywall hook must appear in the opening half.");
 		const relativePath = "outline/genre/chase-wife-beat-sheet.json";
 		const document = { version: 1, genre: "chase-wife", projectId: params.projectId, beats, updatedAt: new Date().toISOString() };
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
@@ -879,27 +910,54 @@ export class NovelProjectStore {
 		const relativePath = "outline/genre/chase-wife-beat-sheet.json";
 		const value = await this.readJsonIfExists(this.projectFile(params.projectId, relativePath), signal);
 		const issues: string[] = [];
+		let hasStructuralError = false;
+		let checkedBeats = 0;
 		if (!isJsonRecord(value) || !Array.isArray(value.beats)) {
 			issues.push("missing or invalid chase-wife beat sheet");
+			hasStructuralError = true;
 		} else {
-			const beats = value.beats.filter(
-				(beat): beat is ChaseWifeBeat =>
-					isJsonRecord(beat) &&
-					typeof beat.beat === "number" &&
-					typeof beat.phase === "string" &&
-					typeof beat.painPoint === "string" &&
-					typeof beat.rewardPoint === "string",
-			);
-			const phases = new Set<string>(beats.map((beat) => beat.phase));
-			if (beats.length < 12) issues.push("short-form beat sheet should normally contain 12-24 beats");
-			for (const phase of ["opening-injury", "paywall-hook", "exit", "self-rebuild", "male-pursuit", "public-consequence", "closure"]) if (!phases.has(phase)) issues.push(`missing required phase: ${phase}`);
-			const earlyPain = beats.filter((beat) => beat.beat <= Math.ceil(beats.length / 2) && beat.painPoint.trim().length > 0).length;
-			const lateReward = beats.filter((beat) => beat.beat > Math.ceil(beats.length / 2) && beat.rewardPoint.trim().length > 0).length;
+			const beats = value.beats.filter(isChaseWifeBeat);
+			checkedBeats = beats.length;
+			if (beats.length !== value.beats.length) {
+				issues.push("beat sheet contains invalid beat records");
+				hasStructuralError = true;
+			}
+			if (beats.length < 12 || beats.length > 24) {
+				issues.push("chase-wife beat sheet must contain 12-24 valid beats");
+				hasStructuralError = true;
+			}
+			const beatNumbers = beats.map((beat) => beat.beat);
+			if (new Set(beatNumbers).size !== beatNumbers.length || beatNumbers.some((beatNumber, index) => beatNumber !== index + 1)) {
+				issues.push("beat numbers must be unique and contiguous starting at 1");
+				hasStructuralError = true;
+			}
+			const orderedBeats = [...beats].sort((left, right) => left.beat - right.beat);
+			const phases = new Set<string>(orderedBeats.map((beat) => beat.phase));
+			for (const phase of CHASE_WIFE_PHASES) if (!phases.has(phase)) {
+				issues.push(`missing required phase: ${phase}`);
+				hasStructuralError = true;
+			}
+			let previousPhaseIndex = -1;
+			for (const beat of orderedBeats) {
+				const phaseIndex = CHASE_WIFE_PHASE_ORDER.get(beat.phase) ?? -1;
+				if (phaseIndex < previousPhaseIndex) {
+					issues.push("chase-wife phases must follow the defined emotional arc order");
+					hasStructuralError = true;
+					break;
+				}
+				previousPhaseIndex = phaseIndex;
+			}
+			if (orderedBeats.some((beat) => beat.phase === "paywall-hook" && beat.beat > Math.ceil(orderedBeats.length / 2))) {
+				issues.push("the paywall hook must appear in the opening half");
+				hasStructuralError = true;
+			}
+			const earlyPain = orderedBeats.filter((beat) => beat.beat <= Math.ceil(orderedBeats.length / 2) && beat.painPoint.trim().length > 0).length;
+			const lateReward = orderedBeats.filter((beat) => beat.beat > Math.ceil(orderedBeats.length / 2) && beat.rewardPoint.trim().length > 0).length;
 			if (earlyPain === 0) issues.push("opening half has no explicit pain-point accumulation");
 			if (lateReward === 0) issues.push("ending half has no explicit reward or consequence release");
 		}
-		const status = (issues.some((issue) => issue.startsWith("missing or invalid")) ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
-		const report = { projectId: params.projectId, genre: "chase-wife", generatedAt: new Date().toISOString(), status, issues, checkedBeats: isJsonRecord(value) && Array.isArray(value.beats) ? value.beats.length : 0 };
+		const status = (hasStructuralError ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const report = { projectId: params.projectId, genre: "chase-wife", generatedAt: new Date().toISOString(), status, issues, checkedBeats };
 		const reportPath = "continuity/reports/chase-wife-arc.json";
 		await this.writeAtomically(this.projectFile(params.projectId, reportPath), `${JSON.stringify(report, null, 2)}\n`, signal);
 		return { ...report, path: reportPath };

@@ -339,7 +339,7 @@ export const ChaseWifeBeatSchema = Type.Object({
 
 export const SaveChaseWifeBeatSheetSchema = Type.Object({
 	projectId: ProjectIdSchema,
-	beats: Type.Array(ChaseWifeBeatSchema, { minItems: 1, maxItems: 24 }),
+	beats: Type.Array(ChaseWifeBeatSchema, { minItems: 12, maxItems: 24 }),
 });
 
 export const CheckChaseWifeArcSchema = Type.Object({ projectId: ProjectIdSchema });

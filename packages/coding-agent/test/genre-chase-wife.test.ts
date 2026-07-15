@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -63,6 +63,71 @@ describe("chase-wife genre branch", () => {
 			const store = new NovelProjectStore(cwd);
 			await store.initializeNovel({ projectId: "other", title: "悬疑测试", genre: "suspense" });
 			await expect(store.checkChaseWifeArc({ projectId: "other" })).rejects.toThrow("only available");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("rejects incomplete or non-contiguous beat sheets", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-invalid-chase-wife-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "invalid", title: "不完整测试", genre: "追妻文" });
+			await expect(
+				store.saveChaseWifeBeatSheet({ projectId: "invalid", beats: [beat(1, "opening-injury")] }),
+			).rejects.toThrow("12-24");
+			await expect(
+				store.saveChaseWifeBeatSheet({
+					projectId: "invalid",
+					beats: Array.from({ length: 12 }, (_, index) => beat(index === 11 ? 13 : index + 1, "closure")),
+				}),
+			).rejects.toThrow("contiguous");
+			await expect(
+				store.saveChaseWifeBeatSheet({
+					projectId: "invalid",
+					beats: Array.from({ length: 12 }, (_, index) =>
+						beat(index + 1, index === 10 ? "paywall-hook" : "closure"),
+					),
+				}),
+			).rejects.toThrow("opening half");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("reports invalid records and phase order instead of passing", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-invalid-arc-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "invalid-arc", title: "曲线测试", genre: "chase-wife" });
+			const phases: ChaseWifeBeat["phase"][] = [
+				"closure",
+				"escalation",
+				"paywall-hook",
+				"exit",
+				"self-rebuild",
+				"male-pursuit",
+				"exposure",
+				"public-consequence",
+				"opening-injury",
+				"closure",
+				"closure",
+				"closure",
+			];
+			const beats = phases.map((phase, index) => beat(index + 1, phase));
+			(beats[11] as { phase: string }).phase = "unknown";
+			await mkdir(join(cwd, "novels", "invalid-arc", "outline", "genre"), { recursive: true });
+			await writeFile(
+				join(cwd, "novels", "invalid-arc", "outline", "genre", "chase-wife-beat-sheet.json"),
+				JSON.stringify({ beats }),
+				"utf8",
+			);
+			const report = await store.checkChaseWifeArc({ projectId: "invalid-arc" });
+			expect(report.status).toBe("error");
+			expect(report.issues).toEqual(expect.arrayContaining(["beat sheet contains invalid beat records"]));
+			expect(report.issues).toEqual(
+				expect.arrayContaining(["chase-wife phases must follow the defined emotional arc order"]),
+			);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
