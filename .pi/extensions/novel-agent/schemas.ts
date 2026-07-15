@@ -11,6 +11,7 @@ const ProjectIdSchema = Type.String({
 export const GenreSchema = Type.String({
 	minLength: 1,
 	maxLength: 80,
+	examples: ["suspense", "urban-romance", "light-fantasy", "chase-wife", "追妻文"],
 	description: "小说类型。内置类型包括 suspense/都市悬疑、urban-romance/都市情感、light-fantasy/轻幻想、chase-wife/追妻文，也允许项目保留自定义类型。",
 });
 
