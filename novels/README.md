@@ -1,20 +1,22 @@
 # 小说项目目录
 
-每部小说位于 `novels/<project-id>/`，`project-id` 使用小写字母、数字和连字符。
+每部小说位于 `novels/<project-id>/`。`project-id` 只允许小写字母、数字和连字符。所有正式读写都通过 Novel Extension 工具完成。
 
 ```text
 <project-id>/
 ├─ project.json
-├─ style-guide.md
+├─ canon/                 # 已确认正史、决策、事实和术语
 ├─ story-bible.md
-├─ world/
+├─ style-guide.md
 ├─ characters/
+├─ world/
 ├─ outline/
-├─ timeline/
-├─ drafts/
-├─ chapters/
+├─ work/                  # 计划、场景合同、草稿、候选事实、恢复点
+├─ chapters/              # 已定稿正文
 ├─ summaries/
-└─ continuity/
+├─ timeline/
+├─ continuity/            # 完整性和语义报告
+└─ transactions/          # 定稿事务日志
 ```
 
-请通过小说 Extension 工具写入这些目录。章节原文放在 `chapters/`，结构化事实和摘要单独保存，避免把全部正文长期注入模型上下文。
+`work/` 中的提案、草稿和报告不会自动成为正史。章节定稿必须经过计划、场景合同、最新草稿、完整性报告、语义报告和 `USER_CONFIRMED` 校验。

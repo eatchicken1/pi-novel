@@ -1,32 +1,36 @@
 ---
 name: story-planning
-description: 为中文短篇与中篇小说完成需求澄清、故事提案、人物关系、完整结局、总纲和章节规划。新故事或需要重建大纲时使用。
+description: 将创意澄清为可执行的 Story Bible、人物、世界规则、总纲、章节大纲和伏笔台账。
 ---
 
 # Story Planning
 
-## 输入
+## 何时加载
 
-- 用户的创意、题材偏好、目标读者和篇幅；或已有小说项目。
-- 如果结局、主角欲望、核心冲突或叙事视角尚未确定，先提问或明确列为待确认项。
+新项目、重建大纲、改变题材承诺、主线或结局时加载。
+
+## 负责什么
+
+把作者输入拆成提案、确认事实和未决问题，建立因果链，并在作者确认后写入正史。
+
+## 不负责什么
+
+不写正式章节，不把 AI 提案自动写入 Story Bible，不替作者决定结局。
 
 ## 固定流程
 
-1. 用一句话确认题材、核心命题、主角欲望、阻力、代价和结局方向。
-2. 新项目先调用 `initialize_novel`，已有项目先调用 `read_story_context`。
-3. 产出故事提案、主要人物关系、世界规则、因果链和完整结局。
-4. 把确认后的设定保存为 `story-bible`，风格约束保存为 `style-guide`。
-5. 把总纲和章节规划保存为 `outline`；未确认内容必须标记为提案或问题。
-6. 让用户审阅总纲，确认后再进入 `chapter-writing`。
+1. 澄清读者体验、主角欲望、阻力、失败代价、视角和完整结局。
+2. 使用 `initialize_novel` 或 `read_story_context(task="planning")`。
+3. 生成至少两个方向，标注 `source` 和 `status`：`author|ai|reference|inferred`、`proposed|confirmed|rejected|unresolved`。
+4. 作者确认后使用 `save_story_document` 保存 Story Bible、人物、世界规则、大纲和伏笔。
+5. 使用 `get_novel_status` 确认下一步章节和缺失文件。
 
-## 工具要求
+## 需要加载的 Resource
 
-- 必须使用 `initialize_novel`、`read_story_context` 和 `save_story_document`。
-- 不直接把大量设定写入聊天作为唯一存档。
-- 不在本 Skill 中生成正式章节正文。
+- `resources/creative-direction.md`
+- `resources/causality-check.md`
+- `resources/ending-design.md`
 
 ## 完成条件
 
-- 项目目录存在且 `project.json` 可读。
-- `story-bible`、人物关系、总纲和结局已保存或明确标记为待确认。
-- 用户知道下一步将从哪一章、哪个视角和哪个场景开始。
+主角选择能导致下一事件；冲突、代价、高潮、结局和题材承诺明确；未确认内容仍留在提案或决策台账。

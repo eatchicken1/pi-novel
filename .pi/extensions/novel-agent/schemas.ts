@@ -4,11 +4,11 @@ import type { Static } from "typebox";
 const ProjectIdSchema = Type.String({
 	minLength: 1,
 	maxLength: 64,
-	pattern: "^[a-z0-9][a-z0-9-]*$",
+	pattern: "^[a-z0-9][a-z0-9-]{0,63}$",
 	description: "小说项目 ID，只允许小写字母、数字和连字符",
 });
 
-const ChapterNumberSchema = Type.Number({
+const ChapterNumberSchema = Type.Integer({
 	minimum: 1,
 	description: "从 1 开始的章节编号",
 });
@@ -22,6 +22,7 @@ const DocumentTypeSchema = Type.Union([
 	Type.Literal("timeline"),
 	Type.Literal("chapter-plan"),
 	Type.Literal("chapter-draft"),
+	Type.Literal("scene-contract"),
 	Type.Literal("summary"),
 	Type.Literal("continuity"),
 ]);
@@ -40,9 +41,17 @@ const ContextSectionSchema = Type.Union([
 	Type.Literal("continuity"),
 ]);
 
+const ContextTaskSchema = Type.Union([
+	Type.Literal("planning"),
+	Type.Literal("chapter-writing"),
+	Type.Literal("continuity-review"),
+	Type.Literal("prose-revision"),
+	Type.Literal("reader-sim"),
+]);
+
 const ChapterSummarySchema = Type.Object({
-	pov: Type.String({ description: "本章主要视角人物" }),
-	time: Type.String({ description: "本章故事时间" }),
+	pov: Type.String(),
+	time: Type.String(),
 	locations: Type.Array(Type.String()),
 	characters: Type.Array(Type.String()),
 	events: Type.Array(Type.String()),
@@ -54,17 +63,65 @@ const ChapterSummarySchema = Type.Object({
 	openQuestions: Type.Array(Type.String()),
 });
 
+export const SceneContractSchema = Type.Object({
+	sceneId: Type.String({ minLength: 1 }),
+	chapter: ChapterNumberSchema,
+	order: Type.Integer({ minimum: 1 }),
+	pov: Type.String({ minLength: 1 }),
+	time: Type.String({ minLength: 1 }),
+	location: Type.String({ minLength: 1 }),
+	goal: Type.String({ minLength: 1 }),
+	opposition: Type.String({ minLength: 1 }),
+	stakes: Type.String({ minLength: 1 }),
+	knowledgeBefore: Type.Array(Type.String()),
+	informationReveal: Type.Array(Type.String()),
+	emotionalStateBefore: Type.String(),
+	emotionalTurn: Type.String({ minLength: 1 }),
+	emotionalStateAfter: Type.String(),
+	stateChanges: Type.Array(Type.String(), { minItems: 1 }),
+	setups: Type.Array(Type.String()),
+	payoffs: Type.Array(Type.String()),
+	exitHook: Type.String({ minLength: 1 }),
+});
+
+export const ContinuityIssueSchema = Type.Object({
+	id: Type.String({ minLength: 1 }),
+	severity: Type.Union([Type.Literal("error"), Type.Literal("warning"), Type.Literal("suggestion")]),
+	category: Type.String({ minLength: 1 }),
+	evidence: Type.Array(Type.Object({ file: Type.String(), excerpt: Type.Optional(Type.String()) })),
+	problem: Type.String(),
+	impact: Type.String(),
+	suggestedFixes: Type.Array(Type.String()),
+	status: Type.Union([
+		Type.Literal("open"),
+		Type.Literal("accepted"),
+		Type.Literal("fixed"),
+		Type.Literal("ignored"),
+	]),
+});
+
 export const InitializeNovelSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	title: Type.String({ minLength: 1, maxLength: 200 }),
 	genre: Type.String({ minLength: 1, maxLength: 80 }),
-	targetWordCount: Type.Optional(Type.Number({ minimum: 1000 })),
-	force: Type.Optional(Type.Boolean({ description: "明确允许覆盖初始化模板文件" })),
+	targetWordCount: Type.Optional(Type.Integer({ minimum: 1000 })),
 });
+
+export const RepairNovelProjectSchema = Type.Object({ projectId: ProjectIdSchema });
+export const GetNovelStatusSchema = Type.Object({ projectId: ProjectIdSchema });
 
 export const ReadStoryContextSchema = Type.Object({
 	projectId: ProjectIdSchema,
+	task: Type.Optional(ContextTaskSchema),
 	chapter: Type.Optional(ChapterNumberSchema),
+	sceneIds: Type.Optional(Type.Array(Type.String())),
+	characterIds: Type.Optional(Type.Array(Type.String())),
+	worldIds: Type.Optional(Type.Array(Type.String())),
+	clueIds: Type.Optional(Type.Array(Type.String())),
+	recentSummaryCount: Type.Optional(Type.Integer({ minimum: 0, maximum: 20 })),
+	includePreviousChapterEnding: Type.Optional(Type.Boolean()),
+	includeCurrentDraft: Type.Optional(Type.Boolean()),
+	maxChars: Type.Optional(Type.Integer({ minimum: 1000, maximum: 200000 })),
 	sections: Type.Optional(Type.Array(ContextSectionSchema, { minItems: 1 })),
 });
 
@@ -72,20 +129,179 @@ export const SaveStoryDocumentSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	documentType: DocumentTypeSchema,
 	name: Type.Optional(
-		Type.String({
-			minLength: 1,
-			maxLength: 80,
-			pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$",
-			description: "文件名，不含路径分隔符",
-		}),
+		Type.String({ minLength: 1, maxLength: 80, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" }),
 	),
 	format: ContentFormatSchema,
 	content: Type.String({ minLength: 1 }),
 });
 
+export const SaveChapterPlanSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	content: Type.String({ minLength: 1 }),
+});
+
+export const SaveSceneContractSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	contracts: Type.Array(SceneContractSchema, { minItems: 1 }),
+});
+
+export const SaveChapterDraftSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	content: Type.String({ minLength: 1 }),
+	revision: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
 export const CheckContinuitySchema = Type.Object({
 	projectId: ProjectIdSchema,
 	chapter: Type.Optional(ChapterNumberSchema),
+});
+
+export const SaveContinuityReportSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	draftRevision: Type.Integer({ minimum: 1 }),
+	status: Type.Union([Type.Literal("ok"), Type.Literal("warning"), Type.Literal("error")]),
+	issues: Type.Array(ContinuityIssueSchema),
+});
+
+export const ExtractChapterFactsSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	draftRevision: Type.Integer({ minimum: 1 }),
+	facts: Type.Object({
+		newFacts: Type.Array(Type.String()),
+		locations: Type.Array(Type.String()),
+		characterStates: Type.Array(Type.String()),
+		knowledgeChanges: Type.Array(Type.String()),
+		relationshipChanges: Type.Array(Type.String()),
+		foreshadowing: Type.Array(Type.String()),
+		timelineEvents: Type.Array(Type.String()),
+		itemsChanged: Type.Array(Type.String()),
+		newTerms: Type.Array(Type.String()),
+		openQuestions: Type.Array(Type.String()),
+	}),
+});
+
+export const SaveWorkflowCheckpointSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	phase: Type.String({ minLength: 1 }),
+	chapter: Type.Optional(ChapterNumberSchema),
+	currentTask: Type.String({ minLength: 1 }),
+	completedSteps: Type.Array(Type.String()),
+	pendingSteps: Type.Array(Type.String()),
+	activeDraft: Type.Optional(Type.String()),
+});
+
+export const LoadWorkflowCheckpointSchema = Type.Object({ projectId: ProjectIdSchema });
+
+export const SaveQualityReportSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: Type.Optional(ChapterNumberSchema),
+	draftRevision: Type.Optional(Type.Integer({ minimum: 1 })),
+	content: Type.String({ minLength: 1 }),
+});
+
+export const RecordWritingIssueSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	id: Type.String({ minLength: 1, maxLength: 80, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" }),
+	category: Type.String({ minLength: 1 }),
+	scope: Type.Array(Type.String(), { minItems: 1 }),
+	description: Type.String({ minLength: 1 }),
+	severity: Type.Union([Type.Literal("error"), Type.Literal("warning"), Type.Literal("suggestion")]),
+	status: Type.Union([Type.Literal("open"), Type.Literal("accepted"), Type.Literal("fixed"), Type.Literal("ignored")]),
+	occurrences: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
+const ConfirmationSchema = Type.Optional(Type.Literal("USER_CONFIRMED"));
+const UpdateStatusSchema = Type.Union([Type.Literal("proposed"), Type.Literal("confirmed")]);
+
+export const UpdateCharacterStateSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	characterId: Type.String({ minLength: 1, maxLength: 80, pattern: "^[a-z0-9][a-z0-9-]{0,79}$" }),
+	status: UpdateStatusSchema,
+	content: Type.String({ minLength: 1 }),
+	confirmation: ConfirmationSchema,
+});
+
+export const UpdateClueLedgerSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	status: UpdateStatusSchema,
+	entries: Type.Array(
+		Type.Object({ id: Type.String({ minLength: 1 }), description: Type.String({ minLength: 1 }), introducedIn: Type.Optional(ChapterNumberSchema), resolvedIn: Type.Optional(ChapterNumberSchema) }),
+		{ minItems: 1 },
+	),
+	confirmation: ConfirmationSchema,
+});
+
+export const UpdateTimelineSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	status: UpdateStatusSchema,
+	events: Type.Array(Type.Object({ id: Type.String({ minLength: 1 }), chapter: ChapterNumberSchema, description: Type.String({ minLength: 1 }) }), { minItems: 1 }),
+	confirmation: ConfirmationSchema,
+});
+
+export const ScoreStoryFoundationSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	scores: Type.Object({
+		coreIdea: Type.Number({ minimum: 0, maximum: 10 }),
+		readerPromise: Type.Number({ minimum: 0, maximum: 10 }),
+		protagonistCost: Type.Number({ minimum: 0, maximum: 12 }),
+		coreConflict: Type.Number({ minimum: 0, maximum: 12 }),
+		causality: Type.Number({ minimum: 0, maximum: 14 }),
+		characterArc: Type.Number({ minimum: 0, maximum: 10 }),
+		climaxEnding: Type.Number({ minimum: 0, maximum: 12 }),
+		setupPayoff: Type.Number({ minimum: 0, maximum: 10 }),
+		genrePromise: Type.Number({ minimum: 0, maximum: 5 }),
+		feasibility: Type.Number({ minimum: 0, maximum: 5 }),
+	}),
+	comment: Type.String({ minLength: 1 }),
+});
+
+export const ScoreChapterSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	draftRevision: Type.Integer({ minimum: 1 }),
+	scores: Type.Object({
+		sceneFunction: Type.Number({ minimum: 0, maximum: 10 }),
+		causality: Type.Number({ minimum: 0, maximum: 10 }),
+		characterConsistency: Type.Number({ minimum: 0, maximum: 10 }),
+		povStability: Type.Number({ minimum: 0, maximum: 10 }),
+		informationRelease: Type.Number({ minimum: 0, maximum: 10 }),
+		pacing: Type.Number({ minimum: 0, maximum: 10 }),
+		dialogueDifference: Type.Number({ minimum: 0, maximum: 10 }),
+		emotionalTurn: Type.Number({ minimum: 0, maximum: 10 }),
+		endingDrive: Type.Number({ minimum: 0, maximum: 10 }),
+		aiArtifacts: Type.Number({ minimum: 0, maximum: 10 }),
+		continuity: Type.Number({ minimum: 0, maximum: 10 }),
+	}),
+	comment: Type.String({ minLength: 1 }),
+});
+
+export const CreateVoiceFingerprintSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: Type.Optional(ChapterNumberSchema),
+	content: Type.String({ minLength: 1 }),
+});
+
+export const CompareDraftVersionsSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	leftRevision: Type.Integer({ minimum: 1 }),
+	rightRevision: Type.Integer({ minimum: 1 }),
+});
+
+export const ExportManuscriptSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	includeSummaries: Type.Optional(Type.Boolean()),
+});
+
+export const CheckAiArtifactsSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	draftRevision: Type.Optional(Type.Integer({ minimum: 1 })),
 });
 
 export const FinalizeChapterSchema = Type.Object({
@@ -94,15 +310,39 @@ export const FinalizeChapterSchema = Type.Object({
 	title: Type.String({ minLength: 1, maxLength: 200 }),
 	content: Type.String({ minLength: 1 }),
 	summary: ChapterSummarySchema,
-	overwrite: Type.Optional(Type.Boolean({ description: "明确允许覆盖已有章节定稿" })),
+	draftRevision: Type.Integer({ minimum: 1 }),
+	confirmation: Type.Literal("USER_CONFIRMED"),
+	overwrite: Type.Optional(Type.Boolean()),
 });
 
 export type InitializeNovelParams = Static<typeof InitializeNovelSchema>;
+export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
+export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
 export type ReadStoryContextParams = Static<typeof ReadStoryContextSchema>;
 export type SaveStoryDocumentParams = Static<typeof SaveStoryDocumentSchema>;
+export type SaveChapterPlanParams = Static<typeof SaveChapterPlanSchema>;
+export type SaveSceneContractParams = Static<typeof SaveSceneContractSchema>;
+export type SaveChapterDraftParams = Static<typeof SaveChapterDraftSchema>;
 export type CheckContinuityParams = Static<typeof CheckContinuitySchema>;
+export type SaveContinuityReportParams = Static<typeof SaveContinuityReportSchema>;
+export type ExtractChapterFactsParams = Static<typeof ExtractChapterFactsSchema>;
+export type SaveWorkflowCheckpointParams = Static<typeof SaveWorkflowCheckpointSchema>;
+export type LoadWorkflowCheckpointParams = Static<typeof LoadWorkflowCheckpointSchema>;
+export type SaveQualityReportParams = Static<typeof SaveQualityReportSchema>;
+export type RecordWritingIssueParams = Static<typeof RecordWritingIssueSchema>;
+export type UpdateCharacterStateParams = Static<typeof UpdateCharacterStateSchema>;
+export type UpdateClueLedgerParams = Static<typeof UpdateClueLedgerSchema>;
+export type UpdateTimelineParams = Static<typeof UpdateTimelineSchema>;
+export type ScoreStoryFoundationParams = Static<typeof ScoreStoryFoundationSchema>;
+export type ScoreChapterParams = Static<typeof ScoreChapterSchema>;
+export type CreateVoiceFingerprintParams = Static<typeof CreateVoiceFingerprintSchema>;
+export type CompareDraftVersionsParams = Static<typeof CompareDraftVersionsSchema>;
+export type ExportManuscriptParams = Static<typeof ExportManuscriptSchema>;
+export type CheckAiArtifactsParams = Static<typeof CheckAiArtifactsSchema>;
 export type FinalizeChapterParams = Static<typeof FinalizeChapterSchema>;
 export type ContextSection = Static<typeof ContextSectionSchema>;
 export type DocumentType = Static<typeof DocumentTypeSchema>;
 export type ContentFormat = Static<typeof ContentFormatSchema>;
 export type ChapterSummary = Static<typeof ChapterSummarySchema>;
+export type SceneContract = Static<typeof SceneContractSchema>;
+export type ContinuityIssueRecord = Static<typeof ContinuityIssueSchema>;

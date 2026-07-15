@@ -1,32 +1,39 @@
 ---
 name: chapter-writing
-description: 按“章节目标—场景卡—分场景草稿—合并审查”的流程创作小说章节，并把计划、草稿和定稿保存到项目目录。
+description: 按章节计划、场景合同、版本化草稿、完整性检查和用户确认完成章节写作。
 ---
 
 # Chapter Writing
 
-## 前置条件
+## 何时加载
 
-- 项目已通过 `initialize_novel` 建立。
-- 当前章节的目标、视角、时间、地点、冲突和预期结尾已明确。
-- 完整结局和相关人物事实已在大纲或 story bible 中确认。
+Story Bible 和当前章节方向已确认，准备规划或写作时加载。
+
+## 负责什么
+
+把章节目标拆成有状态变化的场景，再生成可审查的草稿。
+
+## 不负责什么
+
+不跳过检查直接定稿，不用正文临时发明正史，不自行决定关键文件名。
 
 ## 固定流程
 
-1. 调用 `read_story_context`，只读取当前章节所需的设定、相关人物和最近 1—2 章摘要。
-2. 生成章节计划和场景卡，明确每个场景的目标、阻力、信息变化和转折。
-3. 用 `save_story_document` 保存 `chapter-plan`。
-4. 分场景生成草稿，再用 `save_story_document` 保存 `chapter-draft`；草稿不等同于定稿。
-5. 调用 `check_continuity`，修复或报告事实冲突、人物知识越界、时间线和伏笔问题。
-6. 通过用户审阅后调用 `finalize_chapter`，同步章节正文、摘要和时间线事件。
+1. 使用 `read_story_context(task="chapter-writing", chapter=N, includePreviousChapterEnding=true)`。
+2. 形成章节计划，调用 `save_chapter_plan`。
+3. 为每个场景填写目标、阻力、风险、知识变化、情绪转折、铺垫、回收和出口钩子，调用 `save_scene_contract`。
+4. 生成正文，调用 `save_chapter_draft`；修改使用新 revision，不覆盖旧稿。
+5. 调用 `check_project_integrity`，再调用 `save_continuity_report` 保存语义审查结果。
+6. 用户确认后以匹配的 `draftRevision` 和 `confirmation="USER_CONFIRMED"` 调用 `finalize_chapter`。
+7. 定稿后调用 `extract_chapter_facts`，候选事实经作者确认后再调用人物、伏笔和时间线更新工具。
 
-## 写作约束
+## Resource
 
-- 每个场景必须改变至少一项关系、信息、目标或风险。
-- 不用新设定解决当前冲突，除非它已经写入 story bible 或明确标记为提案。
-- 不覆盖已有定稿；修改已定稿章节时先保存新草稿或新版本。
+- `resources/scene-contract.md`
+- `resources/information-release.md`
+- `resources/rhythm-and-pacing.md`
+- `resources/chapter-ending.md`
 
 ## 完成条件
 
-- 章节计划、草稿和连续性检查结果均已持久化。
-- 定稿后章节正文、章节摘要和时间线能够被下一章定向读取。
+计划、场景合同、草稿和两类报告均持久化；每个场景至少改变目标、关系、知识、风险、方向或伏笔状态中的一项。
