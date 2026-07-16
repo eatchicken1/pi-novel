@@ -3,7 +3,11 @@ import type {
 	CheckContinuityParams,
 	CheckAiArtifactsParams,
 	CheckChaseWifeArcParams,
+	CheckChaseWifeEventDraftParams,
 	CheckChaseWifeEventMapParams,
+	CheckChaseWifePacingParams,
+	ScoreChaseWifeChapterParams,
+	AssembleChaseWifeChapterParams,
 	CompareDraftVersionsParams,
 	CreateVoiceFingerprintParams,
 	ExtractChapterFactsParams,
@@ -19,6 +23,7 @@ import type {
 	SaveChapterPlanParams,
 	SaveContinuityReportParams,
 	SaveChaseWifeBeatSheetParams,
+	SaveChaseWifeEventDraftParams,
 	SaveChaseWifeEventMapParams,
 	SaveSceneContractParams,
 	SaveQualityReportParams,
@@ -34,7 +39,11 @@ import {
 	CheckContinuitySchema,
 	CheckAiArtifactsSchema,
 	CheckChaseWifeArcSchema,
+	CheckChaseWifeEventDraftSchema,
 	CheckChaseWifeEventMapSchema,
+	CheckChaseWifePacingSchema,
+	ScoreChaseWifeChapterSchema,
+	AssembleChaseWifeChapterSchema,
 	CompareDraftVersionsSchema,
 	CreateVoiceFingerprintSchema,
 	ExtractChapterFactsSchema,
@@ -50,6 +59,7 @@ import {
 	SaveChapterPlanSchema,
 	SaveContinuityReportSchema,
 	SaveChaseWifeBeatSheetSchema,
+	SaveChaseWifeEventDraftSchema,
 	SaveChaseWifeEventMapSchema,
 	SaveSceneContractSchema,
 	SaveQualityReportSchema,
@@ -84,7 +94,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "save_chase_wife_event_map",
 			label: "Save Chase-wife Event Map",
-			description: "Save a chase-wife chapter event map with first-person narration, a chapter-1-only opening intro, immediate conflict, emotional reactions, and 300-600 character event targets.",
+			description: "Save a chase-wife chapter event map with heroine-first-person or split-pov, state deltas, agency changes, causal links, and variable length budgets.",
 			parameters: SaveChaseWifeEventMapSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: SaveChaseWifeEventMapParams, signal, _onUpdate, ctx) {
@@ -98,7 +108,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "check_chase_wife_event_map",
 			label: "Check Chase-wife Event Map",
-			description: "Check chase-wife chapter pacing, first-person narration, chapter-1-only opening intro, immediate conflict, event count, and event targets.",
+			description: "Check chase-wife event structure, POV permissions, agency ladder, repeated injury mechanisms, causal links, and interchangeable events.",
 			parameters: CheckChaseWifeEventMapSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckChaseWifeEventMapParams, signal, _onUpdate, ctx) {
@@ -110,9 +120,79 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 
 	pi.registerTool(
 		defineTool({
+			name: "save_chase_wife_event_draft",
+			label: "Save Chase-wife Event Draft",
+			description: "Save one chase-wife event draft with deterministic event and revision paths; draft one event before moving to the next.",
+			parameters: SaveChaseWifeEventDraftSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveChaseWifeEventDraftParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveChaseWifeEventDraft(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_chase_wife_event_draft",
+			label: "Check Chase-wife Event Draft",
+			description: "Check one chase-wife event against its variable length budget and save a deterministic report.",
+			parameters: CheckChaseWifeEventDraftSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckChaseWifeEventDraftParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkChaseWifeEventDraft(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "assemble_chase_wife_chapter",
+			label: "Assemble Chase-wife Chapter",
+			description: "Assemble checked event drafts in event order into a revisioned chapter draft.",
+			parameters: AssembleChaseWifeChapterSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: AssembleChaseWifeChapterParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).assembleChaseWifeChapter(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_chase_wife_pacing",
+			label: "Check Chase-wife Pacing",
+			description: "Run independent chase-wife pacing checks over event drafts and the assembled chapter: conflict timing, agency, exit, pursuit, repetition, and memory ratio.",
+			parameters: CheckChaseWifePacingSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckChaseWifePacingParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkChaseWifePacing(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "score_chase_wife_chapter",
+			label: "Score Chase-wife Chapter",
+			description: "Calculate a deterministic chase-wife pacing score from the saved pacing report instead of accepting model-supplied chapter scores.",
+			parameters: ScoreChaseWifeChapterSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: ScoreChaseWifeChapterParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).scoreChaseWifeChapter(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
 			name: "save_chase_wife_beat_sheet",
 			label: "Save Chase-wife Beat Sheet",
-			description: "Save the chase-wife-specific emotional and plot beat sheet; rejects other genres.",
+			description: "Save the chase-wife-specific dual-track heroine/male beat sheet; paywallHook is an event property, not a story phase.",
 			parameters: SaveChaseWifeBeatSheetSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: SaveChaseWifeBeatSheetParams, signal, _onUpdate, ctx) {
@@ -126,7 +206,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "check_chase_wife_arc",
 			label: "Check Chase-wife Arc",
-			description: "Check chase-wife-specific opening injury, exit, pursuit, consequence, and closure phases.",
+			description: "Check chase-wife dual-track arcs, paywall hooks, exit ordering, male consequence before recognition, and reward release.",
 			parameters: CheckChaseWifeArcSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckChaseWifeArcParams, signal, _onUpdate, ctx) {

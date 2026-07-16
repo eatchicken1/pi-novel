@@ -261,6 +261,8 @@ describe("NovelProjectStore", () => {
 				rightRevision: 2,
 			});
 			expect(diff.rightRevision).toBe(2);
+			expect(diff.leftWords).toBe(4);
+			expect(diff.rightWords).toBe(6);
 			const chapterScore = await store.scoreChapter({
 				projectId: "demo",
 				chapter: 1,

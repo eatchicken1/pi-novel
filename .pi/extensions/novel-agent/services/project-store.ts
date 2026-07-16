@@ -6,9 +6,14 @@ import type {
 	CheckContinuityParams,
 	CheckAiArtifactsParams,
 	CheckChaseWifeArcParams,
+	CheckChaseWifeEventDraftParams,
 	CheckChaseWifeEventMapParams,
+	CheckChaseWifePacingParams,
+	ChaseWifeEventPov,
 	ChaseWifeBeat,
 	ChaseWifeEvent,
+	ChaseWifePovMode,
+	AssembleChaseWifeChapterParams,
 	CompareDraftVersionsParams,
 	ContentFormat,
 	CreateVoiceFingerprintParams,
@@ -28,6 +33,7 @@ import type {
 	SaveChapterPlanParams,
 	SaveContinuityReportParams,
 	SaveChaseWifeBeatSheetParams,
+	SaveChaseWifeEventDraftParams,
 	SaveChaseWifeEventMapParams,
 	SaveQualityReportParams,
 	SaveSceneContractParams,
@@ -37,32 +43,63 @@ import type {
 	UpdateClueLedgerParams,
 	UpdateTimelineParams,
 	ExportManuscriptParams,
+	ScoreChaseWifeChapterParams,
 } from "../schemas.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const DEFAULT_CONTEXT_CHARS = 50_000;
-const CHASE_WIFE_PHASES = [
-	"opening-injury",
-	"escalation",
-	"paywall-hook",
-	"exit",
+const CHASE_WIFE_HEROINE_ARC = [
+	"injury",
+	"recognition",
+	"micro-withdrawal",
+	"boundary-test",
+	"irreversible-exit",
 	"self-rebuild",
-	"male-pursuit",
-	"exposure",
-	"public-consequence",
-	"closure",
+	"final-boundary",
 ] as const;
-const CHASE_WIFE_PHASE_ORDER = new Map<string, number>(CHASE_WIFE_PHASES.map((phase, index) => [phase, index]));
+const CHASE_WIFE_MALE_ARC = [
+	"entitlement",
+	"loss-of-control",
+	"wrong-pursuit",
+	"real-consequence",
+	"recognition",
+	"respect-or-failure",
+] as const;
+const CHASE_WIFE_HEROINE_ARC_ORDER = new Map<string, number>(CHASE_WIFE_HEROINE_ARC.map((phase, index) => [phase, index]));
+const CHASE_WIFE_MALE_ARC_ORDER = new Map<string, number>(CHASE_WIFE_MALE_ARC.map((phase, index) => [phase, index]));
 const CHASE_WIFE_EVENT_ROLES = new Set([
-	"opening-intro-conflict",
-	"escalation",
-	"reversal",
-	"exit",
-	"aftermath",
-	"public-consequence",
+	"opening-injury",
+	"evidence",
+	"preference-exposure",
+	"gaslighting",
+	"micro-withdrawal",
+	"boundary-test",
+	"decision",
+	"irreversible-exit",
+	"pursuit-control",
+	"pursuit-failure",
+	"real-consequence",
+	"recognition",
+	"self-rebuild",
+	"final-boundary",
 	"closure",
 ]);
+const CHASE_WIFE_INJURY_MECHANISMS = new Set([
+	"neglect",
+	"substitution",
+	"coercion",
+	"gaslighting",
+	"resource-transfer",
+	"public-humiliation",
+	"betrayal-evidence",
+]);
+const CHASE_WIFE_LENGTH_LIMITS: Record<ChaseWifeEvent["lengthMode"], { min: number; max: number }> = {
+	flash: { min: 60, max: 180 },
+	bridge: { min: 100, max: 250 },
+	standard: { min: 220, max: 450 },
+	anchor: { min: 450, max: 850 },
+};
 
 type JsonRecord = Record<string, unknown>;
 
@@ -247,19 +284,36 @@ function requireConfirmation(status: "proposed" | "confirmed", confirmation: "US
 	if (status === "confirmed" && confirmation !== "USER_CONFIRMED") throw new Error("Confirmed canon updates require confirmation=USER_CONFIRMED.");
 }
 
+function countChineseCharacters(content: string): number {
+	return [...content.replace(/\s+/gu, "")].length;
+}
+
+function countTextUnits(content: string): number {
+	const chineseCharacters = content.match(/[\p{Script=Han}]/gu)?.length ?? 0;
+	const latinWords = content.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*/gu)?.length ?? 0;
+	return chineseCharacters + latinWords;
+}
+
 function countWords(content: string): number {
-	return content.trim() === "" ? 0 : content.trim().split(/\s+/u).length;
+	return countTextUnits(content);
 }
 
 function isNonEmptyString(value: unknown): value is string {
 	return typeof value === "string" && value.trim().length > 0;
 }
 
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0);
+}
+
 function isChaseWifeBeat(value: unknown): value is ChaseWifeBeat {
 	if (!isJsonRecord(value)) return false;
 	const beatNumber = value.beat;
 	if (typeof beatNumber !== "number" || !Number.isInteger(beatNumber) || beatNumber < 1 || beatNumber > 24) return false;
-	if (typeof value.phase !== "string" || !CHASE_WIFE_PHASE_ORDER.has(value.phase)) return false;
+	if (typeof value.heroinePhase !== "string" || !CHASE_WIFE_HEROINE_ARC_ORDER.has(value.heroinePhase)) return false;
+	if (value.malePhase !== undefined && (typeof value.malePhase !== "string" || !CHASE_WIFE_MALE_ARC_ORDER.has(value.malePhase))) return false;
+	if (value.targetTrack !== "heroine" && value.targetTrack !== "male" && value.targetTrack !== "shared") return false;
+	if (typeof value.paywallHook !== "boolean") return false;
 	const sceneCount = value.sceneCount;
 	if (typeof sceneCount !== "number" || !Number.isInteger(sceneCount) || sceneCount < 1 || sceneCount > 5) return false;
 	if (!isNonEmptyString(value.goal) || !isNonEmptyString(value.conflict) || !isNonEmptyString(value.actionOrConsequence)) return false;
@@ -272,8 +326,20 @@ function isChaseWifeEvent(value: unknown): value is ChaseWifeEvent {
 	if (!isJsonRecord(value)) return false;
 	if (!isPositiveInteger(value.eventId) || value.eventId > 8) return false;
 	if (typeof value.role !== "string" || !CHASE_WIFE_EVENT_ROLES.has(value.role)) return false;
-	if (!isPositiveInteger(value.scene) || value.scene > 8 || value.pov !== "first-person") return false;
-	if (typeof value.charTarget !== "number" || !Number.isInteger(value.charTarget) || value.charTarget < 300 || value.charTarget > 600) return false;
+	if (!isPositiveInteger(value.scene) || value.scene > 8) return false;
+	if (value.pov !== "heroine-first-person" && value.pov !== "male-limited-third-person") return false;
+	if (value.targetTrack !== "heroine" && value.targetTrack !== "male" && value.targetTrack !== "shared") return false;
+	if (typeof value.paywallHook !== "boolean") return false;
+	if (!Array.isArray(value.causes) || !value.causes.every((cause) => isPositiveInteger(cause) && cause <= 8)) return false;
+	if (value.injuryMechanism !== undefined && (typeof value.injuryMechanism !== "string" || !CHASE_WIFE_INJURY_MECHANISMS.has(value.injuryMechanism))) return false;
+	if (!isStringArray(value.informationDelta) || !isStringArray(value.relationshipDelta) || !isStringArray(value.resourceDelta) || !isStringArray(value.riskDelta)) return false;
+	if (typeof value.heroineAgencyBefore !== "number" || !Number.isInteger(value.heroineAgencyBefore) || value.heroineAgencyBefore < 0 || value.heroineAgencyBefore > 100) return false;
+	if (typeof value.heroineAgencyAfter !== "number" || !Number.isInteger(value.heroineAgencyAfter) || value.heroineAgencyAfter < 0 || value.heroineAgencyAfter > 100) return false;
+	if (typeof value.irreversible !== "boolean" || !isNonEmptyString(value.cannotRemoveBecause)) return false;
+	if (typeof value.lengthMode !== "string" || !Object.hasOwn(CHASE_WIFE_LENGTH_LIMITS, value.lengthMode)) return false;
+	if (typeof value.minChars !== "number" || !Number.isInteger(value.minChars) || typeof value.maxChars !== "number" || !Number.isInteger(value.maxChars)) return false;
+	const limits = CHASE_WIFE_LENGTH_LIMITS[value.lengthMode as ChaseWifeEvent["lengthMode"]];
+	if (value.minChars < limits.min || value.maxChars > limits.max || value.minChars > value.maxChars) return false;
 	return [
 		"eventDescription",
 		"function",
@@ -288,8 +354,47 @@ function isChaseWifeEvent(value: unknown): value is ChaseWifeEvent {
 		"physicalReaction",
 		"setupOrPayoff",
 		"readerRelease",
+		"entryHook",
 		"exitHook",
 	].every((field) => isNonEmptyString(value[field]));
+}
+
+function eventStateDeltaCount(event: ChaseWifeEvent): number {
+	return [event.informationDelta, event.relationshipDelta, event.resourceDelta, event.riskDelta].filter((delta) => delta.length > 0).length;
+}
+
+function normalizedEventSignature(event: ChaseWifeEvent): string {
+	return [event.role, event.targetTrack, event.injuryMechanism ?? "none", event.informationDelta.join("|"), event.relationshipDelta.join("|"), event.resourceDelta.join("|"), event.riskDelta.join("|"), event.actionOrConsequence].join("\u0001").toLocaleLowerCase();
+}
+
+function characterTrigrams(content: string): Set<string> {
+	const normalized = content.replace(/\s+/gu, "").toLocaleLowerCase();
+	const trigrams = new Set<string>();
+	for (let index = 0; index + 2 < normalized.length; index += 1) trigrams.add(normalized.slice(index, index + 3));
+	return trigrams;
+}
+
+function textSimilarity(left: string, right: string): number {
+	const leftTrigrams = characterTrigrams(left);
+	const rightTrigrams = characterTrigrams(right);
+	if (leftTrigrams.size === 0 && rightTrigrams.size === 0) return 1;
+	const intersection = [...leftTrigrams].filter((trigram) => rightTrigrams.has(trigram)).length;
+	const union = new Set([...leftTrigrams, ...rightTrigrams]).size;
+	return union === 0 ? 0 : intersection / union;
+}
+
+function isHeroinePov(value: ChaseWifeEventPov): boolean {
+	return value === "heroine-first-person";
+}
+
+function isValidPovMode(value: unknown): value is ChaseWifePovMode {
+	return value === "heroine-first-person" || value === "split-pov";
+}
+
+function isOrderedUniqueArc(value: unknown, order: Map<string, number>): value is string[] {
+	if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !order.has(item))) return false;
+	if (new Set(value).size !== value.length) return false;
+	return value.every((phase, index) => index === 0 || (order.get(phase) ?? -1) > (order.get(value[index - 1]) ?? -1));
 }
 
 function normalizeGenre(genre: Genre): string {
@@ -607,9 +712,16 @@ export class NovelProjectStore {
 		}
 		if (params.chapter !== undefined) {
 			const current = chapterName(params.chapter);
+			const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
 			await addFile(`outline/chapter-outline.json`, "chapter-outline");
 			await addFile(`work/chapter-plans/${current}.md`, "chapter-plan");
 			await addSceneContract(`work/scene-contracts/${current}.json`);
+			if (isJsonRecord(project) && project.genre === "chase-wife") {
+				await addFile(`work/chase-wife-events/${current}.json`, "chase-wife-event-map");
+				const eventDrafts = await this.listFiles(this.chaseWifeEventDirectory(params.projectId, params.chapter), signal);
+				for (const path of eventDrafts) await addFile(this.relativeProjectPath(params.projectId, path), "chase-wife-event-draft");
+				await addFile(`continuity/reports/${current}-chase-wife-pacing.json`, "chase-wife-pacing");
+			}
 			if (params.includeCurrentDraft !== false) {
 				const drafts = await this.listFiles(this.projectFile(params.projectId, "work/drafts"), signal);
 				const currentDraft = drafts.filter((path) => new RegExp(`${current}-r\\d+\\.md$`).test(path)).at(-1);
@@ -929,17 +1041,19 @@ export class NovelProjectStore {
 
 	async saveChaseWifeBeatSheet(params: SaveChaseWifeBeatSheetParams, signal?: AbortSignal): Promise<{ projectId: string; path: string; beats: number }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
-		if (params.pov !== "first-person") throw new Error("Chase-wife projects must use first-person narration.");
+		if (!isValidPovMode(params.povMode)) throw new Error("Chase-wife beat sheets must declare heroine-first-person or split-pov.");
 		if (params.openingIntro.trim().length < 80 || params.openingIntro.trim().length > 180) throw new Error("The chase-wife opening intro must contain 80-180 characters.");
 		if (!isNonEmptyString(params.openingConflict)) throw new Error("The chase-wife opening must define a concrete conflict.");
+		if (!isOrderedUniqueArc(params.heroineArc, CHASE_WIFE_HEROINE_ARC_ORDER)) throw new Error("The heroine arc must contain unique phases in order.");
+		if (!isOrderedUniqueArc(params.maleArc, CHASE_WIFE_MALE_ARC_ORDER)) throw new Error("The male arc must contain unique phases in order.");
 		const beats = [...params.beats].sort((left, right) => left.beat - right.beat);
 		if (beats.length < 12 || beats.length > 24) throw new Error("Chase-wife beat sheets must contain 12-24 beats.");
 		const beatNumbers = beats.map((beat) => beat.beat);
 		if (new Set(beatNumbers).size !== beatNumbers.length) throw new Error("Chase-wife beat numbers must be unique.");
 		if (beatNumbers.some((beatNumber, index) => beatNumber !== index + 1)) throw new Error("Chase-wife beat numbers must be contiguous starting at 1.");
-		if (beats.some((beat) => beat.phase === "paywall-hook" && beat.beat > Math.ceil(beats.length / 2))) throw new Error("The chase-wife paywall hook must appear in the opening half.");
+		if (beats.some((beat) => beat.paywallHook && beat.beat > Math.ceil(beats.length / 2))) throw new Error("The chase-wife paywall hook must appear in the opening half.");
 		const relativePath = "outline/genre/chase-wife-beat-sheet.json";
-		const document = { version: 1, genre: "chase-wife", projectId: params.projectId, pov: params.pov, openingIntro: params.openingIntro, openingConflict: params.openingConflict, beats, updatedAt: new Date().toISOString() };
+		const document = { version: 2, genre: "chase-wife", projectId: params.projectId, povMode: params.povMode, heroineArc: params.heroineArc, maleArc: params.maleArc, openingIntro: params.openingIntro, openingConflict: params.openingConflict, beats, updatedAt: new Date().toISOString() };
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
 		return { projectId: params.projectId, path: relativePath, beats: beats.length };
 	}
@@ -955,8 +1069,8 @@ export class NovelProjectStore {
 			issues.push("missing or invalid chase-wife beat sheet");
 			hasStructuralError = true;
 		} else {
-			if (value.pov !== "first-person") {
-				issues.push("chase-wife beat sheet must declare first-person narration");
+			if (!isValidPovMode(value.povMode)) {
+				issues.push("chase-wife beat sheet must declare heroine-first-person or split-pov");
 				hasStructuralError = true;
 			}
 			if (!isNonEmptyString(value.openingIntro) || value.openingIntro.trim().length < 80 || value.openingIntro.trim().length > 180) {
@@ -966,6 +1080,26 @@ export class NovelProjectStore {
 			if (!isNonEmptyString(value.openingConflict)) {
 				issues.push("opening must define a concrete conflict");
 				hasStructuralError = true;
+			}
+			if (!isOrderedUniqueArc(value.heroineArc, CHASE_WIFE_HEROINE_ARC_ORDER)) {
+				issues.push("heroine arc must contain unique phases in order");
+				hasStructuralError = true;
+			}
+			if (!isOrderedUniqueArc(value.maleArc, CHASE_WIFE_MALE_ARC_ORDER)) {
+				issues.push("male arc must contain unique phases in order");
+				hasStructuralError = true;
+			}
+			for (const phase of ["injury", "recognition", "irreversible-exit", "self-rebuild", "final-boundary"]) {
+				if (!Array.isArray(value.heroineArc) || !value.heroineArc.includes(phase)) {
+					issues.push(`heroine arc is missing ${phase}`);
+					hasStructuralError = true;
+				}
+			}
+			for (const phase of ["entitlement", "loss-of-control", "wrong-pursuit", "real-consequence", "recognition"]) {
+				if (!Array.isArray(value.maleArc) || !value.maleArc.includes(phase)) {
+					issues.push(`male arc is missing ${phase}`);
+					hasStructuralError = true;
+				}
 			}
 			const beats = value.beats.filter(isChaseWifeBeat);
 			checkedBeats = beats.length;
@@ -983,23 +1117,23 @@ export class NovelProjectStore {
 				hasStructuralError = true;
 			}
 			const orderedBeats = [...beats].sort((left, right) => left.beat - right.beat);
-			const phases = new Set<string>(orderedBeats.map((beat) => beat.phase));
-			for (const phase of CHASE_WIFE_PHASES) if (!phases.has(phase)) {
-				issues.push(`missing required phase: ${phase}`);
+			if (orderedBeats.some((beat) => beat.paywallHook && beat.beat > Math.ceil(orderedBeats.length / 2))) {
+				issues.push("the paywall hook must appear in the opening half");
 				hasStructuralError = true;
 			}
-			let previousPhaseIndex = -1;
-			for (const beat of orderedBeats) {
-				const phaseIndex = CHASE_WIFE_PHASE_ORDER.get(beat.phase) ?? -1;
-				if (phaseIndex < previousPhaseIndex) {
-					issues.push("chase-wife phases must follow the defined emotional arc order");
-					hasStructuralError = true;
-					break;
-				}
-				previousPhaseIndex = phaseIndex;
+			const heroineExitBeat = orderedBeats.findIndex((beat) => beat.heroinePhase === "irreversible-exit");
+			const maleConsequenceBeat = orderedBeats.findIndex((beat) => beat.malePhase === "real-consequence");
+			const maleRecognitionBeat = orderedBeats.findIndex((beat) => beat.malePhase === "recognition");
+			if (heroineExitBeat < 0) {
+				issues.push("heroine arc has no irreversible-exit beat");
+				hasStructuralError = true;
 			}
-			if (orderedBeats.some((beat) => beat.phase === "paywall-hook" && beat.beat > Math.ceil(orderedBeats.length / 2))) {
-				issues.push("the paywall hook must appear in the opening half");
+			if (maleRecognitionBeat >= 0 && (maleConsequenceBeat < 0 || maleRecognitionBeat < maleConsequenceBeat)) {
+				issues.push("male recognition must follow a real-consequence beat");
+				hasStructuralError = true;
+			}
+			if (isValidPovMode(value.povMode) && value.povMode === "split-pov" && !orderedBeats.some((beat) => beat.targetTrack === "male" || beat.targetTrack === "shared")) {
+				issues.push("split-pov beat sheet must allocate at least one beat to the male or shared track");
 				hasStructuralError = true;
 			}
 			const earlyPain = orderedBeats.filter((beat) => beat.beat <= Math.ceil(orderedBeats.length / 2) && beat.painPoint.trim().length > 0).length;
@@ -1016,17 +1150,31 @@ export class NovelProjectStore {
 
 	async saveChaseWifeEventMap(params: SaveChaseWifeEventMapParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; path: string; events: number }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
+		if (!isValidPovMode(params.povMode)) throw new Error("Chase-wife event maps must declare heroine-first-person or split-pov.");
+		const beatSheet = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/genre/chase-wife-beat-sheet.json"), signal);
+		if (isJsonRecord(beatSheet) && isValidPovMode(beatSheet.povMode) && beatSheet.povMode !== params.povMode) throw new Error("Chapter event map povMode must match the story beat sheet.");
 		if (params.chapter === 1 && (!params.openingIntro || params.openingIntro.trim().length < 80 || params.openingIntro.trim().length > 180)) throw new Error("Chapter 1 requires an 80-180 character opening intro.");
 		if (params.chapter > 1 && params.openingIntro !== undefined) throw new Error("Only chapter 1 may contain an opening intro.");
 		if (!isNonEmptyString(params.openingConflict)) throw new Error("The chase-wife opening must define a concrete conflict.");
+		if (params.chapter === 1 && !isNonEmptyString(params.openingConflictMarker)) throw new Error("Chapter 1 requires a short opening conflict marker for pacing checks.");
 		const events = [...params.events].sort((left, right) => left.eventId - right.eventId);
 		if (events.length < 3 || events.length > 6) throw new Error("Chase-wife chapters must contain 3-6 events.");
 		if (events.some((event, index) => event.eventId !== index + 1)) throw new Error("Chase-wife event IDs must be contiguous starting at 1.");
-		if (events.some((event) => event.pov !== "first-person")) throw new Error("Every chase-wife event must use first-person narration.");
-		if (params.chapter === 1 && events[0].role !== "opening-intro-conflict") throw new Error("The first chase-wife event must combine the intro with an immediate conflict.");
-		if (params.chapter > 1 && events[0].role === "opening-intro-conflict") throw new Error("Only chapter 1 may use the opening-intro-conflict event role.");
+		if (params.povMode === "heroine-first-person" && events.some((event) => !isHeroinePov(event.pov))) throw new Error("Heroine-first-person mode cannot contain male-limited-third-person events.");
+		if (events.some((event) => event.pov === "male-limited-third-person" && event.targetTrack !== "male")) throw new Error("Male-limited-third-person events must target the male track.");
+		if (params.chapter === 1 && events[0].role !== "opening-injury") throw new Error("The first chase-wife event must combine the intro with an opening injury.");
+		if (params.chapter > 1 && events[0].role === "opening-injury") throw new Error("Only chapter 1 may use the opening-injury event role.");
+		const exitIndex = events.findIndex((event) => event.role === "irreversible-exit");
+		for (const [index, event] of events.entries()) {
+			const limits = CHASE_WIFE_LENGTH_LIMITS[event.lengthMode];
+			if (event.minChars < limits.min || event.maxChars > limits.max || event.minChars > event.maxChars) throw new Error(`Event ${event.eventId} has an invalid ${event.lengthMode} length range.`);
+			if (event.causes.some((cause) => cause >= event.eventId)) throw new Error(`Event ${event.eventId} can only cause from earlier events.`);
+			if (eventStateDeltaCount(event) < 2 && !event.irreversible && event.heroineAgencyAfter <= event.heroineAgencyBefore) throw new Error(`Event ${event.eventId} must create at least two state changes, an irreversible action, or an agency increase.`);
+			if (event.role === "irreversible-exit" && (!event.irreversible || event.heroineAgencyAfter <= event.heroineAgencyBefore)) throw new Error("An irreversible-exit event must be irreversible and increase heroine agency.");
+			if (event.pov === "male-limited-third-person" && params.chapter === 1 && (exitIndex < 0 || index < exitIndex)) throw new Error("Male-limited-third-person events can only appear after the irreversible exit.");
+		}
 		const relativePath = `work/chase-wife-events/${chapterName(params.chapter)}.json`;
-		const document = { version: 1, genre: "chase-wife", projectId: params.projectId, chapter: params.chapter, pov: "first-person", ...(params.openingIntro ? { openingIntro: params.openingIntro } : {}), openingConflict: params.openingConflict, events, updatedAt: new Date().toISOString() };
+		const document = { version: 2, genre: "chase-wife", projectId: params.projectId, chapter: params.chapter, povMode: params.povMode, ...(params.openingIntro ? { openingIntro: params.openingIntro } : {}), openingConflict: params.openingConflict, ...(params.openingConflictMarker ? { openingConflictMarker: params.openingConflictMarker } : {}), events, updatedAt: new Date().toISOString() };
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
 		return { projectId: params.projectId, chapter: params.chapter, path: relativePath, events: events.length };
 	}
@@ -1042,13 +1190,17 @@ export class NovelProjectStore {
 			issues.push("missing or invalid chase-wife event map");
 			hasStructuralError = true;
 		} else {
-			if (value.pov !== "first-person") {
-				issues.push("chase-wife event map must declare first-person narration");
+			if (!isValidPovMode(value.povMode)) {
+				issues.push("chase-wife event map must declare heroine-first-person or split-pov");
 				hasStructuralError = true;
 			}
 			if (params.chapter === 1) {
 				if (!isNonEmptyString(value.openingIntro) || value.openingIntro.trim().length < 80 || value.openingIntro.trim().length > 180) {
 					issues.push("chapter 1 opening intro must contain 80-180 characters");
+					hasStructuralError = true;
+				}
+				if (!isNonEmptyString(value.openingConflictMarker)) {
+					issues.push("chapter 1 opening conflict marker is required");
 					hasStructuralError = true;
 				}
 			} else if (value.openingIntro !== undefined) {
@@ -1073,17 +1225,59 @@ export class NovelProjectStore {
 				issues.push("event IDs must be unique and contiguous starting at 1");
 				hasStructuralError = true;
 			}
-			if (params.chapter === 1 && events[0]?.role !== "opening-intro-conflict") {
-				issues.push("the first event must combine the intro with an immediate conflict");
+			if (params.chapter === 1 && events[0]?.role !== "opening-injury") {
+				issues.push("the first event must combine the intro with an opening injury");
 				hasStructuralError = true;
 			}
-			if (params.chapter > 1 && events[0]?.role === "opening-intro-conflict") {
-				issues.push("only chapter 1 may use the opening-intro-conflict event role");
+			if (params.chapter > 1 && events[0]?.role === "opening-injury") {
+				issues.push("only chapter 1 may use the opening-injury event role");
 				hasStructuralError = true;
 			}
-			if (events.some((event) => event.charTarget < 300 || event.charTarget > 600)) {
-				issues.push("each event must target 300-600 Chinese characters");
+			if (isValidPovMode(value.povMode) && value.povMode === "heroine-first-person" && events.some((event) => !isHeroinePov(event.pov))) {
+				issues.push("heroine-first-person mode contains a male-limited-third-person event");
 				hasStructuralError = true;
+			}
+			if (events.some((event) => event.pov === "male-limited-third-person" && event.targetTrack !== "male")) {
+				issues.push("male-limited-third-person events must target the male track");
+				hasStructuralError = true;
+			}
+			const exitIndex = events.findIndex((event) => event.role === "irreversible-exit");
+			const agencyUpgradesBeforeExit = events.filter((event, index) => (exitIndex < 0 || index <= exitIndex) && event.targetTrack !== "male" && event.heroineAgencyAfter > event.heroineAgencyBefore).length;
+			if (agencyUpgradesBeforeExit < 2) issues.push("heroine must show at least two agency upgrades before or at the irreversible exit");
+			for (const [index, event] of events.entries()) {
+				if (event.causes.some((cause) => cause >= event.eventId)) {
+					issues.push(`event ${event.eventId} has a forward or self-cause`);
+					hasStructuralError = true;
+				}
+				if (eventStateDeltaCount(event) < 2 && !event.irreversible && event.heroineAgencyAfter <= event.heroineAgencyBefore) {
+					issues.push(`event ${event.eventId} has no meaningful state delta`);
+					hasStructuralError = true;
+				}
+				if (event.role === "irreversible-exit" && (!event.irreversible || event.heroineAgencyAfter <= event.heroineAgencyBefore)) {
+					issues.push("irreversible-exit must be irreversible and increase heroine agency");
+					hasStructuralError = true;
+				}
+				if (event.paywallHook && event.eventId > Math.ceil(events.length / 2)) {
+					issues.push("paywall hooks must appear in the opening half of the event map");
+					hasStructuralError = true;
+				}
+				if (event.pov === "male-limited-third-person" && params.chapter === 1 && (exitIndex < 0 || index < exitIndex)) {
+					issues.push("male-limited-third-person events must follow the irreversible exit");
+					hasStructuralError = true;
+				}
+			}
+			let repeatedMechanism = 0;
+			for (let index = 1; index < events.length; index += 1) {
+				if (events[index].injuryMechanism !== undefined && events[index].injuryMechanism === events[index - 1].injuryMechanism) repeatedMechanism += 1;
+				else repeatedMechanism = 0;
+				if (repeatedMechanism >= 2) {
+					issues.push(`repeated injury mechanism: ${events[index].injuryMechanism}`);
+					hasStructuralError = true;
+				}
+				if (normalizedEventSignature(events[index]) === normalizedEventSignature(events[index - 1])) {
+					issues.push(`adjacent events ${events[index - 1].eventId} and ${events[index].eventId} are interchangeable`);
+					hasStructuralError = true;
+				}
 			}
 		}
 		const status = (hasStructuralError ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
@@ -1091,6 +1285,170 @@ export class NovelProjectStore {
 		const reportPath = `continuity/reports/${chapterName(params.chapter)}-chase-wife-events.json`;
 		await this.writeAtomically(this.projectFile(params.projectId, reportPath), `${JSON.stringify(report, null, 2)}\n`, signal);
 		return { ...report, path: reportPath };
+	}
+
+	private chaseWifeEventDirectory(projectId: string, chapter: number): string {
+		return this.projectFile(projectId, `work/chase-wife-events/${chapterName(chapter)}`);
+	}
+
+	private chaseWifeEventDraftPath(projectId: string, chapter: number, eventId: number, revision: number): string {
+		return this.projectFile(projectId, `work/chase-wife-events/${chapterName(chapter)}/event-${padChapter(eventId)}-r${String(revision).padStart(2, "0")}.md`);
+	}
+
+	private async latestChaseWifeEventDraft(projectId: string, chapter: number, eventId: number, signal?: AbortSignal): Promise<{ path: string; revision: number; content: string } | undefined> {
+		const directory = this.chaseWifeEventDirectory(projectId, chapter);
+		const paths = await this.listFiles(directory, signal);
+		const matches = paths.map((path) => {
+			const match = path.match(new RegExp(`event-${padChapter(eventId)}-r(\\d+)\\.md$`));
+			return match ? { path, revision: Number(match[1]) } : undefined;
+		}).filter((value): value is { path: string; revision: number } => value !== undefined).sort((left, right) => left.revision - right.revision);
+		const latest = matches.at(-1);
+		if (!latest) return undefined;
+		const content = await this.readTextIfExists(latest.path, signal);
+		return content === undefined ? undefined : { ...latest, content };
+	}
+
+	private async readChaseWifeEventMap(projectId: string, chapter: number, signal?: AbortSignal): Promise<{ map: JsonRecord; events: ChaseWifeEvent[] }> {
+		const value = await this.readJsonIfExists(this.projectFile(projectId, `work/chase-wife-events/${chapterName(chapter)}.json`), signal);
+		if (!isJsonRecord(value) || !Array.isArray(value.events)) throw new Error(`Chase-wife event map for chapter ${chapter} is missing or invalid.`);
+		const events = value.events.filter(isChaseWifeEvent).sort((left, right) => left.eventId - right.eventId);
+		if (events.length !== value.events.length) throw new Error(`Chase-wife event map for chapter ${chapter} contains invalid event records.`);
+		return { map: value, events };
+	}
+
+	async saveChaseWifeEventDraft(params: SaveChaseWifeEventDraftParams, signal?: AbortSignal): Promise<SavedChapterDraftResult & { eventId: number }> {
+		await this.ensureChaseWifeProject(params.projectId, signal);
+		const { events } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
+		const event = events.find((candidate) => candidate.eventId === params.eventId);
+		if (!event) throw new Error(`Event ${params.eventId} is not present in the chapter event map.`);
+		const directory = this.chaseWifeEventDirectory(params.projectId, params.chapter);
+		const paths = await this.listFiles(directory, signal);
+		const prefix = `event-${padChapter(params.eventId)}-r`;
+		const revisions = paths.map((path) => path.match(new RegExp(`${prefix}(\\d+)\\.md$`))?.[1]).filter((value): value is string => value !== undefined).map(Number);
+		const revision = params.revision ?? ((revisions.length > 0 ? Math.max(...revisions) : 0) + 1);
+		const path = this.chaseWifeEventDraftPath(params.projectId, params.chapter, params.eventId, revision);
+		if (params.revision !== undefined && (await this.readTextIfExists(path, signal)) !== undefined) throw new Error(`Event draft revision ${revision} already exists. Save a new revision instead.`);
+		const content = normalizeText(params.content);
+		await this.writeAtomically(path, content, signal);
+		return { projectId: params.projectId, documentType: "chapter-draft", chapter: params.chapter, eventId: params.eventId, revision, path: this.relativeProjectPath(params.projectId, path), bytes: Buffer.byteLength(content, "utf8") };
+	}
+
+	async checkChaseWifeEventDraft(params: CheckChaseWifeEventDraftParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; eventId: number; revision?: number; actualChars: number; status: "ok" | "warning" | "error"; issues: string[]; path: string }> {
+		await this.ensureChaseWifeProject(params.projectId, signal);
+		const { events } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
+		const event = events.find((candidate) => candidate.eventId === params.eventId);
+		if (!event) throw new Error(`Event ${params.eventId} is not present in the chapter event map.`);
+		const draft = params.revision === undefined ? await this.latestChaseWifeEventDraft(params.projectId, params.chapter, params.eventId, signal) : { revision: params.revision, content: await this.readTextIfExists(this.chaseWifeEventDraftPath(params.projectId, params.chapter, params.eventId, params.revision), signal) };
+		const issues: string[] = [];
+		if (!draft || draft.content === undefined) issues.push("event draft is missing");
+		const actualChars = draft?.content === undefined ? 0 : countChineseCharacters(draft.content);
+		if (draft && (actualChars < event.minChars || actualChars > event.maxChars)) issues.push(`event draft has ${actualChars} characters; expected ${event.minChars}-${event.maxChars}`);
+		const status = (issues.some((issue) => issue === "event draft is missing") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const relativePath = `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(params.eventId)}-chase-wife.json`;
+		const report = { projectId: params.projectId, chapter: params.chapter, eventId: params.eventId, revision: draft?.revision, actualChars, expectedChars: { min: event.minChars, max: event.maxChars }, status, issues, generatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(report, null, 2)}\n`, signal);
+		return { ...report, path: relativePath };
+	}
+
+	async assembleChaseWifeChapter(params: AssembleChaseWifeChapterParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision: number; eventCount: number; path: string }> {
+		await this.ensureChaseWifeProject(params.projectId, signal);
+		const { events } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
+		const drafts: string[] = [];
+		for (const event of events) {
+			const draft = await this.latestChaseWifeEventDraft(params.projectId, params.chapter, event.eventId, signal);
+			if (!draft) throw new Error(`Event draft ${event.eventId} is missing; assemble only after every event is drafted.`);
+			const report = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(event.eventId)}-chase-wife.json`), signal);
+			if (!isJsonRecord(report) || report.status !== "ok" || report.revision !== draft.revision) throw new Error(`Event draft ${event.eventId} must pass check_chase_wife_event_draft before assembly.`);
+			drafts.push(draft.content.trim());
+		}
+		const chapterDraft = await this.saveChapterDraft({ projectId: params.projectId, chapter: params.chapter, revision: params.revision, content: drafts.join("\n\n") }, signal);
+		return { projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft.revision, eventCount: events.length, path: chapterDraft.path };
+	}
+
+	async checkChaseWifePacing(params: CheckChaseWifePacingParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision?: number; status: "ok" | "warning" | "error"; issues: string[]; metrics: Record<string, number | string | boolean | undefined>; path: string }> {
+		await this.ensureChaseWifeProject(params.projectId, signal);
+		const { map, events } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
+		const issues: string[] = [];
+		const eventDrafts: Array<{ event: ChaseWifeEvent; content: string; chars: number }> = [];
+		for (const event of events) {
+			const draft = await this.latestChaseWifeEventDraft(params.projectId, params.chapter, event.eventId, signal);
+			if (!draft) {
+				issues.push(`event draft ${event.eventId} is missing`);
+				continue;
+			}
+			const chars = countChineseCharacters(draft.content);
+			eventDrafts.push({ event, content: draft.content, chars });
+			if (chars < event.minChars || chars > event.maxChars) issues.push(`event ${event.eventId} is outside its ${event.lengthMode} budget`);
+		}
+		const chapterDraft = params.draftRevision === undefined ? await this.latestDraft(params.projectId, params.chapter, signal) : { revision: params.draftRevision, content: await this.readTextIfExists(this.draftPath(params.projectId, params.chapter, params.draftRevision), signal) };
+		if (!chapterDraft || chapterDraft.content === undefined) issues.push("assembled chapter draft is missing");
+		const totalChars = eventDrafts.reduce((sum, item) => sum + item.chars, 0);
+		const firstEvent = eventDrafts.find((item) => item.event.eventId === 1);
+		const conflictMarker = typeof map.openingConflictMarker === "string" ? map.openingConflictMarker : undefined;
+		const conflictPosition = firstEvent && conflictMarker ? firstEvent.content.indexOf(conflictMarker) : -1;
+		if (params.chapter === 1 && (conflictMarker === undefined || conflictPosition < 0 || conflictPosition > 250)) issues.push("first visible conflict is not verified within 250 characters");
+		const firstAgencyEvent = eventDrafts.find((item) => item.event.targetTrack !== "male" && (item.event.heroineAgencyAfter > item.event.heroineAgencyBefore || ["micro-withdrawal", "boundary-test", "decision", "irreversible-exit"].includes(item.event.role)));
+		const firstAgencyPosition = firstAgencyEvent ? eventDrafts.slice(0, eventDrafts.indexOf(firstAgencyEvent)).reduce((sum, item) => sum + item.chars, 0) : -1;
+		if (firstAgencyPosition < 0 || (totalChars > 0 && firstAgencyPosition > totalChars * 0.12)) issues.push("heroine first active choice is too late or missing");
+		const exitEvent = eventDrafts.find((item) => item.event.role === "irreversible-exit");
+		const exitChars = exitEvent ? eventDrafts.slice(0, eventDrafts.indexOf(exitEvent) + 1).reduce((sum, item) => sum + item.chars, 0) : -1;
+		const exitRatio = totalChars > 0 && exitChars >= 0 ? exitChars / totalChars : -1;
+		const mode = params.mode ?? "standard";
+		const [exitMin, exitMax, pursuitMax] = mode === "fast-burn" ? [0.35, 0.45, 0.55] : [0.45, 0.55, 0.65];
+		if (params.chapter === 1 && exitRatio < 0) issues.push("chapter 1 has no irreversible exit event");
+		if (exitRatio >= 0 && (exitRatio < exitMin || exitRatio > exitMax)) issues.push(`irreversible exit should land between ${Math.round(exitMin * 100)}%-${Math.round(exitMax * 100)}% in ${mode} mode`);
+		const pursuitEvent = eventDrafts.find((item) => ["pursuit-control", "pursuit-failure", "real-consequence"].includes(item.event.role));
+		const pursuitChars = pursuitEvent ? eventDrafts.slice(0, eventDrafts.indexOf(pursuitEvent) + 1).reduce((sum, item) => sum + item.chars, 0) : -1;
+		const pursuitRatio = totalChars > 0 && pursuitChars >= 0 ? pursuitChars / totalChars : -1;
+		if (pursuitRatio >= 0 && pursuitRatio > pursuitMax) issues.push(`male pursuit must begin by ${Math.round(pursuitMax * 100)}% in ${mode} mode`);
+		let repeatedMechanism = 0;
+		for (let index = 1; index < events.length; index += 1) {
+			if (events[index].injuryMechanism !== undefined && events[index].injuryMechanism === events[index - 1].injuryMechanism) repeatedMechanism += 1;
+			else repeatedMechanism = 0;
+			if (repeatedMechanism >= 2) issues.push(`same injury mechanism repeats more than twice: ${events[index].injuryMechanism}`);
+		}
+		for (let index = 1; index < eventDrafts.length; index += 1) {
+			if (textSimilarity(eventDrafts[index - 1].content, eventDrafts[index].content) >= 0.78) issues.push(`event drafts ${eventDrafts[index - 1].event.eventId} and ${eventDrafts[index].event.eventId} are too similar to remain separate`);
+		}
+		const assembledChars = chapterDraft?.content === undefined ? totalChars : countChineseCharacters(chapterDraft.content);
+		const memorySpans = [...(params.memorySpans ?? [])].sort((left, right) => left.startChar - right.startChar);
+		let memoryInvalid = false;
+		for (let index = 0; index < memorySpans.length; index += 1) {
+			const span = memorySpans[index];
+			if (span.startChar >= span.endChar || span.endChar > assembledChars || (index > 0 && span.startChar < memorySpans[index - 1].endChar)) memoryInvalid = true;
+		}
+		if (memoryInvalid) issues.push("memory spans are invalid or overlap the chapter boundary");
+		const memoryChars = memorySpans.reduce((sum, span) => sum + Math.max(0, span.endChar - span.startChar), 0);
+		const memoryRatio = assembledChars > 0 ? memoryChars / assembledChars : 0;
+		if (memoryRatio > 0.15) issues.push("memory spans exceed 15% of the chapter event text");
+		let purePsychologyRun = 0;
+		let maxPurePsychologyRun = 0;
+		if (chapterDraft?.content !== undefined) {
+			for (const paragraph of chapterDraft.content.split(/\r?\n\s*\r?\n/gu)) {
+				const purePsychology = /(?:我|他|她)(?:想|觉得|以为|明白|知道|不敢|害怕|后悔|意识到|记得|希望)/u.test(paragraph) && !/[“”"：:]/u.test(paragraph) && !/[走站转身拿放删签推开关看听问说回离递打发拉黑搬收拾抓摔握松]/u.test(paragraph);
+				purePsychologyRun = purePsychology ? purePsychologyRun + 1 : 0;
+				maxPurePsychologyRun = Math.max(maxPurePsychologyRun, purePsychologyRun);
+			}
+		}
+		if (maxPurePsychologyRun > 2) issues.push("more than two consecutive pure-psychology paragraphs");
+		const status = (issues.some((issue) => issue.includes("missing") || issue.includes("not verified") || issue.includes("no meaningful") || issue.includes("repeats")) ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const metrics = { totalChars, firstConflictPosition: conflictPosition < 0 ? undefined : conflictPosition, firstAgencyRatio: firstAgencyPosition < 0 || totalChars === 0 ? undefined : firstAgencyPosition / totalChars, exitRatio: exitRatio < 0 ? undefined : exitRatio, pursuitRatio: pursuitRatio < 0 ? undefined : pursuitRatio, memoryRatio, maxPurePsychologyRun, eventCount: events.length, assembledDraftFound: chapterDraft !== undefined && chapterDraft.content !== undefined, mode };
+		const relativePath = `continuity/reports/${chapterName(params.chapter)}-chase-wife-pacing.json`;
+		const report = { projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft?.revision, status, issues, metrics, generatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(report, null, 2)}\n`, signal);
+		return { ...report, path: relativePath };
+	}
+
+	async scoreChaseWifeChapter(params: ScoreChaseWifeChapterParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision?: number; total: number; passed: boolean; deductions: string[]; path: string }> {
+		await this.ensureChaseWifeProject(params.projectId, signal);
+		const pacing = await this.checkChaseWifePacing({ projectId: params.projectId, chapter: params.chapter, draftRevision: params.draftRevision, mode: params.mode }, signal);
+		const deductions = pacing.issues.map((issue) => issue);
+		const total = Math.max(0, 100 - pacing.issues.reduce((sum, issue) => sum + (issue.includes("missing") || issue.includes("not verified") ? 15 : issue.includes("repeats") ? 10 : 5), 0));
+		const passed = pacing.status !== "error" && total >= 70;
+		const relativePath = `evaluations/chapter/${chapterName(params.chapter)}-chase-wife-pacing-score.json`;
+		const result = { projectId: params.projectId, chapter: params.chapter, draftRevision: pacing.draftRevision, total, passed, deductions, metrics: pacing.metrics, generatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(result, null, 2)}\n`, signal);
+		return { ...result, path: relativePath };
 	}
 
 	private async writeTransaction(projectId: string, chapter: number, entries: Array<{ relativePath: string; content: string }>, signal?: AbortSignal): Promise<string> {

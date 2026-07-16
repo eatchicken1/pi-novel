@@ -23,7 +23,7 @@
 
 ## 质量闭环
 
-- 基础设定使用 `score_story_foundation`；章节使用 `score_chapter`、`check_ai_artifacts` 和 `save_reader_report`/`save_review_report`。
+- 基础设定使用 `score_story_foundation`；普通章节使用 `score_chapter`，追妻文章节必须额外使用 `check_chase_wife_pacing`、`score_chase_wife_chapter`、`check_ai_artifacts` 和 `save_reader_report`/`save_review_report`。
 - 评分未通过时生成定向修改任务，最多自动修改两轮；第二轮仍未通过必须交给作者决定。
 - 定稿后的事实、人物、伏笔和时间线先使用 `proposed` 更新；只有作者确认后才能使用 `USER_CONFIRMED` 写入正史。
 - 使用 `compare_draft_versions` 保留修改证据，使用 `export_manuscript` 只导出已定稿章节。
@@ -39,4 +39,4 @@
 - 检查：`story-review`、`continuity-review`
 - 修改：`prose-revision`
 - 读者体验：`reader-sim`
-- `genre=chase-wife` 时额外加载 `genre-chase-wife`；该分支强制第一人称、开篇引言和开局冲突，并使用专属节拍/事件工具；这些规则和工具不能用于悬疑、都市情感或轻幻想。
+- `genre=chase-wife` 时额外加载 `genre-chase-wife`；该分支必须选择女主第一人称或双轨 POV，保留开篇引言和开局冲突，并使用专属双轨节拍、事件级草稿和节奏工具；这些规则和工具不能用于悬疑、都市情感或轻幻想。
