@@ -6,7 +6,9 @@ import type {
 	CheckContinuityParams,
 	CheckAiArtifactsParams,
 	CheckChaseWifeArcParams,
+	CheckChaseWifeEventMapParams,
 	ChaseWifeBeat,
+	ChaseWifeEvent,
 	CompareDraftVersionsParams,
 	ContentFormat,
 	CreateVoiceFingerprintParams,
@@ -26,6 +28,7 @@ import type {
 	SaveChapterPlanParams,
 	SaveContinuityReportParams,
 	SaveChaseWifeBeatSheetParams,
+	SaveChaseWifeEventMapParams,
 	SaveQualityReportParams,
 	SaveSceneContractParams,
 	SaveStoryDocumentParams,
@@ -51,6 +54,15 @@ const CHASE_WIFE_PHASES = [
 	"closure",
 ] as const;
 const CHASE_WIFE_PHASE_ORDER = new Map<string, number>(CHASE_WIFE_PHASES.map((phase, index) => [phase, index]));
+const CHASE_WIFE_EVENT_ROLES = new Set([
+	"opening-intro-conflict",
+	"escalation",
+	"reversal",
+	"exit",
+	"aftermath",
+	"public-consequence",
+	"closure",
+]);
 
 type JsonRecord = Record<string, unknown>;
 
@@ -254,6 +266,30 @@ function isChaseWifeBeat(value: unknown): value is ChaseWifeBeat {
 	if (!isNonEmptyString(value.emotionBefore) || !isNonEmptyString(value.emotionAfter) || !isNonEmptyString(value.painPoint)) return false;
 	if (!isNonEmptyString(value.rewardPoint) || !isNonEmptyString(value.hook)) return false;
 	return Array.isArray(value.emotionStack) && value.emotionStack.length > 0 && value.emotionStack.every(isNonEmptyString);
+}
+
+function isChaseWifeEvent(value: unknown): value is ChaseWifeEvent {
+	if (!isJsonRecord(value)) return false;
+	if (!isPositiveInteger(value.eventId) || value.eventId > 8) return false;
+	if (typeof value.role !== "string" || !CHASE_WIFE_EVENT_ROLES.has(value.role)) return false;
+	if (!isPositiveInteger(value.scene) || value.scene > 8 || value.pov !== "first-person") return false;
+	if (typeof value.charTarget !== "number" || !Number.isInteger(value.charTarget) || value.charTarget < 300 || value.charTarget > 600) return false;
+	return [
+		"eventDescription",
+		"function",
+		"goal",
+		"conflict",
+		"actionOrConsequence",
+		"protagonistReaction",
+		"oppositionReaction",
+		"informationChange",
+		"emotionBefore",
+		"emotionAfter",
+		"physicalReaction",
+		"setupOrPayoff",
+		"readerRelease",
+		"exitHook",
+	].every((field) => isNonEmptyString(value[field]));
 }
 
 function normalizeGenre(genre: Genre): string {
@@ -893,6 +929,9 @@ export class NovelProjectStore {
 
 	async saveChaseWifeBeatSheet(params: SaveChaseWifeBeatSheetParams, signal?: AbortSignal): Promise<{ projectId: string; path: string; beats: number }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
+		if (params.pov !== "first-person") throw new Error("Chase-wife projects must use first-person narration.");
+		if (params.openingIntro.trim().length < 80 || params.openingIntro.trim().length > 300) throw new Error("The chase-wife opening intro must contain 80-300 characters.");
+		if (!isNonEmptyString(params.openingConflict)) throw new Error("The chase-wife opening must define a concrete conflict.");
 		const beats = [...params.beats].sort((left, right) => left.beat - right.beat);
 		if (beats.length < 12 || beats.length > 24) throw new Error("Chase-wife beat sheets must contain 12-24 beats.");
 		const beatNumbers = beats.map((beat) => beat.beat);
@@ -900,7 +939,7 @@ export class NovelProjectStore {
 		if (beatNumbers.some((beatNumber, index) => beatNumber !== index + 1)) throw new Error("Chase-wife beat numbers must be contiguous starting at 1.");
 		if (beats.some((beat) => beat.phase === "paywall-hook" && beat.beat > Math.ceil(beats.length / 2))) throw new Error("The chase-wife paywall hook must appear in the opening half.");
 		const relativePath = "outline/genre/chase-wife-beat-sheet.json";
-		const document = { version: 1, genre: "chase-wife", projectId: params.projectId, beats, updatedAt: new Date().toISOString() };
+		const document = { version: 1, genre: "chase-wife", projectId: params.projectId, pov: params.pov, openingIntro: params.openingIntro, openingConflict: params.openingConflict, beats, updatedAt: new Date().toISOString() };
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
 		return { projectId: params.projectId, path: relativePath, beats: beats.length };
 	}
@@ -916,6 +955,18 @@ export class NovelProjectStore {
 			issues.push("missing or invalid chase-wife beat sheet");
 			hasStructuralError = true;
 		} else {
+			if (value.pov !== "first-person") {
+				issues.push("chase-wife beat sheet must declare first-person narration");
+				hasStructuralError = true;
+			}
+			if (!isNonEmptyString(value.openingIntro) || value.openingIntro.trim().length < 80 || value.openingIntro.trim().length > 300) {
+				issues.push("opening intro must contain 80-300 characters");
+				hasStructuralError = true;
+			}
+			if (!isNonEmptyString(value.openingConflict)) {
+				issues.push("opening must define a concrete conflict");
+				hasStructuralError = true;
+			}
 			const beats = value.beats.filter(isChaseWifeBeat);
 			checkedBeats = beats.length;
 			if (beats.length !== value.beats.length) {
@@ -959,6 +1010,74 @@ export class NovelProjectStore {
 		const status = (hasStructuralError ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
 		const report = { projectId: params.projectId, genre: "chase-wife", generatedAt: new Date().toISOString(), status, issues, checkedBeats };
 		const reportPath = "continuity/reports/chase-wife-arc.json";
+		await this.writeAtomically(this.projectFile(params.projectId, reportPath), `${JSON.stringify(report, null, 2)}\n`, signal);
+		return { ...report, path: reportPath };
+	}
+
+	async saveChaseWifeEventMap(params: SaveChaseWifeEventMapParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; path: string; events: number }> {
+		await this.ensureChaseWifeProject(params.projectId, signal);
+		if (params.openingIntro.trim().length < 80 || params.openingIntro.trim().length > 300) throw new Error("The chase-wife opening intro must contain 80-300 characters.");
+		if (!isNonEmptyString(params.openingConflict)) throw new Error("The chase-wife opening must define a concrete conflict.");
+		const events = [...params.events].sort((left, right) => left.eventId - right.eventId);
+		if (events.length < 3 || events.length > 6) throw new Error("Chase-wife chapters must contain 3-6 events.");
+		if (events.some((event, index) => event.eventId !== index + 1)) throw new Error("Chase-wife event IDs must be contiguous starting at 1.");
+		if (events.some((event) => event.pov !== "first-person")) throw new Error("Every chase-wife event must use first-person narration.");
+		if (events[0].role !== "opening-intro-conflict") throw new Error("The first chase-wife event must combine the intro with an immediate conflict.");
+		const relativePath = `work/chase-wife-events/${chapterName(params.chapter)}.json`;
+		const document = { version: 1, genre: "chase-wife", projectId: params.projectId, chapter: params.chapter, pov: "first-person", openingIntro: params.openingIntro, openingConflict: params.openingConflict, events, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, chapter: params.chapter, path: relativePath, events: events.length };
+	}
+
+	async checkChaseWifeEventMap(params: CheckChaseWifeEventMapParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; status: "ok" | "warning" | "error"; issues: string[]; checkedEvents: number; path: string }> {
+		await this.ensureChaseWifeProject(params.projectId, signal);
+		const relativePath = `work/chase-wife-events/${chapterName(params.chapter)}.json`;
+		const value = await this.readJsonIfExists(this.projectFile(params.projectId, relativePath), signal);
+		const issues: string[] = [];
+		let hasStructuralError = false;
+		let checkedEvents = 0;
+		if (!isJsonRecord(value) || !Array.isArray(value.events)) {
+			issues.push("missing or invalid chase-wife event map");
+			hasStructuralError = true;
+		} else {
+			if (value.pov !== "first-person") {
+				issues.push("chase-wife event map must declare first-person narration");
+				hasStructuralError = true;
+			}
+			if (!isNonEmptyString(value.openingIntro) || value.openingIntro.trim().length < 80 || value.openingIntro.trim().length > 300) {
+				issues.push("opening intro must contain 80-300 characters");
+				hasStructuralError = true;
+			}
+			if (!isNonEmptyString(value.openingConflict)) {
+				issues.push("opening must define a concrete conflict");
+				hasStructuralError = true;
+			}
+			const events = value.events.filter(isChaseWifeEvent);
+			checkedEvents = events.length;
+			if (events.length !== value.events.length) {
+				issues.push("event map contains invalid event records");
+				hasStructuralError = true;
+			}
+			if (events.length < 3 || events.length > 6) {
+				issues.push("chase-wife event maps must contain 3-6 valid events");
+				hasStructuralError = true;
+			}
+			if (events.some((event, index) => event.eventId !== index + 1)) {
+				issues.push("event IDs must be unique and contiguous starting at 1");
+				hasStructuralError = true;
+			}
+			if (events[0]?.role !== "opening-intro-conflict") {
+				issues.push("the first event must combine the intro with an immediate conflict");
+				hasStructuralError = true;
+			}
+			if (events.some((event) => event.charTarget < 300 || event.charTarget > 600)) {
+				issues.push("each event must target 300-600 Chinese characters");
+				hasStructuralError = true;
+			}
+		}
+		const status = (hasStructuralError ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const report = { projectId: params.projectId, chapter: params.chapter, genre: "chase-wife", generatedAt: new Date().toISOString(), status, issues, checkedEvents };
+		const reportPath = `continuity/reports/${chapterName(params.chapter)}-chase-wife-events.json`;
 		await this.writeAtomically(this.projectFile(params.projectId, reportPath), `${JSON.stringify(report, null, 2)}\n`, signal);
 		return { ...report, path: reportPath };
 	}

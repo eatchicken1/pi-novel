@@ -3,6 +3,7 @@ import type {
 	CheckContinuityParams,
 	CheckAiArtifactsParams,
 	CheckChaseWifeArcParams,
+	CheckChaseWifeEventMapParams,
 	CompareDraftVersionsParams,
 	CreateVoiceFingerprintParams,
 	ExtractChapterFactsParams,
@@ -18,6 +19,7 @@ import type {
 	SaveChapterPlanParams,
 	SaveContinuityReportParams,
 	SaveChaseWifeBeatSheetParams,
+	SaveChaseWifeEventMapParams,
 	SaveSceneContractParams,
 	SaveQualityReportParams,
 	SaveStoryDocumentParams,
@@ -32,6 +34,7 @@ import {
 	CheckContinuitySchema,
 	CheckAiArtifactsSchema,
 	CheckChaseWifeArcSchema,
+	CheckChaseWifeEventMapSchema,
 	CompareDraftVersionsSchema,
 	CreateVoiceFingerprintSchema,
 	ExtractChapterFactsSchema,
@@ -47,6 +50,7 @@ import {
 	SaveChapterPlanSchema,
 	SaveContinuityReportSchema,
 	SaveChaseWifeBeatSheetSchema,
+	SaveChaseWifeEventMapSchema,
 	SaveSceneContractSchema,
 	SaveQualityReportSchema,
 	SaveStoryDocumentSchema,
@@ -72,6 +76,34 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			async execute(_toolCallId, params: InitializeNovelParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).initializeNovel(params, signal);
 				return { content: [{ type: "text", text: `Novel project initialized: ${result.projectId}\n${result.path}` }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_chase_wife_event_map",
+			label: "Save Chase-wife Event Map",
+			description: "Save a chase-wife chapter event map with first-person opening intro, immediate conflict, emotional reactions, and 300-600 character event targets.",
+			parameters: SaveChaseWifeEventMapSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveChaseWifeEventMapParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveChaseWifeEventMap(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_chase_wife_event_map",
+			label: "Check Chase-wife Event Map",
+			description: "Check chase-wife chapter pacing, first-person narration, opening intro, immediate conflict, event count, and event targets.",
+			parameters: CheckChaseWifeEventMapSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckChaseWifeEventMapParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkChaseWifeEventMap(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),
 	);

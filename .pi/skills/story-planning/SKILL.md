@@ -24,7 +24,7 @@ description: 将创意澄清为可执行的 Story Bible、人物、世界规则�
    如果项目类型是 `chase-wife`，同时加载 `genre-chase-wife`，不得套用其他类型的专属资源。
 3. 生成至少两个方向，标注 `source` 和 `status`：`author|ai|reference|inferred`、`proposed|confirmed|rejected|unresolved`。
 4. 作者确认后使用 `save_story_document` 保存 Story Bible、人物、世界规则、大纲和伏笔。
-   追妻文另用 `save_chase_wife_beat_sheet` 保存专属节拍，并调用 `check_chase_wife_arc`。
+   追妻文另用 `save_chase_wife_beat_sheet` 保存第一人称、开篇引言、第一冲突和专属节拍，并调用 `check_chase_wife_arc`。
 5. 使用 `get_novel_status` 确认下一步章节和缺失文件。
 
 ## 需要加载的 Resource

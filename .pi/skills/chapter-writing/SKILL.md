@@ -21,7 +21,7 @@ Story Bible 和当前章节方向已确认，准备规划或写作时加载。
 
 1. 使用 `read_story_context(task="chapter-writing", chapter=N, includePreviousChapterEnding=true)`。
 2. 形成章节计划，调用 `save_chapter_plan`。
-3. 为每个场景填写目标、阻力、风险、知识变化、情绪转折、铺垫、回收和出口钩子，调用 `save_scene_contract`。
+3. 追妻文先调用 `save_chase_wife_event_map` 拆成 3—6 个微事件，并调用 `check_chase_wife_event_map`；再为每个场景填写目标、阻力、风险、知识变化、情绪转折、铺垫、回收和出口钩子，调用 `save_scene_contract`。
 4. 生成正文，调用 `save_chapter_draft`；修改使用新 revision，不覆盖旧稿。
 5. 调用 `check_project_integrity`，再调用 `save_continuity_report` 保存语义审查结果。
 6. 用户确认后以匹配的 `draftRevision` 和 `confirmation="USER_CONFIRMED"` 调用 `finalize_chapter`。

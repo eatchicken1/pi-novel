@@ -19,12 +19,13 @@ description: 追妻文专属创作分支：围绕偏爱排序、关系失衡、�
 
 ## 固定流程
 
-1. 读取 `docs/genre/chase-wife-reference-analysis.md` 和 `resources/prompt.md`。
+1. 读取本 Skill 的 `resources/reference-decomposition.md`、`resources/prompt.md` 和项目根的 `docs/genre/chase-wife-reference-analysis.md`；若项目提供了额外批注拆解，只提取机制，不复制正文。
 2. 明确女主被排序或被透支的核心资源，以及她最终要重新获得的选择权。
-3. 使用 `save_chase_wife_beat_sheet` 保存 12—24 个节拍，再使用 `check_chase_wife_arc` 检查专属情绪曲线。
-4. 依次完成章节计划、场景合同、草稿、完整性审查、语义审查和用户确认定稿。
-5. 定稿后先保存候选事实；只有 `USER_CONFIRMED` 才能更新人物、伏笔和时间线正史。
+3. 在节拍表中声明 `pov=first-person`，写出 80—180 字开篇引言和第一冲突，再使用 `save_chase_wife_beat_sheet` 保存 12—24 个节拍，并调用 `check_chase_wife_arc`。
+4. 每章先使用 `save_chase_wife_event_map` 拆成 3—6 个 300—600 字微事件，再调用 `check_chase_wife_event_map`；检查通过后才能生成正文。
+5. 依次完成章节计划、场景合同、草稿、完整性审查、语义审查和用户确认定稿。
+6. 定稿后先保存候选事实；只有 `USER_CONFIRMED` 才能更新人物、伏笔和时间线正史。
 
 ## 完成条件
 
-开场有可见偏爱证据；前半完成伤口累积和不可逆退出；后半完成追悔、现实后果和女主新生活；结局不依赖男方是否被原谅。
+正文使用第一人称；第一章标题后有 80—180 字引言，100 字内出现冲突；每章有 3—6 个事件且每个事件有动作、冲突和状态变化；前半完成伤口累积和不可逆退出；后半完成追悔、现实后果和女主新生活；结局不依赖男方是否被原谅。

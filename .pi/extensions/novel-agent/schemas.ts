@@ -323,6 +323,18 @@ const ChaseWifePhaseSchema = Type.Union([
 	Type.Literal("closure"),
 ]);
 
+const ChaseWifePovSchema = Type.Literal("first-person");
+
+const ChaseWifeEventRoleSchema = Type.Union([
+	Type.Literal("opening-intro-conflict"),
+	Type.Literal("escalation"),
+	Type.Literal("reversal"),
+	Type.Literal("exit"),
+	Type.Literal("aftermath"),
+	Type.Literal("public-consequence"),
+	Type.Literal("closure"),
+]);
+
 export const ChaseWifeBeatSchema = Type.Object({
 	beat: Type.Integer({ minimum: 1, maximum: 24 }),
 	phase: ChaseWifePhaseSchema,
@@ -340,10 +352,48 @@ export const ChaseWifeBeatSchema = Type.Object({
 
 export const SaveChaseWifeBeatSheetSchema = Type.Object({
 	projectId: ProjectIdSchema,
+	pov: ChaseWifePovSchema,
+	openingIntro: Type.String({ minLength: 80, maxLength: 300 }),
+	openingConflict: Type.String({ minLength: 1 }),
 	beats: Type.Array(ChaseWifeBeatSchema, { minItems: 12, maxItems: 24 }),
 });
 
 export const CheckChaseWifeArcSchema = Type.Object({ projectId: ProjectIdSchema });
+
+export const ChaseWifeEventSchema = Type.Object({
+	eventId: Type.Integer({ minimum: 1, maximum: 8 }),
+	role: ChaseWifeEventRoleSchema,
+	scene: Type.Integer({ minimum: 1, maximum: 8 }),
+	pov: ChaseWifePovSchema,
+	charTarget: Type.Integer({ minimum: 300, maximum: 600 }),
+	eventDescription: Type.String({ minLength: 1 }),
+	function: Type.String({ minLength: 1 }),
+	goal: Type.String({ minLength: 1 }),
+	conflict: Type.String({ minLength: 1 }),
+	actionOrConsequence: Type.String({ minLength: 1 }),
+	protagonistReaction: Type.String({ minLength: 1 }),
+	oppositionReaction: Type.String({ minLength: 1 }),
+	informationChange: Type.String({ minLength: 1 }),
+	emotionBefore: Type.String({ minLength: 1 }),
+	emotionAfter: Type.String({ minLength: 1 }),
+	physicalReaction: Type.String({ minLength: 1 }),
+	setupOrPayoff: Type.String({ minLength: 1 }),
+	readerRelease: Type.String({ minLength: 1 }),
+	exitHook: Type.String({ minLength: 1 }),
+});
+
+export const SaveChaseWifeEventMapSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	openingIntro: Type.String({ minLength: 80, maxLength: 300 }),
+	openingConflict: Type.String({ minLength: 1 }),
+	events: Type.Array(ChaseWifeEventSchema, { minItems: 3, maxItems: 6 }),
+});
+
+export const CheckChaseWifeEventMapSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+});
 
 export const FinalizeChapterSchema = Type.Object({
 	projectId: ProjectIdSchema,
@@ -384,6 +434,9 @@ export type CheckAiArtifactsParams = Static<typeof CheckAiArtifactsSchema>;
 export type ChaseWifeBeat = Static<typeof ChaseWifeBeatSchema>;
 export type SaveChaseWifeBeatSheetParams = Static<typeof SaveChaseWifeBeatSheetSchema>;
 export type CheckChaseWifeArcParams = Static<typeof CheckChaseWifeArcSchema>;
+export type ChaseWifeEvent = Static<typeof ChaseWifeEventSchema>;
+export type SaveChaseWifeEventMapParams = Static<typeof SaveChaseWifeEventMapSchema>;
+export type CheckChaseWifeEventMapParams = Static<typeof CheckChaseWifeEventMapSchema>;
 export type FinalizeChapterParams = Static<typeof FinalizeChapterSchema>;
 export type ContextSection = Static<typeof ContextSectionSchema>;
 export type DocumentType = Static<typeof DocumentTypeSchema>;
