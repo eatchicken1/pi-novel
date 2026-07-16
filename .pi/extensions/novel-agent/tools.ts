@@ -6,6 +6,10 @@ import type {
 	CheckChaseWifeEventDraftParams,
 	CheckChaseWifeEventSemanticsParams,
 	SaveChaseWifeEventSemanticReportParams,
+	SaveChaseWifeHarmLedgerParams,
+	SaveChaseWifeRepairLedgerParams,
+	SaveChaseWifeEndingContractParams,
+	CheckChaseWifeEndingEligibilityParams,
 	CheckChaseWifeEventMapParams,
 	CheckChaseWifeStoryPacingParams,
 	CheckChaseWifePacingParams,
@@ -46,6 +50,10 @@ import {
 	CheckChaseWifeEventDraftSchema,
 	CheckChaseWifeEventSemanticsSchema,
 	SaveChaseWifeEventSemanticReportSchema,
+	SaveChaseWifeHarmLedgerSchema,
+	SaveChaseWifeRepairLedgerSchema,
+	SaveChaseWifeEndingContractSchema,
+	CheckChaseWifeEndingEligibilitySchema,
 	CheckChaseWifeEventMapSchema,
 	CheckChaseWifeStoryPacingSchema,
 	CheckChaseWifePacingSchema,
@@ -177,6 +185,90 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			executionMode: "sequential",
 			async execute(_toolCallId, params: SaveChaseWifeEventSemanticReportParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).saveChaseWifeEventSemanticReport(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_chase_wife_event_prose",
+			label: "Check Chase-wife Event Prose",
+			description: "Run the mechanical prose check for one chase-wife event. This does not replace the model-submitted semantic report.",
+			parameters: CheckChaseWifeEventSemanticsSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckChaseWifeEventSemanticsParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkChaseWifeEventSemantics(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_harm_ledger",
+			label: "Save Chase-wife Harm Ledger",
+			description: "Save proposed or user-confirmed relationship harms. Each harm must describe the concrete impact and whether it was recognized or repaired.",
+			parameters: SaveChaseWifeHarmLedgerSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveChaseWifeHarmLedgerParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveChaseWifeHarmLedger(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_repair_ledger",
+			label: "Save Chase-wife Repair Ledger",
+			description: "Save proposed or user-confirmed repair attempts tied to specific relationship harms, including cost, boundary behavior, and heroine acceptance.",
+			parameters: SaveChaseWifeRepairLedgerSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveChaseWifeRepairLedgerParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveChaseWifeRepairLedger(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_ending_contract",
+			label: "Save Chase-wife Ending Contract",
+			description: "Save a proposed or user-confirmed ending contract that defines reunion eligibility and the heroine's independent future.",
+			parameters: SaveChaseWifeEndingContractSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveChaseWifeEndingContractParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveChaseWifeEndingContract(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_chase_wife_ending_eligibility",
+			label: "Check Chase-wife Ending Eligibility",
+			description: "Check whether the confirmed harm, repair, and ending ledgers justify the configured chase-wife ending mode.",
+			parameters: CheckChaseWifeEndingEligibilitySchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckChaseWifeEndingEligibilityParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkChaseWifeEndingEligibility(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_harm_repair_progress",
+			label: "Check Chase-wife Harm Repair Progress",
+			description: "Report whether confirmed relationship harms have specific, costly, boundary-respecting repair attempts.",
+			parameters: CheckChaseWifeEndingEligibilitySchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckChaseWifeEndingEligibilityParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkChaseWifeEndingEligibility(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),

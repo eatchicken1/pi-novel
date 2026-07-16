@@ -204,11 +204,18 @@ export const SaveWorkflowCheckpointSchema = Type.Object({
 
 export const LoadWorkflowCheckpointSchema = Type.Object({ projectId: ProjectIdSchema });
 
+const QualityEvidenceAnchorSchema = Type.Object({
+	startChar: Type.Integer({ minimum: 0 }),
+	endChar: Type.Integer({ minimum: 1 }),
+	excerpt: Type.String({ minLength: 1 }),
+});
+
 const QualityEvidenceItemSchema = Type.Object({
 	location: Type.String({ minLength: 1 }),
 	evidence: Type.String({ minLength: 1 }),
 	problem: Type.String({ minLength: 1 }),
 	severity: Type.Optional(Type.Union([Type.Literal("error"), Type.Literal("warning"), Type.Literal("suggestion")])),
+	anchor: Type.Optional(QualityEvidenceAnchorSchema),
 });
 
 const ReaderReportSchema = Type.Object({
@@ -398,6 +405,22 @@ const ChaseWifeTargetTrackSchema = Type.Union([
 	Type.Literal("shared"),
 ]);
 
+const ChaseWifeAgencyDimensionSchema = Type.Union([
+	Type.Literal("epistemic"),
+	Type.Literal("relational"),
+	Type.Literal("material"),
+	Type.Literal("social"),
+	Type.Literal("future"),
+]);
+
+const ChaseWifeAgencyStateSchema = Type.Object({
+	epistemic: Type.Integer({ minimum: 0, maximum: 4 }),
+	relational: Type.Integer({ minimum: 0, maximum: 4 }),
+	material: Type.Integer({ minimum: 0, maximum: 4 }),
+	social: Type.Integer({ minimum: 0, maximum: 4 }),
+	future: Type.Integer({ minimum: 0, maximum: 4 }),
+});
+
 const ChaseWifeInjuryMechanismSchema = Type.Union([
 	Type.Literal("neglect"),
 	Type.Literal("substitution"),
@@ -417,6 +440,22 @@ const ChaseWifeLengthModeSchema = Type.Union([
 
 const ChaseWifePacingModeSchema = Type.Union([Type.Literal("fast-burn"), Type.Literal("standard")]);
 const ChaseWifeStoryPacingScopeSchema = Type.Union([Type.Literal("working"), Type.Literal("finalized")]);
+const ChaseWifeStoryPacingEvaluationModeSchema = Type.Union([Type.Literal("projection"), Type.Literal("gate")]);
+const ChaseWifeOpeningModeSchema = Type.Union([
+	Type.Literal("cold-conflict"),
+	Type.Literal("result-first"),
+	Type.Literal("exit-in-progress"),
+	Type.Literal("quiet-dislocation"),
+]);
+
+const ChaseWifeStayingLogicSchema = Type.Object({
+	emotionalReason: Type.String({ minLength: 1 }),
+	materialReason: Type.String({ minLength: 1 }),
+	socialReason: Type.String({ minLength: 1 }),
+	falseBelief: Type.String({ minLength: 1 }),
+	sustainingEvidence: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+	breakingThreshold: Type.String({ minLength: 1 }),
+});
 
 const ChaseWifeMemorySpanSchema = Type.Object({
 	startChar: Type.Integer({ minimum: 0 }),
@@ -445,10 +484,12 @@ export const SaveChaseWifeBeatSheetSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	povMode: ChaseWifePovModeSchema,
 	pacingMode: Type.Optional(ChaseWifePacingModeSchema),
+	openingMode: Type.Optional(ChaseWifeOpeningModeSchema),
 	heroineArc: Type.Array(ChaseWifeHeroineArcPhaseSchema, { minItems: 4, maxItems: 7 }),
 	maleArc: Type.Array(ChaseWifeMaleArcPhaseSchema, { minItems: 3, maxItems: 6 }),
-	openingIntro: Type.String({ minLength: 80, maxLength: 180 }),
+	openingIntro: Type.Optional(Type.String({ minLength: 1, maxLength: 180 })),
 	openingConflict: Type.String({ minLength: 1 }),
+	stayingLogic: Type.Optional(ChaseWifeStayingLogicSchema),
 	beats: Type.Array(ChaseWifeBeatSchema, { minItems: 12, maxItems: 24 }),
 });
 
@@ -472,6 +513,8 @@ export const ChaseWifeEventSchema = Type.Object({
 	riskDelta: Type.Array(Type.String()),
 	heroineAgencyBefore: Type.Integer({ minimum: 0, maximum: 100 }),
 	heroineAgencyAfter: Type.Integer({ minimum: 0, maximum: 100 }),
+	heroineAgencyStateBefore: Type.Optional(ChaseWifeAgencyStateSchema),
+	heroineAgencyStateAfter: Type.Optional(ChaseWifeAgencyStateSchema),
 	irreversible: Type.Boolean(),
 	cannotRemoveBecause: Type.String({ minLength: 1 }),
 	lengthMode: ChaseWifeLengthModeSchema,
@@ -498,7 +541,8 @@ export const SaveChaseWifeEventMapSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	chapter: ChapterNumberSchema,
 	povMode: ChaseWifePovModeSchema,
-	openingIntro: Type.Optional(Type.String({ minLength: 80, maxLength: 180 })),
+	openingMode: Type.Optional(ChaseWifeOpeningModeSchema),
+	openingIntro: Type.Optional(Type.String({ minLength: 1, maxLength: 180 })),
 	openingConflict: Type.String({ minLength: 1 }),
 	openingConflictMarker: Type.Optional(Type.String({ minLength: 2, maxLength: 80 })),
 	events: Type.Array(ChaseWifeEventSchema, { minItems: 3, maxItems: 6 }),
@@ -544,6 +588,7 @@ export const CheckChaseWifeStoryPacingSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	mode: Type.Optional(ChaseWifePacingModeSchema),
 	scope: Type.Optional(ChaseWifeStoryPacingScopeSchema),
+	evaluationMode: Type.Optional(ChaseWifeStoryPacingEvaluationModeSchema),
 });
 
 export const CheckChaseWifeEventSemanticsSchema = Type.Object({
@@ -551,6 +596,12 @@ export const CheckChaseWifeEventSemanticsSchema = Type.Object({
 	chapter: ChapterNumberSchema,
 	eventId: Type.Integer({ minimum: 1, maximum: 8 }),
 	revision: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
+const SemanticEvidenceAnchorSchema = Type.Object({
+	startChar: Type.Integer({ minimum: 0 }),
+	endChar: Type.Integer({ minimum: 1 }),
+	excerpt: Type.String({ minLength: 1 }),
 });
 
 export const SaveChaseWifeEventSemanticReportSchema = Type.Object({
@@ -570,15 +621,120 @@ export const SaveChaseWifeEventSemanticReportSchema = Type.Object({
 				Type.Literal("agency"),
 			]),
 			delta: Type.String({ minLength: 1 }),
-			evidence: Type.String({ minLength: 1 }),
+			evidence: SemanticEvidenceAnchorSchema,
 		}),
 		{ minItems: 2 },
 	),
-	agencyActionEvidence: Type.Optional(Type.String({ minLength: 1 })),
-	entryHookEvidence: Type.Optional(Type.String({ minLength: 1 })),
-	exitHookEvidence: Type.String({ minLength: 1 }),
-	injuryMechanismEvidence: Type.Optional(Type.String({ minLength: 1 })),
+	agencyActionEvidence: Type.Optional(SemanticEvidenceAnchorSchema),
+	entryHookEvidence: Type.Optional(SemanticEvidenceAnchorSchema),
+	exitHookEvidence: SemanticEvidenceAnchorSchema,
+	injuryMechanismEvidence: Type.Optional(SemanticEvidenceAnchorSchema),
 });
+
+const ChaseWifeHarmCategorySchema = Type.Union([
+	Type.Literal("deprioritization"),
+	Type.Literal("deception"),
+	Type.Literal("gaslighting"),
+	Type.Literal("public-humiliation"),
+	Type.Literal("resource-exploitation"),
+	Type.Literal("care-labor-exploitation"),
+	Type.Literal("boundary-violation"),
+	Type.Literal("future-betrayal"),
+	Type.Literal("social-isolation"),
+]);
+
+const ChaseWifeHarmSeveritySchema = Type.Union([
+	Type.Literal("minor"),
+	Type.Literal("major"),
+	Type.Literal("relationship-breaking"),
+]);
+
+const RelationshipHarmSchema = Type.Object({
+	id: Type.String({ minLength: 1 }),
+	category: ChaseWifeHarmCategorySchema,
+	victimImpact: Type.Object({
+		epistemic: Type.Optional(Type.String({ minLength: 1 })),
+		emotional: Type.Optional(Type.String({ minLength: 1 })),
+		material: Type.Optional(Type.String({ minLength: 1 })),
+		social: Type.Optional(Type.String({ minLength: 1 })),
+		bodily: Type.Optional(Type.String({ minLength: 1 })),
+		future: Type.Optional(Type.String({ minLength: 1 })),
+	}),
+	maleBeliefAtTheTime: Type.String({ minLength: 1 }),
+	heroineBeliefAtTheTime: Type.String({ minLength: 1 }),
+	severity: ChaseWifeHarmSeveritySchema,
+	recognizedByHeroine: Type.Boolean(),
+	recognizedByMale: Type.Boolean(),
+	repaired: Type.Boolean(),
+	repairable: Type.Boolean(),
+});
+
+const ChaseWifeRepairTypeSchema = Type.Union([
+	Type.Literal("specific-apology"),
+	Type.Literal("resource-restitution"),
+	Type.Literal("public-correction"),
+	Type.Literal("boundary-respect"),
+	Type.Literal("behavior-change"),
+	Type.Literal("costly-accountability"),
+]);
+
+const ChaseWifeRepairEffectivenessSchema = Type.Union([
+	Type.Literal("coercive"),
+	Type.Literal("self-serving"),
+	Type.Literal("partial"),
+	Type.Literal("credible"),
+]);
+
+const RepairAttemptSchema = Type.Object({
+	id: Type.String({ minLength: 1 }),
+	addressesHarmIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+	type: ChaseWifeRepairTypeSchema,
+	action: Type.String({ minLength: 1 }),
+	costToMale: Type.String({ minLength: 1 }),
+	benefitToHeroine: Type.String({ minLength: 1 }),
+	requestedReward: Type.String({ minLength: 1 }),
+	violatesBoundary: Type.Boolean(),
+	acceptedByHeroine: Type.Boolean(),
+	effectiveness: ChaseWifeRepairEffectivenessSchema,
+});
+
+const ChaseWifeEndingModeSchema = Type.Union([
+	Type.Literal("no-reunion"),
+	Type.Literal("earned-reunion"),
+	Type.Literal("open-ending"),
+]);
+
+const ChaseWifeEndingContractSchema = Type.Object({
+	mode: ChaseWifeEndingModeSchema,
+	heroineIndependentFutureRequired: Type.Boolean(),
+	maleRecognitionRequired: Type.Boolean(),
+	restitutionRequired: Type.Boolean(),
+	boundaryRespectRequired: Type.Boolean(),
+	reunionEligibilityRules: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+});
+
+export const SaveChaseWifeHarmLedgerSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	status: UpdateStatusSchema,
+	harms: Type.Array(RelationshipHarmSchema, { minItems: 1 }),
+	confirmation: ConfirmationSchema,
+});
+
+export const SaveChaseWifeRepairLedgerSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	status: UpdateStatusSchema,
+	repairs: Type.Array(RepairAttemptSchema, { minItems: 1 }),
+	confirmation: ConfirmationSchema,
+});
+
+export const SaveChaseWifeEndingContractSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	status: UpdateStatusSchema,
+	contract: ChaseWifeEndingContractSchema,
+	confirmation: ConfirmationSchema,
+});
+
+export const CheckChaseWifeEndingEligibilitySchema = Type.Object({ projectId: ProjectIdSchema });
 
 export const ScoreChaseWifeChapterSchema = Type.Object({
 	projectId: ProjectIdSchema,
@@ -635,6 +791,7 @@ export type ChaseWifeBeat = Static<typeof ChaseWifeBeatSchema>;
 export type SaveChaseWifeBeatSheetParams = Static<typeof SaveChaseWifeBeatSheetSchema>;
 export type CheckChaseWifeArcParams = Static<typeof CheckChaseWifeArcSchema>;
 export type ChaseWifeEvent = Static<typeof ChaseWifeEventSchema>;
+export type ChaseWifeAgencyState = Static<typeof ChaseWifeAgencyStateSchema>;
 export type SaveChaseWifeEventMapParams = Static<typeof SaveChaseWifeEventMapSchema>;
 export type CheckChaseWifeEventMapParams = Static<typeof CheckChaseWifeEventMapSchema>;
 export type ChaseWifePovMode = Static<typeof ChaseWifePovModeSchema>;
@@ -647,6 +804,11 @@ export type CheckChaseWifeChapterPacingParams = Static<typeof CheckChaseWifeChap
 export type CheckChaseWifeStoryPacingParams = Static<typeof CheckChaseWifeStoryPacingSchema>;
 export type CheckChaseWifeEventSemanticsParams = Static<typeof CheckChaseWifeEventSemanticsSchema>;
 export type SaveChaseWifeEventSemanticReportParams = Static<typeof SaveChaseWifeEventSemanticReportSchema>;
+export type SemanticEvidenceAnchor = Static<typeof SemanticEvidenceAnchorSchema>;
+export type SaveChaseWifeHarmLedgerParams = Static<typeof SaveChaseWifeHarmLedgerSchema>;
+export type SaveChaseWifeRepairLedgerParams = Static<typeof SaveChaseWifeRepairLedgerSchema>;
+export type SaveChaseWifeEndingContractParams = Static<typeof SaveChaseWifeEndingContractSchema>;
+export type CheckChaseWifeEndingEligibilityParams = Static<typeof CheckChaseWifeEndingEligibilitySchema>;
 export type ScoreChaseWifeChapterParams = Static<typeof ScoreChaseWifeChapterSchema>;
 export type FinalizeChapterParams = Static<typeof FinalizeChapterSchema>;
 export type FinalizeManuscriptParams = Static<typeof FinalizeManuscriptSchema>;
