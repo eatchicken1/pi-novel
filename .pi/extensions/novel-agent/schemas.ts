@@ -204,11 +204,38 @@ export const SaveWorkflowCheckpointSchema = Type.Object({
 
 export const LoadWorkflowCheckpointSchema = Type.Object({ projectId: ProjectIdSchema });
 
+const QualityEvidenceItemSchema = Type.Object({
+	location: Type.String({ minLength: 1 }),
+	evidence: Type.String({ minLength: 1 }),
+	problem: Type.String({ minLength: 1 }),
+	severity: Type.Optional(Type.Union([Type.Literal("error"), Type.Literal("warning"), Type.Literal("suggestion")])),
+});
+
+const ReaderReportSchema = Type.Object({
+	status: Type.Union([Type.Literal("ok"), Type.Literal("revision-required")]),
+	engagementDrops: Type.Array(QualityEvidenceItemSchema),
+	predictions: Type.Array(QualityEvidenceItemSchema),
+	confusionPoints: Type.Array(QualityEvidenceItemSchema),
+	credibilityBreaks: Type.Array(QualityEvidenceItemSchema),
+	strongestMoments: Type.Array(QualityEvidenceItemSchema, { minItems: 1 }),
+});
+
+const ReviewReportSchema = Type.Object({
+	status: Type.Union([Type.Literal("ok"), Type.Literal("revision-required")]),
+	structuralIssues: Type.Array(QualityEvidenceItemSchema),
+	sceneIssues: Type.Array(QualityEvidenceItemSchema),
+	characterIssues: Type.Array(QualityEvidenceItemSchema),
+	pacingIssues: Type.Array(QualityEvidenceItemSchema),
+	priorities: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+	allowFinalize: Type.Boolean(),
+});
+
 export const SaveQualityReportSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	chapter: Type.Optional(ChapterNumberSchema),
 	draftRevision: Type.Optional(Type.Integer({ minimum: 1 })),
 	content: Type.String({ minLength: 1 }),
+	structuredReport: Type.Optional(Type.Union([ReaderReportSchema, ReviewReportSchema])),
 });
 
 export const RecordWritingIssueSchema = Type.Object({
@@ -417,6 +444,7 @@ export const ChaseWifeBeatSchema = Type.Object({
 export const SaveChaseWifeBeatSheetSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	povMode: ChaseWifePovModeSchema,
+	pacingMode: Type.Optional(ChaseWifePacingModeSchema),
 	heroineArc: Type.Array(ChaseWifeHeroineArcPhaseSchema, { minItems: 4, maxItems: 7 }),
 	maleArc: Type.Array(ChaseWifeMaleArcPhaseSchema, { minItems: 3, maxItems: 6 }),
 	openingIntro: Type.String({ minLength: 80, maxLength: 180 }),
@@ -429,6 +457,9 @@ export const CheckChaseWifeArcSchema = Type.Object({ projectId: ProjectIdSchema 
 export const ChaseWifeEventSchema = Type.Object({
 	eventId: Type.Integer({ minimum: 1, maximum: 8 }),
 	role: ChaseWifeEventRoleSchema,
+	beatRefs: Type.Optional(Type.Array(Type.Integer({ minimum: 1, maximum: 24 }))),
+	heroinePhase: Type.Optional(ChaseWifeHeroineArcPhaseSchema),
+	malePhase: Type.Optional(ChaseWifeMaleArcPhaseSchema),
 	scene: Type.Integer({ minimum: 1, maximum: 8 }),
 	pov: ChaseWifeEventPovSchema,
 	targetTrack: ChaseWifeTargetTrackSchema,
@@ -522,6 +553,33 @@ export const CheckChaseWifeEventSemanticsSchema = Type.Object({
 	revision: Type.Optional(Type.Integer({ minimum: 1 })),
 });
 
+export const SaveChaseWifeEventSemanticReportSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	eventId: Type.Integer({ minimum: 1, maximum: 8 }),
+	revision: Type.Optional(Type.Integer({ minimum: 1 })),
+	roleSatisfied: Type.Boolean(),
+	conflictShown: Type.Boolean(),
+	stateDeltasShown: Type.Array(
+		Type.Object({
+			dimension: Type.Union([
+				Type.Literal("information"),
+				Type.Literal("relationship"),
+				Type.Literal("resource"),
+				Type.Literal("risk"),
+				Type.Literal("agency"),
+			]),
+			delta: Type.String({ minLength: 1 }),
+			evidence: Type.String({ minLength: 1 }),
+		}),
+		{ minItems: 2 },
+	),
+	agencyActionEvidence: Type.Optional(Type.String({ minLength: 1 })),
+	entryHookEvidence: Type.Optional(Type.String({ minLength: 1 })),
+	exitHookEvidence: Type.String({ minLength: 1 }),
+	injuryMechanismEvidence: Type.Optional(Type.String({ minLength: 1 })),
+});
+
 export const ScoreChaseWifeChapterSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	chapter: ChapterNumberSchema,
@@ -559,6 +617,8 @@ export type ExtractChapterFactsParams = Static<typeof ExtractChapterFactsSchema>
 export type SaveWorkflowCheckpointParams = Static<typeof SaveWorkflowCheckpointSchema>;
 export type LoadWorkflowCheckpointParams = Static<typeof LoadWorkflowCheckpointSchema>;
 export type SaveQualityReportParams = Static<typeof SaveQualityReportSchema>;
+export type ReaderReport = Static<typeof ReaderReportSchema>;
+export type ReviewReport = Static<typeof ReviewReportSchema>;
 export type RecordWritingIssueParams = Static<typeof RecordWritingIssueSchema>;
 export type Genre = Static<typeof GenreSchema>;
 export type UpdateCharacterStateParams = Static<typeof UpdateCharacterStateSchema>;
@@ -586,6 +646,7 @@ export type CheckChaseWifePacingParams = Static<typeof CheckChaseWifePacingSchem
 export type CheckChaseWifeChapterPacingParams = Static<typeof CheckChaseWifeChapterPacingSchema>;
 export type CheckChaseWifeStoryPacingParams = Static<typeof CheckChaseWifeStoryPacingSchema>;
 export type CheckChaseWifeEventSemanticsParams = Static<typeof CheckChaseWifeEventSemanticsSchema>;
+export type SaveChaseWifeEventSemanticReportParams = Static<typeof SaveChaseWifeEventSemanticReportSchema>;
 export type ScoreChaseWifeChapterParams = Static<typeof ScoreChaseWifeChapterSchema>;
 export type FinalizeChapterParams = Static<typeof FinalizeChapterSchema>;
 export type FinalizeManuscriptParams = Static<typeof FinalizeManuscriptSchema>;

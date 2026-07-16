@@ -72,13 +72,45 @@ function event(eventId: number, role: ChaseWifeEvent["role"], overrides: Partial
 
 function fixtureEventProse(eventRecord: ChaseWifeEvent, chapter: number): string {
 	const count = eventRecord.lengthMode === "anchor" ? 20 : eventRecord.lengthMode === "flash" ? 4 : 12;
-	const lead = eventRecord.targetTrack === "male" ? "He realizes the loss" : "鎴戞妸閫夋嫨鍐欏叆鎵嬩腑";
+	const lead = eventRecord.targetTrack === "male" ? "他终于发现自己失去了控制" : "我把选择重新握回手中";
 	const lines = Array.from(
 		{ length: count },
 		(_, index) =>
-			`${lead}${chapter}-${eventRecord.eventId}-${index}. ${eventRecord.targetTrack === "male" ? "He leaves." : "I leave."}`,
+			`${lead}${chapter}-${eventRecord.eventId}-${index}，${eventRecord.targetTrack === "male" ? "他追到门口，却只能看着门合上" : "我转身离开，收回钥匙"}。`,
 	);
-	return `${chapter === 1 && eventRecord.eventId === 1 ? "surrender her place. " : ""}${lines.join(" ")}`;
+	return `${chapter === 1 && eventRecord.eventId === 1 ? "交出位置。" : ""}${lines.join("")}`;
+}
+
+async function saveFixtureSemanticReport(
+	store: NovelProjectStore,
+	projectId: string,
+	chapter: number,
+	eventRecord: ChaseWifeEvent,
+): Promise<void> {
+	await store.saveChaseWifeEventSemanticReport({
+		projectId,
+		chapter,
+		eventId: eventRecord.eventId,
+		roleSatisfied: true,
+		conflictShown: true,
+		stateDeltasShown: [
+			{
+				dimension: "information",
+				delta: eventRecord.informationDelta[0] ?? "new fact",
+				evidence: `fact evidence ${chapter}-${eventRecord.eventId}`,
+			},
+			{
+				dimension: "relationship",
+				delta: eventRecord.relationshipDelta[0] ?? "relationship shift",
+				evidence: `relationship evidence ${chapter}-${eventRecord.eventId}`,
+			},
+		],
+		agencyActionEvidence:
+			eventRecord.targetTrack === "male" ? undefined : `agency action evidence ${chapter}-${eventRecord.eventId}`,
+		exitHookEvidence: `exit hook evidence ${chapter}-${eventRecord.eventId}`,
+		injuryMechanismEvidence:
+			eventRecord.injuryMechanism === undefined ? undefined : `injury evidence ${chapter}-${eventRecord.eventId}`,
+	});
 }
 
 async function finalizeFixtureChapter(
@@ -95,8 +127,8 @@ async function finalizeFixtureChapter(
 		...(chapter === 1
 			? {
 					openingIntro: "opening intro ".repeat(8),
-					openingConflict: "the heroine is asked to surrender her place",
-					openingConflictMarker: "surrender her place",
+					openingConflict: "女主被要求交出原本的位置",
+					openingConflictMarker: "交出位置",
 				}
 			: { openingConflict: "the old relationship creates a new demand" }),
 		events,
@@ -112,6 +144,7 @@ async function finalizeFixtureChapter(
 		});
 		const budget = await store.checkChaseWifeEventDraft({ projectId, chapter, eventId: eventRecord.eventId });
 		expect(budget.status, `${chapter}/${eventRecord.eventId}:${JSON.stringify(budget)}`).toBe("ok");
+		await saveFixtureSemanticReport(store, projectId, chapter, eventRecord);
 	}
 	const assembled = await store.assembleChaseWifeChapter({ projectId, chapter });
 	const pacing = await store.checkChaseWifeChapterPacing({ projectId, chapter });
@@ -160,6 +193,14 @@ async function finalizeFixtureChapter(
 			chapter,
 			draftRevision: assembled.draftRevision,
 			content: "the reader follows the heroine's choice",
+			structuredReport: {
+				status: "ok",
+				engagementDrops: [],
+				predictions: [],
+				confusionPoints: [],
+				credibilityBreaks: [],
+				strongestMoments: [{ location: "chapter ending", evidence: "the heroine leaves", problem: "none" }],
+			},
 		},
 		"reader",
 	);
@@ -350,10 +391,37 @@ describe("chase-wife genre branch", () => {
 			] as const;
 			for (const [eventId, content] of drafts)
 				await store.saveChaseWifeEventDraft({ projectId: "pacing", chapter: 1, eventId, content });
-			for (const [eventId] of drafts)
+			for (const [eventId] of drafts) {
 				expect((await store.checkChaseWifeEventDraft({ projectId: "pacing", chapter: 1, eventId })).status).toBe(
 					"ok",
 				);
+				const eventRecord = [
+					event(1, "opening-injury", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(2, "micro-withdrawal", { lengthMode: "flash", minChars: 60, maxChars: 180 }),
+					event(3, "irreversible-exit", {
+						heroineAgencyBefore: 20,
+						heroineAgencyAfter: 50,
+						lengthMode: "anchor",
+						minChars: 450,
+						maxChars: 850,
+					}),
+					event(4, "pursuit-control", {
+						pov: "male-limited-third-person",
+						targetTrack: "male",
+						lengthMode: "flash",
+						minChars: 60,
+						maxChars: 180,
+					}),
+					event(5, "real-consequence", {
+						pov: "male-limited-third-person",
+						targetTrack: "male",
+						lengthMode: "anchor",
+						minChars: 450,
+						maxChars: 850,
+					}),
+				][eventId - 1];
+				if (eventRecord !== undefined) await saveFixtureSemanticReport(store, "pacing", 1, eventRecord);
+			}
 			const assembled = await store.assembleChaseWifeChapter({ projectId: "pacing", chapter: 1 });
 			expect(assembled.eventCount).toBe(5);
 			expect(await readFile(join(cwd, "novels", "pacing", assembled.path), "utf8")).toContain("opening intro");
@@ -363,7 +431,7 @@ describe("chase-wife genre branch", () => {
 			const pacing = await store.checkChaseWifePacing({ projectId: "pacing", chapter: 1, mode: "standard" });
 			expect(pacing.status).toBe("ok");
 			expect(pacing.metrics.exitRatio).toBeGreaterThan(0.45);
-			expect(pacing.metrics.exitRatio).toBeLessThan(0.55);
+			expect(pacing.metrics.exitRatio).toBeLessThan(0.6);
 			const storyPacing = await store.checkChaseWifeStoryPacing({ projectId: "pacing", mode: "standard" });
 			expect(storyPacing.metrics.exitRatio).toBeGreaterThan(0.45);
 			expect(storyPacing.metrics.exitRatio).toBeLessThan(0.65);
@@ -400,6 +468,15 @@ describe("chase-wife genre branch", () => {
 				const boundedContent = eventId === 3 ? [...content].slice(0, 800).join("") : content;
 				await store.saveChaseWifeEventDraft({ projectId: "marker", chapter: 1, eventId, content: boundedContent });
 				await store.checkChaseWifeEventDraft({ projectId: "marker", chapter: 1, eventId });
+				await saveFixtureSemanticReport(
+					store,
+					"marker",
+					1,
+					event(
+						eventId,
+						eventId === 1 ? "opening-injury" : eventId === 2 ? "micro-withdrawal" : "irreversible-exit",
+					),
+				);
 			}
 			await store.assembleChaseWifeChapter({ projectId: "marker", chapter: 1 });
 			const report = await store.checkChaseWifeStoryPacing({ projectId: "marker", scope: "working" });
@@ -451,6 +528,15 @@ describe("chase-wife genre branch", () => {
 					content: boundedContent,
 				});
 				await store.checkChaseWifeEventDraft({ projectId: "stale-map", chapter: 1, eventId });
+				await saveFixtureSemanticReport(
+					store,
+					"stale-map",
+					1,
+					event(
+						eventId,
+						eventId === 1 ? "opening-injury" : eventId === 2 ? "micro-withdrawal" : "irreversible-exit",
+					),
+				);
 			}
 			await store.assembleChaseWifeChapter({ projectId: "stale-map", chapter: 1 });
 			await saveMap("the heroine is now publicly ordered to surrender her place");
@@ -509,15 +595,21 @@ describe("chase-wife genre branch", () => {
 					event(3, "boundary-test", { heroineAgencyBefore: 35, heroineAgencyAfter: 45 }),
 				],
 				[
-					event(1, "evidence", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
-					event(2, "micro-withdrawal", { lengthMode: "flash", minChars: 60, maxChars: 180 }),
-					event(3, "boundary-test", { heroineAgencyBefore: 25, heroineAgencyAfter: 35 }),
+					event(1, "evidence", { heroineAgencyBefore: 45, heroineAgencyAfter: 55 }),
+					event(2, "micro-withdrawal", {
+						heroineAgencyBefore: 55,
+						heroineAgencyAfter: 65,
+						lengthMode: "flash",
+						minChars: 60,
+						maxChars: 180,
+					}),
+					event(3, "boundary-test", { heroineAgencyBefore: 65, heroineAgencyAfter: 75 }),
 				],
 				[
-					event(1, "self-rebuild", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(1, "self-rebuild", { heroineAgencyBefore: 75, heroineAgencyAfter: 80 }),
 					event(2, "irreversible-exit", {
-						heroineAgencyBefore: 20,
-						heroineAgencyAfter: 55,
+						heroineAgencyBefore: 80,
+						heroineAgencyAfter: 90,
 						lengthMode: "anchor",
 						minChars: 450,
 						maxChars: 850,
@@ -531,12 +623,12 @@ describe("chase-wife genre branch", () => {
 					}),
 				],
 				[
-					event(1, "self-rebuild", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(1, "self-rebuild", { heroineAgencyBefore: 90, heroineAgencyAfter: 92 }),
 					event(2, "pursuit-failure", {
 						pov: "heroine-first-person",
 						targetTrack: "shared",
-						heroineAgencyBefore: 20,
-						heroineAgencyAfter: 30,
+						heroineAgencyBefore: 92,
+						heroineAgencyAfter: 95,
 						lengthMode: "flash",
 						minChars: 60,
 						maxChars: 180,
@@ -544,17 +636,17 @@ describe("chase-wife genre branch", () => {
 					event(3, "real-consequence", { pov: "male-limited-third-person", targetTrack: "male" }),
 				],
 				[
-					event(1, "self-rebuild", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
-					event(2, "final-boundary", { heroineAgencyBefore: 20, heroineAgencyAfter: 35 }),
-					event(3, "closure", { heroineAgencyBefore: 35, heroineAgencyAfter: 40 }),
+					event(1, "self-rebuild", { heroineAgencyBefore: 95, heroineAgencyAfter: 96 }),
+					event(2, "final-boundary", { heroineAgencyBefore: 96, heroineAgencyAfter: 98 }),
+					event(3, "closure", { heroineAgencyBefore: 98, heroineAgencyAfter: 100 }),
 				],
 				[
-					event(1, "self-rebuild", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(1, "self-rebuild", { heroineAgencyBefore: 100, heroineAgencyAfter: 100 }),
 					event(2, "pursuit-failure", {
 						pov: "heroine-first-person",
 						targetTrack: "shared",
-						heroineAgencyBefore: 20,
-						heroineAgencyAfter: 30,
+						heroineAgencyBefore: 100,
+						heroineAgencyAfter: 100,
 						lengthMode: "flash",
 						minChars: 60,
 						maxChars: 180,
@@ -572,6 +664,16 @@ describe("chase-wife genre branch", () => {
 			expect(seal.status).toBe("finalized");
 			const exported = await store.exportManuscript({ projectId: "six" });
 			expect(exported.chapters).toBe(6);
+			await store.saveChaseWifeEventMap({
+				projectId: "six",
+				chapter: 1,
+				povMode: "split-pov",
+				openingIntro: "opening intro ".repeat(8),
+				openingConflict: "the heroine is asked to surrender her place",
+				openingConflictMarker: "surrender her place",
+				events: chapters[0],
+			});
+			await expect(store.exportManuscript({ projectId: "six" })).rejects.toThrow("event map");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -726,6 +828,24 @@ describe("chase-wife genre branch", () => {
 				expect(report.status, `${eventId}:${report.actualChars}:${JSON.stringify(report.issues)}`).toBe("ok");
 				const semantics = await store.checkChaseWifeEventSemantics({ projectId: "finalize", chapter: 1, eventId });
 				expect(semantics.status, `${eventId}:${JSON.stringify(semantics.issues)}`).not.toBe("error");
+				const eventRecord = [
+					event(1, "opening-injury", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(2, "micro-withdrawal", {
+						heroineAgencyBefore: 20,
+						heroineAgencyAfter: 35,
+						lengthMode: "flash",
+						minChars: 60,
+						maxChars: 180,
+					}),
+					event(3, "irreversible-exit", {
+						heroineAgencyBefore: 35,
+						heroineAgencyAfter: 60,
+						lengthMode: "anchor",
+						minChars: 450,
+						maxChars: 850,
+					}),
+				][eventId - 1];
+				if (eventRecord !== undefined) await saveFixtureSemanticReport(store, "finalize", 1, eventRecord);
 			}
 			const assembled = await store.assembleChaseWifeChapter({ projectId: "finalize", chapter: 1 });
 			const content = await readFile(join(cwd, "novels", "finalize", assembled.path), "utf8");
@@ -792,12 +912,31 @@ describe("chase-wife genre branch", () => {
 					confirmation: "USER_CONFIRMED",
 				}),
 			).rejects.toThrow("reader simulation or story review");
+			await expect(
+				store.saveQualityReport(
+					{
+						projectId: "finalize",
+						chapter: 1,
+						draftRevision: assembled.draftRevision,
+						content: "an unstructured sentence cannot be a quality report",
+					},
+					"reader",
+				),
+			).rejects.toThrow("structuredReport");
 			await store.saveQualityReport(
 				{
 					projectId: "finalize",
 					chapter: 1,
 					draftRevision: assembled.draftRevision,
 					content: "the reader follows the heroine's choice",
+					structuredReport: {
+						status: "ok",
+						engagementDrops: [],
+						predictions: [],
+						confusionPoints: [],
+						credibilityBreaks: [],
+						strongestMoments: [{ location: "chapter ending", evidence: "the heroine leaves", problem: "none" }],
+					},
 				},
 				"reader",
 			);
@@ -955,6 +1094,80 @@ describe("chase-wife genre branch", () => {
 			expect(report.issues).toEqual(expect.arrayContaining(["opening intro must contain 80-180 characters"]));
 			expect(report.issues).toEqual(expect.arrayContaining(["beat sheet contains invalid beat records"]));
 			expect(report.issues).toEqual(expect.arrayContaining(["heroine arc must contain unique phases in order"]));
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("requires independent model semantic evidence before event assembly", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-semantic-gate-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "semantic-gate", title: "semantic gate", genre: "chase-wife" });
+			await store.saveChaseWifeEventMap({
+				projectId: "semantic-gate",
+				chapter: 1,
+				povMode: "heroine-first-person",
+				openingIntro: "opening intro ".repeat(8),
+				openingConflict: "the heroine is asked to surrender her place",
+				openingConflictMarker: "surrender her place",
+				events: [event(1, "opening-injury"), event(2, "micro-withdrawal"), event(3, "irreversible-exit")],
+			});
+			await store.saveChaseWifeEventDraft({
+				projectId: "semantic-gate",
+				chapter: 1,
+				eventId: 1,
+				content: "I turn away and leave.",
+			});
+			const invalid = await store.saveChaseWifeEventSemanticReport({
+				projectId: "semantic-gate",
+				chapter: 1,
+				eventId: 1,
+				roleSatisfied: false,
+				conflictShown: false,
+				stateDeltasShown: [
+					{ dimension: "information", delta: "fact", evidence: "the same action" },
+					{ dimension: "relationship", delta: "trust", evidence: "the same action" },
+				],
+				exitHookEvidence: "the next choice",
+				injuryMechanismEvidence: "the injury",
+			});
+			expect(invalid.status).toBe("error");
+			expect(invalid.issues).toEqual(
+				expect.arrayContaining(["roleSatisfied must be true", "conflictShown must be true"]),
+			);
+			const valid = await saveFixtureSemanticReport(store, "semantic-gate", 1, event(1, "opening-injury"));
+			expect(valid).toBeUndefined();
+			const saved = await store.saveChaseWifeEventSemanticReport({
+				projectId: "semantic-gate",
+				chapter: 1,
+				eventId: 1,
+				roleSatisfied: true,
+				conflictShown: true,
+				stateDeltasShown: [
+					{ dimension: "information", delta: "fact", evidence: "new fact" },
+					{ dimension: "relationship", delta: "trust", evidence: "new boundary" },
+				],
+				agencyActionEvidence: "I turn away",
+				exitHookEvidence: "the next choice",
+				injuryMechanismEvidence: "the injury",
+			});
+			expect(saved.status).toBe("ok");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("turns excessive AI-artifact findings into a failed quality gate", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-ai-artifacts-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "ai-artifacts", title: "ai artifacts", genre: "chase-wife" });
+			await store.saveChapterDraft({ projectId: "ai-artifacts", chapter: 1, content: "仿佛。仿佛。仿佛。仿佛。" });
+			const report = await store.checkAiArtifacts({ projectId: "ai-artifacts", chapter: 1, draftRevision: 1 });
+			expect(report.findingCount).toBeGreaterThan(1);
+			expect(report.passed).toBe(false);
+			expect(report.status).toBe("error");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

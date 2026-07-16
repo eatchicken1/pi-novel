@@ -374,4 +374,31 @@ describe("NovelProjectStore", () => {
 			).rejects.toMatchObject({ code: "ENOENT" });
 		});
 	});
+
+	it("uses character trigrams when comparing Chinese draft revisions", async () => {
+		await withStore(async (store) => {
+			await store.initializeNovel({ projectId: "chinese-diff", title: "中文差异", genre: "urban-romance" });
+			await store.saveChapterDraft({
+				projectId: "chinese-diff",
+				chapter: 1,
+				revision: 1,
+				content: "我转身离开，删掉他的号码。",
+			});
+			await store.saveChapterDraft({
+				projectId: "chinese-diff",
+				chapter: 1,
+				revision: 2,
+				content: "我转身离开，删掉他的号码，拿走钥匙。",
+			});
+			const diff = await store.compareDraftVersions({
+				projectId: "chinese-diff",
+				chapter: 1,
+				leftRevision: 1,
+				rightRevision: 2,
+			});
+			expect(diff.similarity).toBeGreaterThan(0);
+			expect(diff.similarity).toBeLessThan(1);
+			expect(diff.changedCharacters).toBeGreaterThan(0);
+		});
+	});
 });

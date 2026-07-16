@@ -5,6 +5,7 @@ import type {
 	CheckChaseWifeArcParams,
 	CheckChaseWifeEventDraftParams,
 	CheckChaseWifeEventSemanticsParams,
+	SaveChaseWifeEventSemanticReportParams,
 	CheckChaseWifeEventMapParams,
 	CheckChaseWifeStoryPacingParams,
 	CheckChaseWifePacingParams,
@@ -31,7 +32,6 @@ import type {
 	SaveChaseWifeEventMapParams,
 	SaveSceneContractParams,
 	SaveQualityReportParams,
-	SaveStoryDocumentParams,
 	SaveWorkflowCheckpointParams,
 	ScoreChapterParams,
 	ScoreStoryFoundationParams,
@@ -45,6 +45,7 @@ import {
 	CheckChaseWifeArcSchema,
 	CheckChaseWifeEventDraftSchema,
 	CheckChaseWifeEventSemanticsSchema,
+	SaveChaseWifeEventSemanticReportSchema,
 	CheckChaseWifeEventMapSchema,
 	CheckChaseWifeStoryPacingSchema,
 	CheckChaseWifePacingSchema,
@@ -71,7 +72,6 @@ import {
 	SaveChaseWifeEventMapSchema,
 	SaveSceneContractSchema,
 	SaveQualityReportSchema,
-	SaveStoryDocumentSchema,
 	SaveWorkflowCheckpointSchema,
 	ScoreChapterSchema,
 	ScoreStoryFoundationSchema,
@@ -163,6 +163,20 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckChaseWifeEventSemanticsParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).checkChaseWifeEventSemantics(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_chase_wife_event_semantic_report",
+			label: "Save Chase-wife Semantic Report",
+			description: "Save model-submitted semantic evidence for one event. The report must prove the role, conflict, two independent state deltas, required agency action, exit hook, and declared injury mechanism.",
+			parameters: SaveChaseWifeEventSemanticReportSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveChaseWifeEventSemanticReportParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveChaseWifeEventSemanticReport(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),
@@ -482,20 +496,6 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			async execute(_toolCallId, params: ReadStoryContextParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).readStoryContext(params, signal);
 				return { content: [{ type: "text", text: result.text || "No story context found." }], details: result };
-			},
-		}),
-	);
-
-	pi.registerTool(
-		defineTool({
-			name: "save_story_document",
-			label: "Save Story Document",
-			description: "Persist a general story document under the deterministic novel project directory.",
-			parameters: SaveStoryDocumentSchema,
-			executionMode: "sequential",
-			async execute(_toolCallId, params: SaveStoryDocumentParams, signal, _onUpdate, ctx) {
-				const result = await getStore(ctx.cwd).saveStoryDocument(params, signal);
-				return { content: [{ type: "text", text: `Saved ${result.documentType}: ${result.path}` }], details: result };
 			},
 		}),
 	);
