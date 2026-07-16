@@ -23,7 +23,7 @@
 
 ## 质量闭环
 
-- 基础设定使用 `score_story_foundation`；普通章节使用 `score_chapter`，追妻文章节必须额外逐事件使用 `check_chase_wife_event_draft`、`check_chase_wife_event_semantics`，组装后使用 `check_chase_wife_chapter_pacing`、`score_chase_wife_chapter`、`check_ai_artifacts` 和 `save_reader_report`/`save_review_report`；全篇完成后再使用 `check_chase_wife_story_pacing`。
+- 基础设定使用 `score_story_foundation`；普通章节使用 `score_chapter`，追妻文章节必须额外逐事件使用 `check_chase_wife_event_draft`、`check_chase_wife_event_semantics`，组装后使用 `check_chase_wife_chapter_pacing`、`score_chase_wife_chapter`、`check_ai_artifacts` 和 `save_reader_report`/`save_review_report`；草稿期使用 `check_chase_wife_story_pacing(scope=working)`，只有所有章节定稿后才能使用 `scope=finalized`；导出前必须调用 `finalize_manuscript`，并通过 `export_manuscript` 的封存校验。
 - 评分未通过时生成定向修改任务，最多自动修改两轮；第二轮仍未通过必须交给作者决定。
 - 定稿后的事实、人物、伏笔和时间线先使用 `proposed` 更新；只有作者确认后才能使用 `USER_CONFIRMED` 写入正史。
 - 使用 `compare_draft_versions` 保留修改证据，使用 `export_manuscript` 只导出已定稿章节。

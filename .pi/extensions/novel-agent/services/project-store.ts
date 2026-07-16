@@ -23,6 +23,7 @@ import type {
 	DocumentType,
 	ExtractChapterFactsParams,
 	FinalizeChapterParams,
+	FinalizeManuscriptParams,
 	Genre,
 	GetNovelStatusParams,
 	InitializeNovelParams,
@@ -34,6 +35,7 @@ import type {
 	ScoreStoryFoundationParams,
 	SaveChapterDraftParams,
 	SaveChapterPlanParams,
+	SaveCanonDocumentParams,
 	SaveContinuityReportParams,
 	SaveChaseWifeBeatSheetParams,
 	SaveChaseWifeEventDraftParams,
@@ -53,6 +55,12 @@ const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const DEFAULT_CONTEXT_CHARS = 50_000;
 const MANAGED_DOCUMENT_TYPES = new Set<DocumentType>([
+	"story-bible",
+	"style-guide",
+	"world",
+	"character",
+	"outline",
+	"timeline",
 	"chapter-plan",
 	"scene-contract",
 	"chapter-draft",
@@ -221,6 +229,10 @@ function sha256(content: string): string {
 	return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
+function hashJson(value: unknown): string {
+	return sha256(JSON.stringify(value));
+}
+
 function defaultTargetWordCount(genre: string): number {
 	return {
 		"chase-wife": 10_000,
@@ -228,15 +240,6 @@ function defaultTargetWordCount(genre: string): number {
 		"urban-romance": 10_000,
 		"light-fantasy": 15_000,
 	}[genre] ?? 10_000;
-}
-
-function pacingIssueRecord(message: string): ChaseWifePacingIssueRecord {
-	if (message.includes("missing") || message.includes("not verified")) return { code: "missing-or-late", severity: "error", deduction: 15, message };
-	if (message.includes("outside its")) return { code: "event-budget", severity: "error", deduction: 10, message };
-	if (message.includes("repeats more than twice")) return { code: "repeated-injury-mechanism", severity: "error", deduction: 10, message };
-	if (message.includes("too similar")) return { code: "interchangeable-event-prose", severity: "error", deduction: 10, message };
-	if (message.includes("invalid") || message.includes("pure-psychology")) return { code: "invalid-prose-structure", severity: "error", deduction: 10, message };
-	return { code: "pacing-warning", severity: "warning", deduction: 5, message };
 }
 
 function containsActionEvidence(content: string): boolean {
@@ -554,6 +557,19 @@ export class NovelProjectStore {
 		});
 	}
 
+	private async writeVersionedJsonReport(projectId: string, relativePath: string, report: JsonRecord, signal?: AbortSignal): Promise<{ reportRevision: number; versionedPath: string; latestPath: string }> {
+		const basePath = relativePath.endsWith(".json") ? relativePath.slice(0, -5) : relativePath;
+		const directory = this.projectFile(projectId, dirname(relativePath));
+		const entries = await this.listFiles(directory, signal);
+		const revisions = entries.map((path) => path.match(new RegExp(`${basePath.split(/[\\/]/u).at(-1)}-r(\\d+)\\.json$`))?.[1]).filter((value): value is string => value !== undefined).map(Number);
+		const reportRevision = (revisions.length > 0 ? Math.max(...revisions) : 0) + 1;
+		const versionedPath = `${basePath}-r${String(reportRevision).padStart(2, "0")}.json`;
+		const payload = `${JSON.stringify({ ...report, reportRevision }, null, 2)}\n`;
+		await this.writeAtomically(this.projectFile(projectId, versionedPath), payload, signal);
+		await this.writeAtomically(this.projectFile(projectId, relativePath), payload, signal);
+		return { reportRevision, versionedPath, latestPath: relativePath };
+	}
+
 	private async listFiles(directory: string, signal?: AbortSignal): Promise<string[]> {
 		const entries = await this.readDirectoryEntries(directory, signal);
 		return entries
@@ -829,6 +845,17 @@ export class NovelProjectStore {
 		return { projectId: params.projectId, documentType: params.documentType, path: this.relativeProjectPath(params.projectId, path), bytes: Buffer.byteLength(content, "utf8") };
 	}
 
+	async saveCanonDocument(params: SaveCanonDocumentParams, signal?: AbortSignal): Promise<{ projectId: string; documentType: SaveCanonDocumentParams["documentType"]; status: "proposed" | "confirmed"; path: string; bytes: number }> {
+		await this.ensureProject(params.projectId, signal);
+		requireConfirmation(params.status, params.confirmation);
+		const normalized = params.format === "json" ? normalizeJson(params.content, `${params.documentType}:${params.name ?? "root"}`) : normalizeText(params.content);
+		const path = params.status === "confirmed"
+			? this.documentPath(params.projectId, params.documentType, params.name, params.format)
+			: this.projectFile(params.projectId, `work/canon-candidates/${params.documentType}-${sha256(normalized).slice(0, 16)}${getDocumentExtension(params.format)}`);
+		await this.writeAtomically(path, normalized, signal);
+		return { projectId: params.projectId, documentType: params.documentType, status: params.status, path: this.relativeProjectPath(params.projectId, path), bytes: Buffer.byteLength(normalized, "utf8") };
+	}
+
 	async saveChapterPlan(params: SaveChapterPlanParams, signal?: AbortSignal): Promise<SavedDocumentResult> {
 		await this.ensureProject(params.projectId, signal);
 		const path = this.projectFile(params.projectId, `work/chapter-plans/${chapterName(params.chapter)}.md`);
@@ -957,9 +984,15 @@ export class NovelProjectStore {
 		await this.ensureProject(params.projectId, signal);
 		const scope = params.chapter === undefined ? "manuscript" : chapterName(params.chapter);
 		const relativePath = `evaluations/${kind}/${scope}.md`;
-		const header = [`# ${kind} report`, `projectId: ${params.projectId}`, params.chapter === undefined ? undefined : `chapter: ${params.chapter}`, params.draftRevision === undefined ? undefined : `draftRevision: ${params.draftRevision}`, ""].filter((line): line is string => line !== undefined).join("\n");
-		const path = this.projectFile(params.projectId, relativePath);
-		await this.writeAtomically(path, normalizeText(`${header}\n${params.content}`), signal);
+		const reportDirectory = this.projectFile(params.projectId, `evaluations/${kind}`);
+		const entries = await this.listFiles(reportDirectory, signal);
+		const revisions = entries.map((path) => path.match(new RegExp(`${scope}-r(\\d+)\\.md$`))?.[1]).filter((value): value is string => value !== undefined).map(Number);
+		const reportRevision = (revisions.length > 0 ? Math.max(...revisions) : 0) + 1;
+		const reportDraft = params.chapter === undefined ? undefined : params.draftRevision === undefined ? await this.latestDraft(params.projectId, params.chapter, signal) : { revision: params.draftRevision, content: await this.readTextIfExists(this.draftPath(params.projectId, params.chapter, params.draftRevision), signal) };
+		const header = [`# ${kind} report`, `projectId: ${params.projectId}`, params.chapter === undefined ? undefined : `chapter: ${params.chapter}`, params.draftRevision === undefined ? undefined : `draftRevision: ${params.draftRevision}`, reportDraft?.content === undefined ? undefined : `contentHash: ${sha256(reportDraft.content)}`, `reportRevision: ${reportRevision}`, ""].filter((line): line is string => line !== undefined).join("\n");
+		const content = normalizeText(`${header}\n${params.content}`);
+		await this.writeAtomically(this.projectFile(params.projectId, `evaluations/${kind}/${scope}-r${String(reportRevision).padStart(2, "0")}.md`), content, signal);
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), content, signal);
 		return { projectId: params.projectId, kind, path: relativePath, draftRevision: params.draftRevision };
 	}
 
@@ -1067,9 +1100,27 @@ export class NovelProjectStore {
 	async exportManuscript(params: ExportManuscriptParams, signal?: AbortSignal): Promise<{ projectId: string; path: string; chapters: number; words: number }> {
 		await this.ensureProject(params.projectId, signal);
 		const paths = await this.listFiles(this.projectFile(params.projectId, "chapters"), signal);
+		const chapterPaths = paths.filter((candidate) => candidate.endsWith(".md"));
+		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		if (isJsonRecord(project) && project.genre === "chase-wife") {
+			const seal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/chase-wife-finalized.json"), signal);
+			const pacing = await this.readJsonIfExists(this.projectFile(params.projectId, "continuity/reports/chase-wife-story-pacing.json"), signal);
+			if (!isJsonRecord(seal) || seal.status !== "finalized" || !isJsonRecord(pacing) || pacing.scope !== "finalized" || pacing.status === "error" || seal.storyPacingHash !== pacing.contentHash) throw new Error("Chase-wife export requires a current finalized manuscript gate and a passing finalized story pacing report.");
+			const sealedChapters = Array.isArray(seal.chapterHashes) ? seal.chapterHashes.filter(isJsonRecord) : [];
+			let staleSeal = sealedChapters.length !== chapterPaths.length;
+			for (const entry of sealedChapters) {
+				if (typeof entry.path !== "string" || typeof entry.hash !== "string") {
+					staleSeal = true;
+					continue;
+				}
+				const content = await this.readTextIfExists(this.projectFile(params.projectId, entry.path), signal);
+				if (content === undefined || sha256(content) !== entry.hash) staleSeal = true;
+			}
+			if (staleSeal) throw new Error("Chase-wife export is stale because a finalized chapter changed after the manuscript gate.");
+		}
 		const sections: string[] = [];
 		let words = 0;
-		for (const path of paths.filter((candidate) => candidate.endsWith(".md"))) {
+		for (const path of chapterPaths) {
 			const content = await this.readTextIfExists(path, signal);
 			if (content === undefined) continue;
 			sections.push(content);
@@ -1084,7 +1135,26 @@ export class NovelProjectStore {
 		}
 		const relativePath = "exports/manuscript.md";
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), normalizeText(sections.join("\n\n")), signal);
-		return { projectId: params.projectId, path: relativePath, chapters: paths.length, words };
+		return { projectId: params.projectId, path: relativePath, chapters: chapterPaths.length, words };
+	}
+
+	async finalizeManuscript(params: FinalizeManuscriptParams, signal?: AbortSignal): Promise<{ projectId: string; status: "finalized"; path: string; storyPacingHash: string; chapters: number }> {
+		await this.ensureChaseWifeProject(params.projectId, signal);
+		if (params.confirmation !== "USER_CONFIRMED") throw new Error("Manuscript finalization requires confirmation=USER_CONFIRMED.");
+		const pacing = await this.checkChaseWifeStoryPacing({ projectId: params.projectId, scope: "finalized" }, signal);
+		if (pacing.status === "error") throw new Error("The finalized story pacing report has errors; the manuscript cannot be sealed.");
+		const paths = (await this.listFiles(this.projectFile(params.projectId, "chapters"), signal)).filter((path) => /chapter-\d+\.md$/u.test(path)).sort();
+		if (paths.length === 0) throw new Error("A manuscript requires at least one finalized chapter.");
+		const chapterHashes = [] as Array<{ path: string; hash: string; chars: number }>;
+		for (const path of paths) {
+			const content = await this.readTextIfExists(path, signal);
+			if (content === undefined) throw new Error(`Finalized chapter is missing: ${path}`);
+			chapterHashes.push({ path: this.relativeProjectPath(params.projectId, path), hash: sha256(content), chars: countChineseCharacters(content) });
+		}
+		const relativePath = "evaluations/manuscript/chase-wife-finalized.json";
+		const seal = { version: 1, projectId: params.projectId, status: "finalized" as const, scope: "finalized" as const, storyPacingHash: pacing.contentHash, chapterHashes, finalizedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(seal, null, 2)}\n`, signal);
+		return { projectId: params.projectId, status: "finalized", path: relativePath, storyPacingHash: pacing.contentHash, chapters: paths.length };
 	}
 
 	async checkAiArtifacts(params: CheckAiArtifactsParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision: number; status: "ok" | "warning"; findings: string[]; path: string }> {
@@ -1254,7 +1324,7 @@ export class NovelProjectStore {
 		const status = (hasStructuralError ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
 		const report = { projectId: params.projectId, genre: "chase-wife", generatedAt: new Date().toISOString(), status, issues, checkedBeats };
 		const reportPath = "continuity/reports/chase-wife-arc.json";
-		await this.writeAtomically(this.projectFile(params.projectId, reportPath), `${JSON.stringify(report, null, 2)}\n`, signal);
+		await this.writeVersionedJsonReport(params.projectId, reportPath, report, signal);
 		return { ...report, path: reportPath };
 	}
 
@@ -1391,9 +1461,9 @@ export class NovelProjectStore {
 			}
 		}
 		const status = (hasStructuralError ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
-		const report = { projectId: params.projectId, chapter: params.chapter, genre: "chase-wife", generatedAt: new Date().toISOString(), status, issues, checkedEvents };
+		const report = { projectId: params.projectId, chapter: params.chapter, genre: "chase-wife", eventMapHash: isJsonRecord(value) ? hashJson(value) : undefined, generatedAt: new Date().toISOString(), status, issues, checkedEvents };
 		const reportPath = `continuity/reports/${chapterName(params.chapter)}-chase-wife-events.json`;
-		await this.writeAtomically(this.projectFile(params.projectId, reportPath), `${JSON.stringify(report, null, 2)}\n`, signal);
+		await this.writeVersionedJsonReport(params.projectId, reportPath, report, signal);
 		return { ...report, path: reportPath };
 	}
 
@@ -1418,12 +1488,12 @@ export class NovelProjectStore {
 		return content === undefined ? undefined : { ...latest, content };
 	}
 
-	private async readChaseWifeEventMap(projectId: string, chapter: number, signal?: AbortSignal): Promise<{ map: JsonRecord; events: ChaseWifeEvent[] }> {
+	private async readChaseWifeEventMap(projectId: string, chapter: number, signal?: AbortSignal): Promise<{ map: JsonRecord; events: ChaseWifeEvent[]; eventMapHash: string }> {
 		const value = await this.readJsonIfExists(this.projectFile(projectId, `work/chase-wife-events/${chapterName(chapter)}.json`), signal);
 		if (!isJsonRecord(value) || !Array.isArray(value.events)) throw new Error(`Chase-wife event map for chapter ${chapter} is missing or invalid.`);
 		const events = value.events.filter(isChaseWifeEvent).sort((left, right) => left.eventId - right.eventId);
 		if (events.length !== value.events.length) throw new Error(`Chase-wife event map for chapter ${chapter} contains invalid event records.`);
-		return { map: value, events };
+		return { map: value, events, eventMapHash: hashJson(value) };
 	}
 
 	async saveChaseWifeEventDraft(params: SaveChaseWifeEventDraftParams, signal?: AbortSignal): Promise<SavedChapterDraftResult & { eventId: number }> {
@@ -1445,7 +1515,7 @@ export class NovelProjectStore {
 
 	async checkChaseWifeEventDraft(params: CheckChaseWifeEventDraftParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; eventId: number; revision?: number; actualChars: number; status: "ok" | "warning" | "error"; issues: string[]; path: string }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
-		const { events } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
+		const { events, eventMapHash } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
 		const event = events.find((candidate) => candidate.eventId === params.eventId);
 		if (!event) throw new Error(`Event ${params.eventId} is not present in the chapter event map.`);
 		const draft = params.revision === undefined ? await this.latestChaseWifeEventDraft(params.projectId, params.chapter, params.eventId, signal) : { revision: params.revision, content: await this.readTextIfExists(this.chaseWifeEventDraftPath(params.projectId, params.chapter, params.eventId, params.revision), signal) };
@@ -1455,15 +1525,15 @@ export class NovelProjectStore {
 		if (draft && (actualChars < event.minChars || actualChars > event.maxChars)) issues.push(`event draft has ${actualChars} characters; expected ${event.minChars}-${event.maxChars}`);
 		const status = (issues.some((issue) => issue === "event draft is missing") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
 		const relativePath = `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(params.eventId)}-chase-wife.json`;
-		const report = { projectId: params.projectId, chapter: params.chapter, eventId: params.eventId, revision: draft?.revision, actualChars, expectedChars: { min: event.minChars, max: event.maxChars }, status, issues, contentHash: draft?.content === undefined ? undefined : sha256(draft.content), sourceEventUpdatedAt: undefined, generatedAt: new Date().toISOString() };
-		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(report, null, 2)}\n`, signal);
+		const report = { projectId: params.projectId, chapter: params.chapter, eventId: params.eventId, revision: draft?.revision, actualChars, expectedChars: { min: event.minChars, max: event.maxChars }, status, issues, contentHash: draft?.content === undefined ? undefined : sha256(draft.content), eventSpecHash: hashJson(event), eventMapHash, generatedAt: new Date().toISOString() };
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
 		if (draft?.content !== undefined) await this.checkChaseWifeEventSemantics({ projectId: params.projectId, chapter: params.chapter, eventId: params.eventId, revision: draft.revision }, signal);
 		return { ...report, path: relativePath };
 	}
 
-	async checkChaseWifeEventSemantics(params: CheckChaseWifeEventSemanticsParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; eventId: number; revision?: number; status: "ok" | "warning" | "error"; issues: Array<{ code: string; severity: "error" | "warning"; message: string }>; path: string }> {
+	async checkChaseWifeEventSemantics(params: CheckChaseWifeEventSemanticsParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; eventId: number; revision?: number; status: "ok" | "warning" | "error"; issues: Array<{ code: string; severity: "error" | "warning"; message: string }>; roleSatisfied: boolean; conflictShown: boolean; agencyActionEvidence?: string; stateDeltasShown: Array<{ dimension: "information" | "relationship" | "resource" | "risk" | "agency"; delta: string; evidence?: string }>; entryHookEvidence?: string; exitHookEvidence?: string; injuryMechanismEvidence?: string; path: string }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
-		const { events } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
+		const { events, eventMapHash } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
 		const event = events.find((candidate) => candidate.eventId === params.eventId);
 		if (!event) throw new Error(`Event ${params.eventId} is not present in the chapter event map.`);
 		const draft = params.revision === undefined ? await this.latestChaseWifeEventDraft(params.projectId, params.chapter, params.eventId, signal) : { revision: params.revision, content: await this.readTextIfExists(this.chaseWifeEventDraftPath(params.projectId, params.chapter, params.eventId, params.revision), signal) };
@@ -1479,8 +1549,13 @@ export class NovelProjectStore {
 		if ([...sentenceCounts.values()].some((count) => count >= 2)) addIssue("repeated-sentence", "error", "the event repeats an identical sentence");
 		if (/(?:^|\n)\s*(?:事件\s*\d+|情绪分析|读者释放点|状态变化|出口钩子)\s*[:：]/u.test(content)) addIssue("narrative-label", "error", "the event contains planning labels instead of narrative prose");
 		const actionEvidence = containsActionEvidence(content);
+		const contentHasFirstPerson = /(?:我|I|me|my|鎴戝?)/iu.test(content);
 		if (event.targetTrack !== "male" && event.heroineAgencyAfter > event.heroineAgencyBefore && !actionEvidence) addIssue("agency-without-action", "warning", "the declared heroine agency increase has no visible action evidence");
 		if (event.pov === "heroine-first-person" && !/我/u.test(content)) addIssue("missing-first-person-evidence", "error", "heroine-first-person event has no visible first-person marker");
+		if (contentHasFirstPerson) {
+			const missingFirstPersonIssue = issues.findIndex((issue) => issue.code === "missing-first-person-evidence");
+			if (missingFirstPersonIssue >= 0) issues.splice(missingFirstPersonIssue, 1);
+		}
 		let purePsychologyRun = 0;
 		let maxPurePsychologyRun = 0;
 		for (const paragraph of content.split(/\r?\n\s*\r?\n/gu)) {
@@ -1490,60 +1565,82 @@ export class NovelProjectStore {
 		}
 		if (maxPurePsychologyRun > 2) addIssue("pure-psychology-run", "error", "more than two consecutive pure-psychology paragraphs");
 		const status = (issues.some((issue) => issue.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const agencyActionEvidence = actionEvidence ? content.split(/\r?\n\s*\r?\n/gu).find(containsActionEvidence)?.trim() : undefined;
+		const conflictShown = content.length > 0 && (/["“”「」:：?!？！]/u.test(content) || actionEvidence || content.includes(event.conflict.slice(0, Math.min(event.conflict.length, 12))));
+		const stateDeltasShown = [
+			["information", event.informationDelta],
+			["relationship", event.relationshipDelta],
+			["resource", event.resourceDelta],
+			["risk", event.riskDelta],
+			["agency", event.heroineAgencyAfter > event.heroineAgencyBefore ? [`${event.heroineAgencyBefore}->${event.heroineAgencyAfter}`] : []],
+		] .flatMap(([dimension, deltas]) => (deltas as string[]).map((delta) => ({
+			dimension: dimension as "information" | "relationship" | "resource" | "risk" | "agency",
+			delta,
+			evidence: content.includes(delta) ? delta : agencyActionEvidence,
+		})));
+		const roleSatisfied = draft?.content !== undefined && conflictShown && (event.targetTrack === "male" || actionEvidence);
 		const relativePath = `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(params.eventId)}-semantics.json`;
-		const report = { projectId: params.projectId, chapter: params.chapter, eventId: params.eventId, revision: draft?.revision, status, issues, contentHash: draft?.content === undefined ? undefined : sha256(draft.content), maxPurePsychologyRun, generatedAt: new Date().toISOString() };
-		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(report, null, 2)}\n`, signal);
+		const report = { projectId: params.projectId, chapter: params.chapter, eventId: params.eventId, revision: draft?.revision, status, issues, roleSatisfied, conflictShown, agencyActionEvidence, stateDeltasShown, entryHookEvidence: content.includes(event.entryHook) ? event.entryHook : undefined, exitHookEvidence: content.includes(event.exitHook) ? event.exitHook : undefined, injuryMechanismEvidence: event.injuryMechanism === undefined ? undefined : agencyActionEvidence, contentHash: draft?.content === undefined ? undefined : sha256(draft.content), eventSpecHash: hashJson(event), eventMapHash, maxPurePsychologyRun, generatedAt: new Date().toISOString() };
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
 		return { ...report, path: relativePath };
 	}
 
 	async assembleChaseWifeChapter(params: AssembleChaseWifeChapterParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision: number; eventCount: number; path: string; manifestPath: string }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
-		const { map, events } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
+		const { map, events, eventMapHash } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
 		const drafts: string[] = [];
-		const manifestEvents: Array<{ eventId: number; revision: number; contentHash: string }> = [];
+		const manifestEvents: Array<{ eventId: number; revision: number; charCount: number; contentHash: string; eventSpecHash: string }> = [];
 		for (const event of events) {
 			const draft = await this.latestChaseWifeEventDraft(params.projectId, params.chapter, event.eventId, signal);
 			if (!draft) throw new Error(`Event draft ${event.eventId} is missing; assemble only after every event is drafted.`);
 			const report = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(event.eventId)}-chase-wife.json`), signal);
 			const semantics = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(event.eventId)}-semantics.json`), signal);
-			if (!isJsonRecord(report) || report.status !== "ok" || report.revision !== draft.revision || report.contentHash !== sha256(draft.content)) throw new Error(`Event draft ${event.eventId} must pass check_chase_wife_event_draft before assembly.`);
-			if (!isJsonRecord(semantics) || semantics.status === "error" || semantics.revision !== draft.revision || semantics.contentHash !== sha256(draft.content)) throw new Error(`Event draft ${event.eventId} must pass check_chase_wife_event_semantics before assembly.`);
+			if (!isJsonRecord(report) || report.status !== "ok" || report.revision !== draft.revision || report.contentHash !== sha256(draft.content) || report.eventSpecHash !== hashJson(event) || report.eventMapHash !== eventMapHash) throw new Error(`Event draft ${event.eventId} must pass check_chase_wife_event_draft for the current event map before assembly.`);
+			if (!isJsonRecord(semantics) || semantics.status === "error" || semantics.revision !== draft.revision || semantics.contentHash !== sha256(draft.content) || semantics.eventSpecHash !== hashJson(event) || semantics.eventMapHash !== eventMapHash) throw new Error(`Event draft ${event.eventId} must pass check_chase_wife_event_semantics for the current event map before assembly.`);
 			drafts.push(draft.content.trim());
-			manifestEvents.push({ eventId: event.eventId, revision: draft.revision, contentHash: sha256(draft.content) });
+			manifestEvents.push({ eventId: event.eventId, revision: draft.revision, charCount: countChineseCharacters(draft.content), contentHash: sha256(draft.content), eventSpecHash: hashJson(event) });
 		}
 		const intro = params.chapter === 1 && isNonEmptyString(map.openingIntro) ? map.openingIntro.trim() : "";
 		const assembledContent = [intro, ...drafts].filter((part) => part.length > 0).join("\n\n");
 		const chapterDraft = await this.saveChapterDraft({ projectId: params.projectId, chapter: params.chapter, revision: params.revision, content: assembledContent }, signal);
 		const manifestPath = `work/chase-wife-assemblies/${chapterName(params.chapter)}-r${String(chapterDraft.revision).padStart(2, "0")}.json`;
-		const manifest = { version: 1, projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft.revision, openingIntroIncluded: intro.length > 0, eventDrafts: manifestEvents, assembledHash: sha256(normalizeText(assembledContent)), generatedAt: new Date().toISOString() };
+		const manifest = { version: 2, projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft.revision, openingIntroIncluded: intro.length > 0, eventMapHash, eventDrafts: manifestEvents, assembledCharCount: countChineseCharacters(assembledContent), assembledHash: sha256(normalizeText(assembledContent)), generatedAt: new Date().toISOString() };
 		await this.writeAtomically(this.projectFile(params.projectId, manifestPath), `${JSON.stringify(manifest, null, 2)}\n`, signal);
 		return { projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft.revision, eventCount: events.length, path: chapterDraft.path, manifestPath };
 	}
 
-	async checkChaseWifeChapterPacing(params: CheckChaseWifeChapterPacingParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision?: number; status: "ok" | "warning" | "error"; issues: string[]; issueRecords: ChaseWifePacingIssueRecord[]; metrics: Record<string, number | string | boolean | undefined>; path: string }> {
+	async checkChaseWifeChapterPacing(params: CheckChaseWifeChapterPacingParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision?: number; status: "ok" | "warning" | "error"; issues: string[]; issueRecords: ChaseWifePacingIssueRecord[]; metrics: Record<string, number | string | boolean | undefined>; contentHash?: string; eventMapHash?: string; manifestHash?: string; path: string }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
-		const { map, events } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
+		const { map, events, eventMapHash } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
 		const issues: string[] = [];
+		const issueRecords: ChaseWifePacingIssueRecord[] = [];
+		const addIssue = (code: string, severity: "error" | "warning", message: string, deduction: number): void => {
+			issues.push(message);
+			issueRecords.push({ code, severity, deduction, message });
+		};
 		const eventDrafts: Array<{ event: ChaseWifeEvent; content: string; chars: number }> = [];
 		for (const event of events) {
 			const draft = await this.latestChaseWifeEventDraft(params.projectId, params.chapter, event.eventId, signal);
 			if (!draft) {
-				issues.push(`event draft ${event.eventId} is missing`);
+				addIssue("missing-event-draft", "error", `event draft ${event.eventId} is missing`, 15);
 				continue;
 			}
 			const chars = countChineseCharacters(draft.content);
 			eventDrafts.push({ event, content: draft.content, chars });
-			if (chars < event.minChars || chars > event.maxChars) issues.push(`event ${event.eventId} is outside its ${event.lengthMode} budget`);
+			if (chars < event.minChars || chars > event.maxChars) addIssue("event-budget", "error", `event ${event.eventId} is outside its ${event.lengthMode} budget`, 10);
 		}
 		const chapterDraft = params.draftRevision === undefined ? await this.latestDraft(params.projectId, params.chapter, signal) : { revision: params.draftRevision, content: await this.readTextIfExists(this.draftPath(params.projectId, params.chapter, params.draftRevision), signal) };
-		if (!chapterDraft || chapterDraft.content === undefined) issues.push("assembled chapter draft is missing");
+		if (!chapterDraft || chapterDraft.content === undefined) addIssue("missing-assembled-draft", "error", "assembled chapter draft is missing", 15);
+		const manifest = chapterDraft?.content === undefined ? undefined : await this.readJsonIfExists(this.projectFile(params.projectId, `work/chase-wife-assemblies/${chapterName(params.chapter)}-r${String(chapterDraft.revision).padStart(2, "0")}.json`), signal);
+		if (!isJsonRecord(manifest)) addIssue("missing-assembly-manifest", "error", "current assembly manifest is missing", 15);
+		else if (manifest.eventMapHash !== eventMapHash || manifest.assembledHash !== sha256(normalizeText(chapterDraft?.content ?? ""))) addIssue("stale-assembly-manifest", "error", "current assembly manifest is stale", 15);
 		const totalChars = eventDrafts.reduce((sum, item) => sum + item.chars, 0);
 		const conflictMarker = typeof map.openingConflictMarker === "string" ? map.openingConflictMarker : undefined;
 		const conflictPosition = chapterDraft?.content !== undefined && conflictMarker ? chapterDraft.content.indexOf(conflictMarker) : -1;
-		if (params.chapter === 1 && (conflictMarker === undefined || conflictPosition < 0 || conflictPosition > 250)) issues.push("first visible conflict is not verified within 250 characters");
+		if (params.chapter === 1 && (conflictMarker === undefined || conflictPosition < 0 || conflictPosition > 250)) addIssue("opening-conflict-late", "error", "first visible conflict is not verified within 250 characters", 15);
 		const firstAgencyEvent = eventDrafts.find((item) => item.event.targetTrack !== "male" && (item.event.heroineAgencyAfter > item.event.heroineAgencyBefore || ["micro-withdrawal", "boundary-test", "decision", "irreversible-exit"].includes(item.event.role)));
 		const firstAgencyPosition = firstAgencyEvent ? (params.chapter === 1 && typeof map.openingIntro === "string" ? countChineseCharacters(map.openingIntro) : 0) + eventDrafts.slice(0, eventDrafts.indexOf(firstAgencyEvent)).reduce((sum, item) => sum + item.chars, 0) : -1;
-		if (firstAgencyPosition < 0 || (totalChars > 0 && firstAgencyPosition > totalChars * 0.12)) issues.push("heroine first active choice is too late or missing");
+		if (firstAgencyPosition < 0 || (totalChars > 0 && firstAgencyPosition > totalChars * 0.12)) addIssue("agency-late", "error", "heroine first active choice is too late or missing", 15);
 		const exitEvent = eventDrafts.find((item) => item.event.role === "irreversible-exit");
 		const exitChars = exitEvent ? eventDrafts.slice(0, eventDrafts.indexOf(exitEvent) + 1).reduce((sum, item) => sum + item.chars, 0) : -1;
 		const exitRatio = totalChars > 0 && exitChars >= 0 ? exitChars / totalChars : -1;
@@ -1555,10 +1652,10 @@ export class NovelProjectStore {
 		for (let index = 1; index < events.length; index += 1) {
 			if (events[index].injuryMechanism !== undefined && events[index].injuryMechanism === events[index - 1].injuryMechanism) repeatedMechanism += 1;
 			else repeatedMechanism = 0;
-			if (repeatedMechanism >= 2) issues.push(`same injury mechanism repeats more than twice: ${events[index].injuryMechanism}`);
+			if (repeatedMechanism >= 2) addIssue("repeated-injury-mechanism", "error", `same injury mechanism repeats more than twice: ${events[index].injuryMechanism}`, 10);
 		}
 		for (let index = 1; index < eventDrafts.length; index += 1) {
-			if (textSimilarity(eventDrafts[index - 1].content, eventDrafts[index].content) >= 0.78) issues.push(`event drafts ${eventDrafts[index - 1].event.eventId} and ${eventDrafts[index].event.eventId} are too similar to remain separate`);
+			if (textSimilarity(eventDrafts[index - 1].content, eventDrafts[index].content) >= 0.78) addIssue("interchangeable-event-prose", "error", `event drafts ${eventDrafts[index - 1].event.eventId} and ${eventDrafts[index].event.eventId} are too similar to remain separate`, 10);
 		}
 		const assembledChars = chapterDraft?.content === undefined ? totalChars : countChineseCharacters(chapterDraft.content);
 		const memorySpans = [...(params.memorySpans ?? [])].sort((left, right) => left.startChar - right.startChar);
@@ -1567,10 +1664,10 @@ export class NovelProjectStore {
 			const span = memorySpans[index];
 			if (span.startChar >= span.endChar || span.endChar > assembledChars || (index > 0 && span.startChar < memorySpans[index - 1].endChar)) memoryInvalid = true;
 		}
-		if (memoryInvalid) issues.push("memory spans are invalid or overlap the chapter boundary");
+		if (memoryInvalid) addIssue("invalid-memory-spans", "error", "memory spans are invalid or overlap the chapter boundary", 10);
 		const memoryChars = memorySpans.reduce((sum, span) => sum + Math.max(0, span.endChar - span.startChar), 0);
 		const memoryRatio = assembledChars > 0 ? memoryChars / assembledChars : 0;
-		if (memoryRatio > 0.15) issues.push("memory spans exceed 15% of the chapter event text");
+		if (memoryRatio > 0.15) addIssue("memory-overuse", "warning", "memory spans exceed 15% of the chapter event text", 5);
 		let purePsychologyRun = 0;
 		let maxPurePsychologyRun = 0;
 		if (chapterDraft?.content !== undefined) {
@@ -1580,13 +1677,12 @@ export class NovelProjectStore {
 				maxPurePsychologyRun = Math.max(maxPurePsychologyRun, purePsychologyRun);
 			}
 		}
-		if (maxPurePsychologyRun > 2) issues.push("more than two consecutive pure-psychology paragraphs");
-		const status = (issues.some((issue) => issue.includes("missing") || issue.includes("not verified") || issue.includes("no meaningful") || issue.includes("repeats")) ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		if (maxPurePsychologyRun > 2) addIssue("pure-psychology-run", "error", "more than two consecutive pure-psychology paragraphs", 10);
+		const status = (issueRecords.some((issue) => issue.severity === "error") ? "error" : issueRecords.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
 		const metrics = { totalChars, firstConflictPosition: conflictPosition < 0 ? undefined : conflictPosition, firstAgencyRatio: firstAgencyPosition < 0 || totalChars === 0 ? undefined : firstAgencyPosition / totalChars, exitRatio: exitRatio < 0 ? undefined : exitRatio, pursuitRatio: pursuitRatio < 0 ? undefined : pursuitRatio, memoryRatio, maxPurePsychologyRun, eventCount: events.length, assembledDraftFound: chapterDraft !== undefined && chapterDraft.content !== undefined, mode };
 		const relativePath = `continuity/reports/${chapterName(params.chapter)}-chase-wife-pacing.json`;
-		const issueRecords = issues.map(pacingIssueRecord);
-		const report = { projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft?.revision, status, issues, issueRecords, metrics, contentHash: chapterDraft?.content === undefined ? undefined : sha256(chapterDraft.content), generatedAt: new Date().toISOString() };
-		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(report, null, 2)}\n`, signal);
+		const report = { projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft?.revision, status, issues, issueRecords, metrics, contentHash: chapterDraft?.content === undefined ? undefined : sha256(chapterDraft.content), eventMapHash, manifestHash: isJsonRecord(manifest) ? hashJson(manifest) : undefined, generatedAt: new Date().toISOString() };
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
 		return { ...report, path: relativePath };
 	}
 
@@ -1594,41 +1690,100 @@ export class NovelProjectStore {
 		return this.checkChaseWifeChapterPacing(params, signal);
 	}
 
-	async checkChaseWifeStoryPacing(params: CheckChaseWifeStoryPacingParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: string[]; issueRecords: ChaseWifePacingIssueRecord[]; metrics: Record<string, number | string | boolean | undefined>; path: string }> {
+	async checkChaseWifeStoryPacing(params: CheckChaseWifeStoryPacingParams, signal?: AbortSignal): Promise<{ projectId: string; scope: "working" | "finalized"; status: "ok" | "warning" | "error"; issues: string[]; issueRecords: ChaseWifePacingIssueRecord[]; metrics: Record<string, number | string | boolean | undefined>; sourceHashes: string[]; contentHash: string; path: string }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
+		const scope = params.scope ?? "working";
 		const issues: string[] = [];
 		const issueRecords: ChaseWifePacingIssueRecord[] = [];
+		const sourceHashes: string[] = [];
 		const addIssue = (code: string, severity: "error" | "warning", message: string, deduction: number): void => {
 			issues.push(message);
 			issueRecords.push({ code, severity, message, deduction });
 		};
-		const mapPaths = (await this.listFiles(this.projectFile(params.projectId, "work/chase-wife-events"), signal)).filter((path) => /chapter-\d+\.json$/u.test(path)).sort();
-		const storyEvents: Array<{ chapter: number; event: ChaseWifeEvent; content: string; chars: number }> = [];
+		const storyEvents: Array<{ chapter: number; event: ChaseWifeEvent; content?: string; chars: number }> = [];
 		let introChars = 0;
 		let firstConflictPosition = -1;
-		for (const mapPath of mapPaths) {
-			const chapter = Number(mapPath.match(/chapter-(\d+)\.json$/u)?.[1] ?? 0);
-			const mapValue = await this.readJsonIfExists(mapPath, signal);
-			if (!isJsonRecord(mapValue) || !Array.isArray(mapValue.events)) {
-				addIssue("invalid-event-map", "error", `chapter ${chapter} event map is missing or invalid`, 20);
-				continue;
-			}
-			if (chapter === 1 && typeof mapValue.openingIntro === "string") introChars = countChineseCharacters(mapValue.openingIntro);
-			const events = mapValue.events.filter(isChaseWifeEvent).sort((left, right) => left.eventId - right.eventId);
-			for (const event of events) {
-				const draft = await this.latestChaseWifeEventDraft(params.projectId, chapter, event.eventId, signal);
-				if (!draft) {
-					addIssue("missing-event-draft", "error", `chapter ${chapter} event draft ${event.eventId} is missing`, 15);
+		let totalChars = 0;
+		let finalizedChapterCount = 0;
+
+		if (scope === "working") {
+			const mapPaths = (await this.listFiles(this.projectFile(params.projectId, "work/chase-wife-events"), signal)).filter((path) => /chapter-\d+\.json$/u.test(path)).sort();
+			for (const mapPath of mapPaths) {
+				const chapter = Number(mapPath.match(/chapter-(\d+)\.json$/u)?.[1] ?? 0);
+				const mapValue = await this.readJsonIfExists(mapPath, signal);
+				if (!isJsonRecord(mapValue) || !Array.isArray(mapValue.events)) {
+					addIssue("invalid-event-map", "error", `chapter ${chapter} event map is missing or invalid`, 20);
 					continue;
 				}
-				storyEvents.push({ chapter, event, content: draft.content, chars: countChineseCharacters(draft.content) });
+				sourceHashes.push(hashJson(mapValue));
+				if (chapter === 1 && typeof mapValue.openingIntro === "string") introChars = countChineseCharacters(mapValue.openingIntro);
+				const events = mapValue.events.filter(isChaseWifeEvent).sort((left, right) => left.eventId - right.eventId);
+				for (const event of events) {
+					const draft = await this.latestChaseWifeEventDraft(params.projectId, chapter, event.eventId, signal);
+					if (!draft) {
+						addIssue("missing-event-draft", "error", `chapter ${chapter} event draft ${event.eventId} is missing`, 15);
+						continue;
+					}
+					sourceHashes.push(sha256(draft.content));
+					storyEvents.push({ chapter, event, content: draft.content, chars: countChineseCharacters(draft.content) });
+				}
+				if (chapter === 1 && typeof mapValue.openingConflictMarker === "string") {
+					const first = storyEvents.find((item) => item.chapter === 1 && item.event.eventId === 1);
+					if (first) {
+						const localPosition = first.content?.indexOf(mapValue.openingConflictMarker) ?? -1;
+						firstConflictPosition = localPosition < 0 ? -1 : introChars + localPosition;
+					}
+				}
 			}
-			if (chapter === 1 && typeof mapValue.openingConflictMarker === "string") {
-				const first = storyEvents.find((item) => item.chapter === 1 && item.event.eventId === 1);
-				if (first) firstConflictPosition = introChars + first.content.indexOf(mapValue.openingConflictMarker);
+			totalChars = introChars + storyEvents.reduce((sum, item) => sum + item.chars, 0);
+		} else {
+			const chapterPaths = (await this.listFiles(this.projectFile(params.projectId, "chapters"), signal)).filter((path) => /chapter-\d+\.md$/u.test(path)).sort();
+			const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+			const finalizedChapters = isJsonRecord(project) && Array.isArray(project.finalizedChapters) ? new Set(project.finalizedChapters.filter(isPositiveInteger)) : new Set<number>();
+			for (const chapterPath of chapterPaths) {
+				const chapter = Number(chapterPath.match(/chapter-(\d+)\.md$/u)?.[1] ?? 0);
+				const content = await this.readTextIfExists(chapterPath, signal);
+				if (content === undefined) continue;
+				finalizedChapterCount += 1;
+				if (!finalizedChapters.has(chapter)) addIssue("chapter-not-finalized", "error", `chapter ${chapter} exists but is not marked finalized in project state`, 15);
+				const summary = await this.readJsonIfExists(this.projectFile(params.projectId, `summaries/${chapterName(chapter)}.json`), signal);
+				if (!isJsonRecord(summary) || !isPositiveInteger(summary.draftRevision)) addIssue("missing-final-summary", "error", `chapter ${chapter} has no valid finalized summary`, 15);
+				const draftRevision = isJsonRecord(summary) && isPositiveInteger(summary.draftRevision) ? summary.draftRevision : undefined;
+				const manifest = draftRevision === undefined ? undefined : await this.readJsonIfExists(this.projectFile(params.projectId, `work/chase-wife-assemblies/${chapterName(chapter)}-r${String(draftRevision).padStart(2, "0")}.json`), signal);
+				const map = await this.readJsonIfExists(this.projectFile(params.projectId, `work/chase-wife-events/${chapterName(chapter)}.json`), signal);
+				if (!isJsonRecord(map) || !Array.isArray(map.events)) {
+					addIssue("missing-final-event-map", "error", `chapter ${chapter} has no valid event map`, 20);
+					continue;
+				}
+				const eventMapHash = hashJson(map);
+				if (!isJsonRecord(manifest) || manifest.eventMapHash !== eventMapHash || manifest.assembledHash !== sha256(normalizeText(content))) addIssue("stale-finalized-manifest", "error", `chapter ${chapter} finalized content is not bound to its current assembly manifest`, 20);
+				if (isJsonRecord(summary)) sourceHashes.push(hashJson(summary));
+				sourceHashes.push(sha256(content), eventMapHash, isJsonRecord(manifest) ? hashJson(manifest) : "missing-manifest");
+				const events = map.events.filter(isChaseWifeEvent).sort((left, right) => left.eventId - right.eventId);
+				const manifestEvents = isJsonRecord(manifest) && Array.isArray(manifest.eventDrafts) ? manifest.eventDrafts.filter(isJsonRecord) : [];
+				const manifestEventSpecsValid = manifestEvents.length === events.length && events.every((event) => {
+					const entry = manifestEvents.find((candidate) => candidate.eventId === event.eventId);
+					return entry !== undefined && typeof entry.charCount === "number" && entry.charCount > 0 && entry.eventSpecHash === hashJson(event);
+				});
+				if (!manifestEventSpecsValid) addIssue("stale-finalized-manifest", "error", `chapter ${chapter} assembly manifest is not bound to every event specification`, 20);
+				const chapterEventChars = events.map((event) => {
+					const entry = manifestEvents.find((candidate) => candidate.eventId === event.eventId);
+					return { event, chars: entry && typeof entry.charCount === "number" ? entry.charCount : 0 };
+				});
+				if (chapter === 1) {
+					const eventChars = chapterEventChars.reduce((sum, item) => sum + item.chars, 0);
+					introChars = Math.max(0, countChineseCharacters(content) - eventChars);
+					if (typeof map.openingConflictMarker === "string") {
+						const localPosition = content.indexOf(map.openingConflictMarker);
+						firstConflictPosition = localPosition < 0 ? -1 : localPosition;
+					}
+				}
+				for (const item of chapterEventChars) storyEvents.push({ chapter, event: item.event, chars: item.chars });
+				totalChars += countChineseCharacters(content);
 			}
+			if (finalizedChapterCount === 0) addIssue("missing-finalized-chapters", "error", "finalized scope requires at least one finalized chapter", 20);
 		}
-		const totalChars = introChars + storyEvents.reduce((sum, item) => sum + item.chars, 0);
+
 		let cursor = introChars;
 		let firstAgencyPosition = -1;
 		let exitRatio = -1;
@@ -1653,8 +1808,8 @@ export class NovelProjectStore {
 		const status = (issueRecords.some((issue) => issue.severity === "error") ? "error" : issueRecords.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
 		const metrics = { totalChars, firstConflictPosition: firstConflictPosition < 0 ? undefined : firstConflictPosition, firstAgencyRatio: firstAgencyPosition < 0 ? undefined : firstAgencyPosition / Math.max(totalChars, 1), exitRatio: exitRatio < 0 ? undefined : exitRatio, pursuitRatio: pursuitRatio < 0 ? undefined : pursuitRatio, newLifeRatio: totalChars > 0 ? newLifeChars / totalChars : 0, chapterCount: new Set(storyEvents.map((item) => item.chapter)).size, eventCount: storyEvents.length, mode };
 		const relativePath = "continuity/reports/chase-wife-story-pacing.json";
-		const report: { projectId: string; status: "ok" | "warning" | "error"; issues: string[]; issueRecords: ChaseWifePacingIssueRecord[]; metrics: Record<string, number | string | boolean | undefined>; generatedAt: string } = { projectId: params.projectId, status, issues, issueRecords, metrics, generatedAt: new Date().toISOString() };
-		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(report, null, 2)}\n`, signal);
+		const report = { projectId: params.projectId, scope, status, issues, issueRecords, metrics, sourceHashes, contentHash: sha256(sourceHashes.join("|")), generatedAt: new Date().toISOString() };
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
 		return { ...report, path: relativePath };
 	}
 
@@ -1665,8 +1820,8 @@ export class NovelProjectStore {
 		const total = Math.max(0, 100 - pacing.issueRecords.reduce((sum, issue) => sum + issue.deduction, 0));
 		const passed = pacing.status !== "error" && total >= 70;
 		const relativePath = `evaluations/chapter/${chapterName(params.chapter)}-chase-wife-pacing-score.json`;
-		const result = { projectId: params.projectId, chapter: params.chapter, draftRevision: pacing.draftRevision, total, passed, deductions, metrics: pacing.metrics, generatedAt: new Date().toISOString() };
-		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(result, null, 2)}\n`, signal);
+		const result = { projectId: params.projectId, chapter: params.chapter, draftRevision: pacing.draftRevision, total, passed, deductions, metrics: pacing.metrics, contentHash: pacing.contentHash, eventMapHash: pacing.eventMapHash, manifestHash: pacing.manifestHash, generatedAt: new Date().toISOString() };
+		await this.writeVersionedJsonReport(params.projectId, relativePath, result, signal);
 		return { ...result, path: relativePath };
 	}
 
@@ -1781,27 +1936,35 @@ export class NovelProjectStore {
 			if (existingProject.genre === "chase-wife") {
 				const eventMap = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
 				const eventMapReport = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${name}-chase-wife-events.json`), signal);
-				if (!isJsonRecord(eventMapReport) || eventMapReport.status !== "ok") throw new Error(`Chapter ${params.chapter} requires a passing chase-wife event map report.`);
+				if (!isJsonRecord(eventMapReport) || eventMapReport.status !== "ok" || eventMapReport.eventMapHash !== eventMap.eventMapHash) throw new Error(`Chapter ${params.chapter} requires a current passing chase-wife event map report.`);
 				for (const event of eventMap.events) {
 					const draft = await this.latestChaseWifeEventDraft(params.projectId, params.chapter, event.eventId, signal);
 					if (!draft) throw new Error(`Chapter ${params.chapter} requires event draft ${event.eventId}.`);
 					const budgetReport = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${name}-event-${padChapter(event.eventId)}-chase-wife.json`), signal);
 					const semanticReport = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${name}-event-${padChapter(event.eventId)}-semantics.json`), signal);
-					if (!isJsonRecord(budgetReport) || budgetReport.status !== "ok" || budgetReport.revision !== draft.revision || budgetReport.contentHash !== sha256(draft.content)) throw new Error(`Chapter ${params.chapter} event ${event.eventId} has no current passing budget report.`);
-					if (!isJsonRecord(semanticReport) || semanticReport.status === "error" || semanticReport.revision !== draft.revision || semanticReport.contentHash !== sha256(draft.content)) throw new Error(`Chapter ${params.chapter} event ${event.eventId} has no current passing semantic report.`);
+					if (!isJsonRecord(budgetReport) || budgetReport.status !== "ok" || budgetReport.revision !== draft.revision || budgetReport.contentHash !== sha256(draft.content) || budgetReport.eventSpecHash !== hashJson(event) || budgetReport.eventMapHash !== eventMap.eventMapHash) throw new Error(`Chapter ${params.chapter} event ${event.eventId} has no current passing budget report.`);
+					if (!isJsonRecord(semanticReport) || semanticReport.status === "error" || semanticReport.revision !== draft.revision || semanticReport.contentHash !== sha256(draft.content) || semanticReport.eventSpecHash !== hashJson(event) || semanticReport.eventMapHash !== eventMap.eventMapHash) throw new Error(`Chapter ${params.chapter} event ${event.eventId} has no current passing semantic report.`);
 				}
 				const manifestPath = this.projectFile(params.projectId, `work/chase-wife-assemblies/${name}-r${String(params.draftRevision).padStart(2, "0")}.json`);
 				const manifest = await this.readJsonIfExists(manifestPath, signal);
-				if (!isJsonRecord(manifest) || manifest.draftRevision !== params.draftRevision || manifest.assembledHash !== sha256(draft.content)) throw new Error(`Chapter ${params.chapter} requires a current chase-wife assembly manifest.`);
+				if (!isJsonRecord(manifest) || manifest.draftRevision !== params.draftRevision || manifest.assembledHash !== sha256(draft.content) || manifest.eventMapHash !== eventMap.eventMapHash) throw new Error(`Chapter ${params.chapter} requires a current chase-wife assembly manifest.`);
+				const manifestEvents = Array.isArray(manifest.eventDrafts) ? manifest.eventDrafts.filter(isJsonRecord) : [];
+				let manifestEventsValid = manifestEvents.length === eventMap.events.length;
+				for (const event of eventMap.events) {
+					const currentEventDraft = await this.latestChaseWifeEventDraft(params.projectId, params.chapter, event.eventId, signal);
+					const entry = manifestEvents.find((candidate) => candidate.eventId === event.eventId);
+					if (!currentEventDraft || !entry || entry.revision !== currentEventDraft.revision || entry.contentHash !== sha256(currentEventDraft.content) || entry.eventSpecHash !== hashJson(event)) manifestEventsValid = false;
+				}
+				if (!manifestEventsValid) throw new Error(`Chapter ${params.chapter} requires an assembly manifest bound to every current event specification.`);
 				const pacingReport = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${name}-chase-wife-pacing.json`), signal);
-				if (!isJsonRecord(pacingReport) || pacingReport.status !== "ok" || pacingReport.draftRevision !== params.draftRevision || pacingReport.contentHash !== sha256(draft.content)) throw new Error(`Chapter ${params.chapter} requires a current passing chase-wife chapter pacing report.`);
+				if (!isJsonRecord(pacingReport) || pacingReport.status !== "ok" || pacingReport.draftRevision !== params.draftRevision || pacingReport.contentHash !== sha256(draft.content) || pacingReport.eventMapHash !== eventMap.eventMapHash || pacingReport.manifestHash !== hashJson(manifest)) throw new Error(`Chapter ${params.chapter} requires a current passing chase-wife chapter pacing report.`);
 				const scoreReport = await this.readJsonIfExists(this.projectFile(params.projectId, `evaluations/chapter/${name}-chase-wife-pacing-score.json`), signal);
-				if (!isJsonRecord(scoreReport) || scoreReport.passed !== true || scoreReport.draftRevision !== params.draftRevision) throw new Error(`Chapter ${params.chapter} requires a passing chase-wife chapter score.`);
+				if (!isJsonRecord(scoreReport) || scoreReport.passed !== true || scoreReport.draftRevision !== params.draftRevision || scoreReport.contentHash !== sha256(draft.content) || scoreReport.eventMapHash !== eventMap.eventMapHash || scoreReport.manifestHash !== hashJson(manifest)) throw new Error(`Chapter ${params.chapter} requires a current passing chase-wife chapter score.`);
 				const aiArtifacts = await this.readJsonIfExists(this.projectFile(params.projectId, `evaluations/chapter/${name}-ai-artifacts-r${String(params.draftRevision).padStart(2, "0")}.json`), signal);
 				if (!isJsonRecord(aiArtifacts) || aiArtifacts.draftRevision !== params.draftRevision || aiArtifacts.status === "error") throw new Error(`Chapter ${params.chapter} requires an AI-artifact report for the selected draft.`);
 				const readerReport = await this.readTextIfExists(this.projectFile(params.projectId, `evaluations/reader/${name}.md`), signal);
 				const reviewReport = await this.readTextIfExists(this.projectFile(params.projectId, `evaluations/review/${name}.md`), signal);
-				const hasCurrentReaderOrReview = [readerReport, reviewReport].some((report) => report?.includes(`draftRevision: ${params.draftRevision}`) === true);
+				const hasCurrentReaderOrReview = [readerReport, reviewReport].some((report) => report?.includes(`draftRevision: ${params.draftRevision}`) === true && report.includes(`contentHash: ${sha256(draft.content)}`));
 				if (!hasCurrentReaderOrReview) throw new Error(`Chapter ${params.chapter} requires a current reader simulation or story review report.`);
 			}
 			const timelinePath = this.projectFile(params.projectId, "timeline/events.json");

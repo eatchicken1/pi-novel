@@ -24,7 +24,7 @@ description: 按编辑层级审查小说，输出结构、场景、连续性、�
 2. 先给证据，再给影响、优先级和定向修改任务。
 3. 区分事实、推断和建议；不自动把报告写入正史。
 4. 使用 `save_continuity_report` 或 `save_story_document` 保存报告，并绑定草稿 revision。
-5. 普通类型可使用 `score_chapter`；追妻文必须优先使用 `check_chase_wife_chapter_pacing`、`check_chase_wife_event_semantics` 和 `score_chase_wife_chapter`，全篇复盘时再使用 `check_chase_wife_story_pacing`，模型自报分数只能作为补充。
+5. 普通类型可使用 `score_chapter`；追妻文必须优先使用 `check_chase_wife_chapter_pacing`、`check_chase_wife_event_semantics` 和 `score_chase_wife_chapter`，语义报告要记录 `roleSatisfied`、`conflictShown`、`agencyActionEvidence` 和状态差证据；草稿期使用 `check_chase_wife_story_pacing(scope=working)`，全篇复盘使用 `scope=finalized`，模型自报分数只能作为补充。
 6. 追妻文还要检查女主退出是否不可逆、退出前是否有两次主动权升级、追悔是否有行动证据、现实后果是否兑现，以及结局是否把选择权交还给女主。
 7. 追妻文还要检查 POV 模式、第一章冲突位置、事件实际字数、同类伤害连续次数、纯心理段落、回忆占比、退出位置和追妻启动位置。
 

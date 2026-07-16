@@ -30,7 +30,7 @@
 
 同类伤害连续最多两次；第三次必须换成女主行动、资源损失、公开风险、证据揭露或关系后果。连续两段纯心理解释后必须出现动作、对话、证据或选择；退出前回忆不超过正文 15%，且每段回忆必须在 300 字内重新解释当前伤害并推动新行动。
 
-不要让一个章节只写一个大场景。先调用 `save_chase_wife_event_map` 和 `check_chase_wife_event_map`，再逐事件调用 `save_chase_wife_event_draft`、`check_chase_wife_event_draft`、`check_chase_wife_event_semantics`，全部通过后调用 `assemble_chase_wife_chapter`，最后调用 `check_chase_wife_chapter_pacing`；全篇结束后调用 `check_chase_wife_story_pacing`。事件地图通过不等于正文通过。
+不要让一个章节只写一个大场景。先调用 `save_chase_wife_event_map` 和 `check_chase_wife_event_map`，再逐事件调用 `save_chase_wife_event_draft`、`check_chase_wife_event_draft`、`check_chase_wife_event_semantics`，全部通过后调用 `assemble_chase_wife_chapter`，最后调用 `check_chase_wife_chapter_pacing`；草稿期调用 `check_chase_wife_story_pacing` 的 `scope=working`，全部章节定稿后再调用 `scope=finalized`；导出前必须调用 `finalize_manuscript`。事件地图通过不等于正文通过，任何事件图或草稿变化都必须重新生成绑定当前版本的报告。
 
 ## 情绪要求
 

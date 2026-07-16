@@ -250,6 +250,16 @@ export const UpdateTimelineSchema = Type.Object({
 	confirmation: ConfirmationSchema,
 });
 
+export const SaveCanonDocumentSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	documentType: Type.Union([Type.Literal("story-bible"), Type.Literal("style-guide"), Type.Literal("world"), Type.Literal("outline")]),
+	name: Type.Optional(Type.String({ minLength: 1, maxLength: 80, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" })),
+	format: ContentFormatSchema,
+	content: Type.String({ minLength: 1 }),
+	status: UpdateStatusSchema,
+	confirmation: ConfirmationSchema,
+});
+
 export const ScoreStoryFoundationSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	scores: Type.Object({
@@ -379,6 +389,7 @@ const ChaseWifeLengthModeSchema = Type.Union([
 ]);
 
 const ChaseWifePacingModeSchema = Type.Union([Type.Literal("fast-burn"), Type.Literal("standard")]);
+const ChaseWifeStoryPacingScopeSchema = Type.Union([Type.Literal("working"), Type.Literal("finalized")]);
 
 const ChaseWifeMemorySpanSchema = Type.Object({
 	startChar: Type.Integer({ minimum: 0 }),
@@ -501,6 +512,7 @@ export const CheckChaseWifeChapterPacingSchema = CheckChaseWifePacingSchema;
 export const CheckChaseWifeStoryPacingSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	mode: Type.Optional(ChaseWifePacingModeSchema),
+	scope: Type.Optional(ChaseWifeStoryPacingScopeSchema),
 });
 
 export const CheckChaseWifeEventSemanticsSchema = Type.Object({
@@ -528,6 +540,11 @@ export const FinalizeChapterSchema = Type.Object({
 	overwrite: Type.Optional(Type.Boolean()),
 });
 
+export const FinalizeManuscriptSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	confirmation: Type.Literal("USER_CONFIRMED"),
+});
+
 export type InitializeNovelParams = Static<typeof InitializeNovelSchema>;
 export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
 export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
@@ -547,6 +564,7 @@ export type Genre = Static<typeof GenreSchema>;
 export type UpdateCharacterStateParams = Static<typeof UpdateCharacterStateSchema>;
 export type UpdateClueLedgerParams = Static<typeof UpdateClueLedgerSchema>;
 export type UpdateTimelineParams = Static<typeof UpdateTimelineSchema>;
+export type SaveCanonDocumentParams = Static<typeof SaveCanonDocumentSchema>;
 export type ScoreStoryFoundationParams = Static<typeof ScoreStoryFoundationSchema>;
 export type ScoreChapterParams = Static<typeof ScoreChapterSchema>;
 export type CreateVoiceFingerprintParams = Static<typeof CreateVoiceFingerprintSchema>;
@@ -570,6 +588,7 @@ export type CheckChaseWifeStoryPacingParams = Static<typeof CheckChaseWifeStoryP
 export type CheckChaseWifeEventSemanticsParams = Static<typeof CheckChaseWifeEventSemanticsSchema>;
 export type ScoreChaseWifeChapterParams = Static<typeof ScoreChaseWifeChapterSchema>;
 export type FinalizeChapterParams = Static<typeof FinalizeChapterSchema>;
+export type FinalizeManuscriptParams = Static<typeof FinalizeManuscriptSchema>;
 export type ContextSection = Static<typeof ContextSectionSchema>;
 export type DocumentType = Static<typeof DocumentTypeSchema>;
 export type ContentFormat = Static<typeof ContentFormatSchema>;

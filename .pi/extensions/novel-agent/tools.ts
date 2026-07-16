@@ -15,6 +15,7 @@ import type {
 	ExtractChapterFactsParams,
 	ExportManuscriptParams,
 	FinalizeChapterParams,
+	FinalizeManuscriptParams,
 	GetNovelStatusParams,
 	InitializeNovelParams,
 	LoadWorkflowCheckpointParams,
@@ -23,6 +24,7 @@ import type {
 	RepairNovelProjectParams,
 	SaveChapterDraftParams,
 	SaveChapterPlanParams,
+	SaveCanonDocumentParams,
 	SaveContinuityReportParams,
 	SaveChaseWifeBeatSheetParams,
 	SaveChaseWifeEventDraftParams,
@@ -53,6 +55,7 @@ import {
 	ExtractChapterFactsSchema,
 	ExportManuscriptSchema,
 	FinalizeChapterSchema,
+	FinalizeManuscriptSchema,
 	GetNovelStatusSchema,
 	InitializeNovelSchema,
 	LoadWorkflowCheckpointSchema,
@@ -61,6 +64,7 @@ import {
 	RepairNovelProjectSchema,
 	SaveChapterDraftSchema,
 	SaveChapterPlanSchema,
+	SaveCanonDocumentSchema,
 	SaveContinuityReportSchema,
 	SaveChaseWifeBeatSheetSchema,
 	SaveChaseWifeEventDraftSchema,
@@ -330,11 +334,25 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "export_manuscript",
 			label: "Export Manuscript",
-			description: "Export finalized chapters in deterministic chapter order.",
+			description: "Export finalized chapters in deterministic chapter order; chase-wife projects require a current finalized manuscript seal.",
 			parameters: ExportManuscriptSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: ExportManuscriptParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).exportManuscript(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "finalize_manuscript",
+			label: "Finalize Manuscript",
+			description: "Run the finalized-story quality gate and seal a chase-wife manuscript for export.",
+			parameters: FinalizeManuscriptSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: FinalizeManuscriptParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).finalizeManuscript(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),
@@ -478,6 +496,20 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			async execute(_toolCallId, params: SaveStoryDocumentParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).saveStoryDocument(params, signal);
 				return { content: [{ type: "text", text: `Saved ${result.documentType}: ${result.path}` }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_canon_document",
+			label: "Save Canon Document",
+			description: "Save a proposed canon document candidate or a user-confirmed story bible, style guide, world, or outline document.",
+			parameters: SaveCanonDocumentSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveCanonDocumentParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveCanonDocument(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),
 	);
