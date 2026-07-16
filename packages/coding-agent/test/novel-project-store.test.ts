@@ -106,17 +106,17 @@ describe("NovelProjectStore", () => {
 	it("rejects invalid JSON without replacing the original document", async () => {
 		await withStore(async (store, cwd) => {
 			await store.initializeNovel({ projectId: "demo", title: "题名", genre: "悬疑" });
-			const original = await readFile(join(cwd, "novels", "demo", "timeline", "events.json"), "utf8");
+			const original = await readFile(join(cwd, "novels", "demo", "story-bible.md"), "utf8");
 			await expect(
-				store.saveStoryDocument({
+				store.saveCanonDocument({
 					projectId: "demo",
-					documentType: "timeline",
-					name: "events",
+					documentType: "story-bible",
 					format: "json",
 					content: "{",
+					status: "proposed",
 				}),
 			).rejects.toThrow("Invalid JSON");
-			expect(await readFile(join(cwd, "novels", "demo", "timeline", "events.json"), "utf8")).toBe(original);
+			expect(await readFile(join(cwd, "novels", "demo", "story-bible.md"), "utf8")).toBe(original);
 		});
 	});
 

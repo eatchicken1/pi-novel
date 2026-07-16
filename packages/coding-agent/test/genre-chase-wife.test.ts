@@ -70,6 +70,125 @@ function event(eventId: number, role: ChaseWifeEvent["role"], overrides: Partial
 	};
 }
 
+function fixtureEventProse(eventRecord: ChaseWifeEvent, chapter: number): string {
+	const count = eventRecord.lengthMode === "anchor" ? 20 : eventRecord.lengthMode === "flash" ? 4 : 12;
+	const lead = eventRecord.targetTrack === "male" ? "He realizes the loss" : "鎴戞妸閫夋嫨鍐欏叆鎵嬩腑";
+	const lines = Array.from(
+		{ length: count },
+		(_, index) =>
+			`${lead}${chapter}-${eventRecord.eventId}-${index}. ${eventRecord.targetTrack === "male" ? "He leaves." : "I leave."}`,
+	);
+	return `${chapter === 1 && eventRecord.eventId === 1 ? "surrender her place. " : ""}${lines.join(" ")}`;
+}
+
+async function finalizeFixtureChapter(
+	store: NovelProjectStore,
+	cwd: string,
+	projectId: string,
+	chapter: number,
+	events: ChaseWifeEvent[],
+): Promise<number> {
+	await store.saveChaseWifeEventMap({
+		projectId,
+		chapter,
+		povMode: "split-pov",
+		...(chapter === 1
+			? {
+					openingIntro: "opening intro ".repeat(8),
+					openingConflict: "the heroine is asked to surrender her place",
+					openingConflictMarker: "surrender her place",
+				}
+			: { openingConflict: "the old relationship creates a new demand" }),
+		events,
+	});
+	const mapReport = await store.checkChaseWifeEventMap({ projectId, chapter });
+	expect(mapReport.status, `${chapter}:${JSON.stringify(mapReport)}`).toBe("ok");
+	for (const eventRecord of events) {
+		await store.saveChaseWifeEventDraft({
+			projectId,
+			chapter,
+			eventId: eventRecord.eventId,
+			content: fixtureEventProse(eventRecord, chapter),
+		});
+		const budget = await store.checkChaseWifeEventDraft({ projectId, chapter, eventId: eventRecord.eventId });
+		expect(budget.status, `${chapter}/${eventRecord.eventId}:${JSON.stringify(budget)}`).toBe("ok");
+	}
+	const assembled = await store.assembleChaseWifeChapter({ projectId, chapter });
+	const pacing = await store.checkChaseWifeChapterPacing({ projectId, chapter });
+	expect(pacing.status, JSON.stringify(pacing)).toBe("ok");
+	const score = await store.scoreChaseWifeChapter({ projectId, chapter });
+	expect(score.passed, JSON.stringify(score)).toBe(true);
+	await store.checkAiArtifacts({ projectId, chapter, draftRevision: assembled.draftRevision });
+	await store.saveChapterPlan({ projectId, chapter, content: `chapter plan ${chapter}` });
+	await store.saveSceneContract({
+		projectId,
+		chapter,
+		contracts: [
+			{
+				sceneId: `scene-${chapter}`,
+				chapter,
+				order: 1,
+				pov: "heroine",
+				time: "today",
+				location: "home",
+				goal: "leave",
+				opposition: "the old promise",
+				stakes: "her freedom",
+				knowledgeBefore: [],
+				informationReveal: ["the promise changes"],
+				emotionalStateBefore: "hurt",
+				emotionalTurn: "she chooses herself",
+				emotionalStateAfter: "resolved",
+				stateChanges: ["agency"],
+				setups: [],
+				payoffs: [],
+				exitHook: "the next life begins",
+			},
+		],
+	});
+	await store.checkContinuity({ projectId, chapter });
+	await store.saveContinuityReport({
+		projectId,
+		chapter,
+		draftRevision: assembled.draftRevision,
+		status: "ok",
+		issues: [],
+	});
+	await store.saveQualityReport(
+		{
+			projectId,
+			chapter,
+			draftRevision: assembled.draftRevision,
+			content: "the reader follows the heroine's choice",
+		},
+		"reader",
+	);
+	const projectRoot = join(cwd, "novels", projectId);
+	const chapterContent = await readFile(join(projectRoot, assembled.path), "utf8");
+	await store.finalizeChapter({
+		projectId,
+		chapter,
+		title: `chapter ${chapter}`,
+		content: chapterContent,
+		summary: {
+			pov: "heroine",
+			time: "today",
+			locations: ["home"],
+			characters: ["heroine"],
+			events: [`chapter ${chapter} advances the choice`],
+			newFacts: ["the promise changes"],
+			relationshipChanges: ["trust changes"],
+			cluesIntroduced: [],
+			cluesResolved: [],
+			itemsChanged: ["key"],
+			openQuestions: [],
+		},
+		draftRevision: assembled.draftRevision,
+		confirmation: "USER_CONFIRMED",
+	});
+	return assembled.draftRevision;
+}
+
 describe("chase-wife genre branch", () => {
 	it("normalizes the Chinese genre selection and checks its dedicated arc", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-chase-wife-"));
@@ -250,6 +369,253 @@ describe("chase-wife genre branch", () => {
 			expect(storyPacing.metrics.exitRatio).toBeLessThan(0.65);
 			const score = await store.scoreChaseWifeChapter({ projectId: "pacing", chapter: 1 });
 			expect(score.passed).toBe(true);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("does not convert a missing opening conflict marker into a valid full-story position", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-opening-marker-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "marker", title: "opening marker", genre: "chase-wife" });
+			await store.saveChaseWifeEventMap({
+				projectId: "marker",
+				chapter: 1,
+				povMode: "heroine-first-person",
+				openingIntro: "opening intro ".repeat(8),
+				openingConflict: "the heroine is asked to surrender her place",
+				openingConflictMarker: "this marker is absent",
+				events: [
+					event(1, "opening-injury"),
+					event(2, "micro-withdrawal", { lengthMode: "flash", minChars: 60, maxChars: 180 }),
+					event(3, "irreversible-exit", { lengthMode: "anchor", minChars: 450, maxChars: 850 }),
+				],
+			});
+			for (const [eventId, content] of [
+				[1, Array.from({ length: 50 }, (_, index) => `我转身离开${index}。`).join("")],
+				[2, Array.from({ length: 10 }, (_, index) => `我删掉了他的号码${index}。`).join("")],
+				[3, Array.from({ length: 70 }, (_, index) => `我签下文件，提着行李走出门${index}。`).join("")],
+			] as const) {
+				const boundedContent = eventId === 3 ? [...content].slice(0, 800).join("") : content;
+				await store.saveChaseWifeEventDraft({ projectId: "marker", chapter: 1, eventId, content: boundedContent });
+				await store.checkChaseWifeEventDraft({ projectId: "marker", chapter: 1, eventId });
+			}
+			await store.assembleChaseWifeChapter({ projectId: "marker", chapter: 1 });
+			const report = await store.checkChaseWifeStoryPacing({ projectId: "marker", scope: "working" });
+			expect(report.metrics.firstConflictPosition).toBeUndefined();
+			expect(report.issues).toContain(
+				"first visible conflict is not verified within 250 characters of the full story",
+			);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("invalidates event reports and assembly when the event map changes", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-stale-event-map-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "stale-map", title: "stale map", genre: "chase-wife" });
+			const saveMap = (conflict: string) =>
+				store.saveChaseWifeEventMap({
+					projectId: "stale-map",
+					chapter: 1,
+					povMode: "heroine-first-person",
+					openingIntro: "opening intro ".repeat(8),
+					openingConflict: conflict,
+					openingConflictMarker: "surrender her place",
+					events: [
+						event(1, "opening-injury"),
+						event(2, "micro-withdrawal", { lengthMode: "flash", minChars: 60, maxChars: 180 }),
+						event(3, "irreversible-exit", { lengthMode: "anchor", minChars: 450, maxChars: 850 }),
+					],
+				});
+			await saveMap("the heroine is asked to surrender her place");
+			const drafts = [
+				[1, Array.from({ length: 50 }, (_, index) => `surrender her place ${index}. 我转身离开。`).join(" ")],
+				[2, Array.from({ length: 10 }, (_, index) => `我删掉了他的号码${index}。`).join("")],
+				[3, Array.from({ length: 70 }, (_, index) => `我签下文件，提着行李走出门${index}。`).join("")],
+			] as const;
+			for (const [eventId, content] of drafts) {
+				const boundedContent =
+					eventId === 3
+						? [...content].slice(0, 800).join("")
+						: eventId === 1
+							? [...content].slice(0, 400).join("")
+							: content;
+				await store.saveChaseWifeEventDraft({
+					projectId: "stale-map",
+					chapter: 1,
+					eventId,
+					content: boundedContent,
+				});
+				await store.checkChaseWifeEventDraft({ projectId: "stale-map", chapter: 1, eventId });
+			}
+			await store.assembleChaseWifeChapter({ projectId: "stale-map", chapter: 1 });
+			await saveMap("the heroine is now publicly ordered to surrender her place");
+			await expect(store.assembleChaseWifeChapter({ projectId: "stale-map", chapter: 1 })).rejects.toThrow(
+				"current event map",
+			);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps finalized story pacing separate from working event drafts", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-finalized-scope-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "scope", title: "scope", genre: "chase-wife" });
+			await store.saveChaseWifeEventMap({
+				projectId: "scope",
+				chapter: 1,
+				povMode: "heroine-first-person",
+				openingIntro: "opening intro ".repeat(8),
+				openingConflict: "the heroine is asked to surrender her place",
+				openingConflictMarker: "surrender her place",
+				events: [
+					event(1, "opening-injury"),
+					event(2, "micro-withdrawal", { lengthMode: "flash", minChars: 60, maxChars: 180 }),
+					event(3, "irreversible-exit", { lengthMode: "anchor", minChars: 450, maxChars: 850 }),
+				],
+			});
+			await store.saveChaseWifeEventDraft({
+				projectId: "scope",
+				chapter: 1,
+				eventId: 1,
+				content: "surrender her place. 我转身离开。".repeat(20),
+			});
+			const working = await store.checkChaseWifeStoryPacing({ projectId: "scope", scope: "working" });
+			const finalized = await store.checkChaseWifeStoryPacing({ projectId: "scope", scope: "finalized" });
+			expect(working.scope).toBe("working");
+			expect(finalized.scope).toBe("finalized");
+			expect(finalized.metrics.eventCount).toBe(0);
+			expect(finalized.issues).toContain("finalized scope requires at least one finalized chapter");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("runs a six-chapter Chinese finalized-story regression and seals export", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-six-chapter-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "six", title: "六章回归", genre: "chase-wife" });
+			const chapters: ChaseWifeEvent[][] = [
+				[
+					event(1, "opening-injury", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(2, "decision", { heroineAgencyBefore: 20, heroineAgencyAfter: 35 }),
+					event(3, "boundary-test", { heroineAgencyBefore: 35, heroineAgencyAfter: 45 }),
+				],
+				[
+					event(1, "evidence", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(2, "micro-withdrawal", { lengthMode: "flash", minChars: 60, maxChars: 180 }),
+					event(3, "boundary-test", { heroineAgencyBefore: 25, heroineAgencyAfter: 35 }),
+				],
+				[
+					event(1, "self-rebuild", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(2, "irreversible-exit", {
+						heroineAgencyBefore: 20,
+						heroineAgencyAfter: 55,
+						lengthMode: "anchor",
+						minChars: 450,
+						maxChars: 850,
+					}),
+					event(3, "pursuit-control", {
+						pov: "male-limited-third-person",
+						targetTrack: "male",
+						lengthMode: "flash",
+						minChars: 60,
+						maxChars: 180,
+					}),
+				],
+				[
+					event(1, "self-rebuild", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(2, "pursuit-failure", {
+						pov: "heroine-first-person",
+						targetTrack: "shared",
+						heroineAgencyBefore: 20,
+						heroineAgencyAfter: 30,
+						lengthMode: "flash",
+						minChars: 60,
+						maxChars: 180,
+					}),
+					event(3, "real-consequence", { pov: "male-limited-third-person", targetTrack: "male" }),
+				],
+				[
+					event(1, "self-rebuild", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(2, "final-boundary", { heroineAgencyBefore: 20, heroineAgencyAfter: 35 }),
+					event(3, "closure", { heroineAgencyBefore: 35, heroineAgencyAfter: 40 }),
+				],
+				[
+					event(1, "self-rebuild", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(2, "pursuit-failure", {
+						pov: "heroine-first-person",
+						targetTrack: "shared",
+						heroineAgencyBefore: 20,
+						heroineAgencyAfter: 30,
+						lengthMode: "flash",
+						minChars: 60,
+						maxChars: 180,
+					}),
+					event(3, "recognition", { pov: "male-limited-third-person", targetTrack: "male" }),
+				],
+			];
+			for (const [index, events] of chapters.entries())
+				await finalizeFixtureChapter(store, cwd, "six", index + 1, events);
+			const finalizedPacing = await store.checkChaseWifeStoryPacing({ projectId: "six", scope: "finalized" });
+			expect(finalizedPacing.status, JSON.stringify(finalizedPacing)).not.toBe("error");
+			expect(finalizedPacing.metrics.chapterCount).toBe(6);
+			expect(finalizedPacing.metrics.eventCount).toBe(18);
+			const seal = await store.finalizeManuscript({ projectId: "six", confirmation: "USER_CONFIRMED" });
+			expect(seal.status).toBe("finalized");
+			const exported = await store.exportManuscript({ projectId: "six" });
+			expect(exported.chapters).toBe(6);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("protects canonical documents behind a dedicated proposed or confirmed workflow", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-canon-protection-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "canon", title: "canon", genre: "chase-wife" });
+			await expect(
+				store.saveStoryDocument({
+					projectId: "canon",
+					documentType: "story-bible",
+					format: "markdown",
+					content: "unsafe overwrite",
+				}),
+			).rejects.toThrow("dedicated workflow");
+			const proposal = await store.saveCanonDocument({
+				projectId: "canon",
+				documentType: "story-bible",
+				format: "markdown",
+				content: "proposed bible",
+				status: "proposed",
+			});
+			expect(proposal.path.replace(/\\/gu, "/")).toMatch(/^work\/canon-candidates\/story-bible-/u);
+			await expect(
+				store.saveCanonDocument({
+					projectId: "canon",
+					documentType: "story-bible",
+					format: "markdown",
+					content: "confirmed bible",
+					status: "confirmed",
+				}),
+			).rejects.toThrow("USER_CONFIRMED");
+			const confirmed = await store.saveCanonDocument({
+				projectId: "canon",
+				documentType: "story-bible",
+				format: "markdown",
+				content: "confirmed bible",
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+			});
+			expect(confirmed.path).toBe("story-bible.md");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -458,6 +824,7 @@ describe("chase-wife genre branch", () => {
 					confirmation: "USER_CONFIRMED",
 				}),
 			).resolves.toBeTruthy();
+			await expect(store.exportManuscript({ projectId: "finalize" })).rejects.toThrow("finalized manuscript gate");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
