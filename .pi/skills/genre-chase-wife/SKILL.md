@@ -23,8 +23,8 @@ description: 追妻文专属创作分支：围绕偏爱排序、关系失衡、�
 2. 明确女主被排序或被透支的核心资源，以及她最终要重新获得的选择权。
 3. 默认选择 `povMode=split-pov`；若作者明确要求单一视角才选择 `heroine-first-person`。分别设计 `heroineArc` 与 `maleArc`；在节拍表声明 80—180 字开篇引言和第一冲突，再使用 `save_chase_wife_beat_sheet` 保存 12—24 个节拍，并调用 `check_chase_wife_arc`。
 4. 每章先使用 `save_chase_wife_event_map` 拆成 3—6 个事件；每个事件必须声明角色、轨道、因果来源、至少两项状态差、主动权变化、不可逆性和可变长度预算。
-5. 检查通过后，逐事件调用 `save_chase_wife_event_draft` 和 `check_chase_wife_event_draft`，全部通过后调用 `assemble_chase_wife_chapter`。
-6. 对组装稿调用 `check_chase_wife_pacing` 和 `score_chase_wife_chapter`，再进行完整性审查、语义审查、定向修改和用户确认定稿。
+5. 检查通过后，逐事件调用 `save_chase_wife_event_draft`、`check_chase_wife_event_draft` 和 `check_chase_wife_event_semantics`，全部通过后调用 `assemble_chase_wife_chapter`。
+6. 对组装稿调用 `check_chase_wife_chapter_pacing` 和 `score_chase_wife_chapter`，再进行完整性审查、语义审查、定向修改和用户确认定稿；全篇完成后调用 `check_chase_wife_story_pacing`。
 7. 定稿后先保存候选事实；只有 `USER_CONFIRMED` 才能更新人物、伏笔和时间线正史。
 
 ## 完成条件

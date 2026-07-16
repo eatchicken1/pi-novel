@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -81,6 +81,28 @@ describe("NovelProjectStore", () => {
 		});
 	});
 
+	it("uses short-story genre defaults and blocks generic chapter saves", async () => {
+		await withStore(async (store, cwd) => {
+			await store.initializeNovel({ projectId: "chase", title: "追妻", genre: "chase-wife" });
+			await store.initializeNovel({ projectId: "suspense", title: "悬疑", genre: "suspense" });
+			expect(JSON.parse(await readFile(join(cwd, "novels", "chase", "project.json"), "utf8")).targetWordCount).toBe(
+				10_000,
+			);
+			expect(
+				JSON.parse(await readFile(join(cwd, "novels", "suspense", "project.json"), "utf8")).targetWordCount,
+			).toBe(12_000);
+			await expect(
+				store.saveStoryDocument({
+					projectId: "chase",
+					documentType: "chapter-draft",
+					name: "chapter-001",
+					format: "markdown",
+					content: "bypass",
+				}),
+			).rejects.toThrow("dedicated workflow tool");
+		});
+	});
+
 	it("rejects invalid JSON without replacing the original document", async () => {
 		await withStore(async (store, cwd) => {
 			await store.initializeNovel({ projectId: "demo", title: "题名", genre: "悬疑" });
@@ -95,6 +117,44 @@ describe("NovelProjectStore", () => {
 				}),
 			).rejects.toThrow("Invalid JSON");
 			expect(await readFile(join(cwd, "novels", "demo", "timeline", "events.json"), "utf8")).toBe(original);
+		});
+	});
+
+	it("recovers a ready transaction after a partial rename", async () => {
+		await withStore(async (store, cwd) => {
+			await store.initializeNovel({ projectId: "demo", title: "transaction", genre: "suspense" });
+			const projectDir = join(cwd, "novels", "demo");
+			const transactionId = "ready-transaction";
+			await mkdir(join(projectDir, "transactions"), { recursive: true });
+			await writeFile(join(projectDir, "world", "locations.json"), "old\n", "utf8");
+			await writeFile(join(projectDir, "world", "locations.json.tmp"), "new\n", "utf8");
+			await writeFile(join(projectDir, "world", "rules.json.tmp"), "rules\n", "utf8");
+			await writeFile(
+				join(projectDir, "transactions", `${transactionId}.json`),
+				`${JSON.stringify(
+					{
+						transactionId,
+						operation: "finalize-chapter",
+						projectId: "demo",
+						chapter: 1,
+						status: "ready",
+						createdAt: new Date().toISOString(),
+						targets: [
+							{ target: "world/locations.json", temporary: "world/locations.json.tmp" },
+							{ target: "world/rules.json", temporary: "world/rules.json.tmp" },
+						],
+					},
+					null,
+					2,
+				)}\n`,
+				"utf8",
+			);
+			await store.getNovelStatus({ projectId: "demo" });
+			expect(await readFile(join(projectDir, "world", "locations.json"), "utf8")).toBe("new\n");
+			expect(await readFile(join(projectDir, "world", "rules.json"), "utf8")).toBe("rules\n");
+			expect(
+				JSON.parse(await readFile(join(projectDir, "transactions", `${transactionId}.json`), "utf8")).status,
+			).toBe("committed");
 		});
 	});
 

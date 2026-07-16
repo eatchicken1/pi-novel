@@ -220,12 +220,14 @@ describe("chase-wife genre branch", () => {
 					}),
 				],
 			});
+			const varied = (lead: string, count: number): string =>
+				Array.from({ length: count }, (_, index) => `${lead}${index + 1}，我把下一步写进了行动里。`).join("");
 			const drafts = [
-				[1, `撕掉名额。${"我没有回头。".repeat(36)}`],
-				[2, "我删掉了他的号码。".repeat(10)],
-				[3, "我把钥匙放在桌上，签下离开的文件。".repeat(33)],
-				[4, "他终于发现我没有等他。".repeat(10)],
-				[5, "他在公开场合失去了原本理所当然的位置。".repeat(32)],
+				[1, `撕掉名额。我当场收回了答应过的承诺。${varied("门外的脚步停在第", 16)}`],
+				[2, `我删掉了他的号码，${varied("屏幕上最后一条消息是第", 5)}`],
+				[3, `我把钥匙放在桌上，签下离开的文件。${varied("我在文件末页写下第", 24)}`],
+				[4, `他终于发现我没有等他，${varied("他在空荡的房间里翻找第", 5)}`],
+				[5, `他在公开场合失去了原本理所当然的位置。${varied("众人把目光移开了第", 32)}`],
 			] as const;
 			for (const [eventId, content] of drafts)
 				await store.saveChaseWifeEventDraft({ projectId: "pacing", chapter: 1, eventId, content });
@@ -235,10 +237,17 @@ describe("chase-wife genre branch", () => {
 				);
 			const assembled = await store.assembleChaseWifeChapter({ projectId: "pacing", chapter: 1 });
 			expect(assembled.eventCount).toBe(5);
+			expect(await readFile(join(cwd, "novels", "pacing", assembled.path), "utf8")).toContain("opening intro");
+			expect(await readFile(join(cwd, "novels", "pacing", assembled.manifestPath), "utf8")).toContain(
+				'"openingIntroIncluded": true',
+			);
 			const pacing = await store.checkChaseWifePacing({ projectId: "pacing", chapter: 1, mode: "standard" });
 			expect(pacing.status).toBe("ok");
 			expect(pacing.metrics.exitRatio).toBeGreaterThan(0.45);
 			expect(pacing.metrics.exitRatio).toBeLessThan(0.55);
+			const storyPacing = await store.checkChaseWifeStoryPacing({ projectId: "pacing", mode: "standard" });
+			expect(storyPacing.metrics.exitRatio).toBeGreaterThan(0.45);
+			expect(storyPacing.metrics.exitRatio).toBeLessThan(0.65);
 			const score = await store.scoreChaseWifeChapter({ projectId: "pacing", chapter: 1 });
 			expect(score.passed).toBe(true);
 		} finally {
@@ -289,6 +298,166 @@ describe("chase-wife genre branch", () => {
 			const report = await store.checkChaseWifeEventMap({ projectId: "invalid-pacing", chapter: 1 });
 			expect(report.status).toBe("error");
 			expect(report.issues).toEqual(expect.arrayContaining(["repeated injury mechanism: neglect"]));
+			await store.saveChaseWifeEventDraft({
+				projectId: "invalid-pacing",
+				chapter: 1,
+				eventId: 1,
+				content: "我删掉了他的号码。".repeat(30),
+			});
+			const semantics = await store.checkChaseWifeEventSemantics({
+				projectId: "invalid-pacing",
+				chapter: 1,
+				eventId: 1,
+			});
+			expect(semantics.status).toBe("error");
+			expect(semantics.issues.map((issue) => issue.code)).toContain("repeated-sentence");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("requires every chase-wife quality gate before finalization", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-chase-finalize-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "finalize", title: "quality gates", genre: "chase-wife" });
+			await store.saveChaseWifeEventMap({
+				projectId: "finalize",
+				chapter: 1,
+				povMode: "heroine-first-person",
+				openingIntro: "opening intro ".repeat(8),
+				openingConflict: "the protagonist is asked to surrender her place immediately",
+				openingConflictMarker: "surrender her place",
+				events: [
+					event(1, "opening-injury", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(2, "micro-withdrawal", {
+						heroineAgencyBefore: 20,
+						heroineAgencyAfter: 35,
+						lengthMode: "flash",
+						minChars: 60,
+						maxChars: 180,
+					}),
+					event(3, "irreversible-exit", {
+						heroineAgencyBefore: 35,
+						heroineAgencyAfter: 60,
+						lengthMode: "anchor",
+						minChars: 450,
+						maxChars: 850,
+					}),
+				],
+			});
+			await store.checkChaseWifeEventMap({ projectId: "finalize", chapter: 1 });
+			const prose = (lead: string, count: number): string =>
+				Array.from({ length: count }, (_, index) => `${lead} ${index + 1}.`).join(" ");
+			const drafts = [
+				[1, `surrender her place. 我收回承诺。${prose("I turn away", 18)}`],
+				[2, `我删除号码。${prose("I close the message", 3)}`],
+				[3, `我签下文件并离开。${prose("I carry the key outside", 25)}`],
+			] as const;
+			for (const [eventId, content] of drafts) {
+				await store.saveChaseWifeEventDraft({ projectId: "finalize", chapter: 1, eventId, content });
+				const report = await store.checkChaseWifeEventDraft({ projectId: "finalize", chapter: 1, eventId });
+				expect(report.status, `${eventId}:${report.actualChars}:${JSON.stringify(report.issues)}`).toBe("ok");
+				const semantics = await store.checkChaseWifeEventSemantics({ projectId: "finalize", chapter: 1, eventId });
+				expect(semantics.status, `${eventId}:${JSON.stringify(semantics.issues)}`).not.toBe("error");
+			}
+			const assembled = await store.assembleChaseWifeChapter({ projectId: "finalize", chapter: 1 });
+			const content = await readFile(join(cwd, "novels", "finalize", assembled.path), "utf8");
+			const chapterPacing = await store.checkChaseWifeChapterPacing({ projectId: "finalize", chapter: 1 });
+			expect(chapterPacing.status, JSON.stringify(chapterPacing)).toBe("ok");
+			const score = await store.scoreChaseWifeChapter({ projectId: "finalize", chapter: 1 });
+			expect(score.passed, JSON.stringify(score)).toBe(true);
+			await store.checkAiArtifacts({ projectId: "finalize", chapter: 1, draftRevision: assembled.draftRevision });
+			await store.saveChapterPlan({ projectId: "finalize", chapter: 1, content: "chapter plan" });
+			await store.saveSceneContract({
+				projectId: "finalize",
+				chapter: 1,
+				contracts: [
+					{
+						sceneId: "scene-1",
+						chapter: 1,
+						order: 1,
+						pov: "heroine",
+						time: "today",
+						location: "home",
+						goal: "leave",
+						opposition: "the old promise",
+						stakes: "her freedom",
+						knowledgeBefore: [],
+						informationReveal: ["the promise was false"],
+						emotionalStateBefore: "hurt",
+						emotionalTurn: "she chooses herself",
+						emotionalStateAfter: "resolved",
+						stateChanges: ["agency"],
+						setups: [],
+						payoffs: [],
+						exitHook: "the next life begins",
+					},
+				],
+			});
+			await store.checkContinuity({ projectId: "finalize", chapter: 1 });
+			await store.saveContinuityReport({
+				projectId: "finalize",
+				chapter: 1,
+				draftRevision: assembled.draftRevision,
+				status: "ok",
+				issues: [],
+			});
+			await expect(
+				store.finalizeChapter({
+					projectId: "finalize",
+					chapter: 1,
+					title: "chapter 1",
+					content,
+					summary: {
+						pov: "heroine",
+						time: "today",
+						locations: ["home"],
+						characters: ["heroine"],
+						events: ["she leaves"],
+						newFacts: ["the promise was false"],
+						relationshipChanges: ["trust ends"],
+						cluesIntroduced: [],
+						cluesResolved: [],
+						itemsChanged: ["key"],
+						openQuestions: [],
+					},
+					draftRevision: assembled.draftRevision,
+					confirmation: "USER_CONFIRMED",
+				}),
+			).rejects.toThrow("reader simulation or story review");
+			await store.saveQualityReport(
+				{
+					projectId: "finalize",
+					chapter: 1,
+					draftRevision: assembled.draftRevision,
+					content: "the reader follows the heroine's choice",
+				},
+				"reader",
+			);
+			await expect(
+				store.finalizeChapter({
+					projectId: "finalize",
+					chapter: 1,
+					title: "chapter 1",
+					content,
+					summary: {
+						pov: "heroine",
+						time: "today",
+						locations: ["home"],
+						characters: ["heroine"],
+						events: ["she leaves"],
+						newFacts: ["the promise was false"],
+						relationshipChanges: ["trust ends"],
+						cluesIntroduced: [],
+						cluesResolved: [],
+						itemsChanged: ["key"],
+						openQuestions: [],
+					},
+					draftRevision: assembled.draftRevision,
+					confirmation: "USER_CONFIRMED",
+				}),
+			).resolves.toBeTruthy();
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

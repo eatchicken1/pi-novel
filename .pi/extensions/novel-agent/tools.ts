@@ -4,7 +4,9 @@ import type {
 	CheckAiArtifactsParams,
 	CheckChaseWifeArcParams,
 	CheckChaseWifeEventDraftParams,
+	CheckChaseWifeEventSemanticsParams,
 	CheckChaseWifeEventMapParams,
+	CheckChaseWifeStoryPacingParams,
 	CheckChaseWifePacingParams,
 	ScoreChaseWifeChapterParams,
 	AssembleChaseWifeChapterParams,
@@ -40,7 +42,9 @@ import {
 	CheckAiArtifactsSchema,
 	CheckChaseWifeArcSchema,
 	CheckChaseWifeEventDraftSchema,
+	CheckChaseWifeEventSemanticsSchema,
 	CheckChaseWifeEventMapSchema,
+	CheckChaseWifeStoryPacingSchema,
 	CheckChaseWifePacingSchema,
 	ScoreChaseWifeChapterSchema,
 	AssembleChaseWifeChapterSchema,
@@ -148,6 +152,20 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 
 	pi.registerTool(
 		defineTool({
+			name: "check_chase_wife_event_semantics",
+			label: "Check Chase-wife Event Semantics",
+			description: "Independently check one chase-wife event for repeated prose, planning labels, visible action, POV evidence, and pure-psychology runs.",
+			parameters: CheckChaseWifeEventSemanticsSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckChaseWifeEventSemanticsParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkChaseWifeEventSemantics(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
 			name: "assemble_chase_wife_chapter",
 			label: "Assemble Chase-wife Chapter",
 			description: "Assemble checked event drafts in event order into a revisioned chapter draft.",
@@ -164,11 +182,39 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "check_chase_wife_pacing",
 			label: "Check Chase-wife Pacing",
-			description: "Run independent chase-wife pacing checks over event drafts and the assembled chapter: conflict timing, agency, exit, pursuit, repetition, and memory ratio.",
+			description: "Run the legacy alias for chapter-local chase-wife pacing checks; use check_chase_wife_story_pacing for full-story exit and pursuit timing.",
 			parameters: CheckChaseWifePacingSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckChaseWifePacingParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).checkChaseWifePacing(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_chase_wife_chapter_pacing",
+			label: "Check Chase-wife Chapter Pacing",
+			description: "Check chapter-local chase-wife pacing without requiring the full-story exit or pursuit ratios.",
+			parameters: CheckChaseWifePacingSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckChaseWifePacingParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkChaseWifeChapterPacing(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_chase_wife_story_pacing",
+			label: "Check Chase-wife Story Pacing",
+			description: "Check full-story chase-wife timing: opening conflict, first agency, irreversible exit, pursuit start, and heroine new-life share.",
+			parameters: CheckChaseWifeStoryPacingSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckChaseWifeStoryPacingParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkChaseWifeStoryPacing(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),

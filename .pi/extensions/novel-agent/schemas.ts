@@ -387,7 +387,7 @@ const ChaseWifeMemorySpanSchema = Type.Object({
 
 export const ChaseWifeBeatSchema = Type.Object({
 	beat: Type.Integer({ minimum: 1, maximum: 24 }),
-	heroinePhase: ChaseWifeHeroineArcPhaseSchema,
+	heroinePhase: Type.Optional(ChaseWifeHeroineArcPhaseSchema),
 	malePhase: Type.Optional(ChaseWifeMaleArcPhaseSchema),
 	targetTrack: ChaseWifeTargetTrackSchema,
 	paywallHook: Type.Boolean(),
@@ -496,6 +496,20 @@ export const CheckChaseWifePacingSchema = Type.Object({
 	memorySpans: Type.Optional(Type.Array(ChaseWifeMemorySpanSchema)),
 });
 
+export const CheckChaseWifeChapterPacingSchema = CheckChaseWifePacingSchema;
+
+export const CheckChaseWifeStoryPacingSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	mode: Type.Optional(ChaseWifePacingModeSchema),
+});
+
+export const CheckChaseWifeEventSemanticsSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	eventId: Type.Integer({ minimum: 1, maximum: 8 }),
+	revision: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
 export const ScoreChaseWifeChapterSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	chapter: ChapterNumberSchema,
@@ -551,6 +565,9 @@ export type SaveChaseWifeEventDraftParams = Static<typeof SaveChaseWifeEventDraf
 export type CheckChaseWifeEventDraftParams = Static<typeof CheckChaseWifeEventDraftSchema>;
 export type AssembleChaseWifeChapterParams = Static<typeof AssembleChaseWifeChapterSchema>;
 export type CheckChaseWifePacingParams = Static<typeof CheckChaseWifePacingSchema>;
+export type CheckChaseWifeChapterPacingParams = Static<typeof CheckChaseWifeChapterPacingSchema>;
+export type CheckChaseWifeStoryPacingParams = Static<typeof CheckChaseWifeStoryPacingSchema>;
+export type CheckChaseWifeEventSemanticsParams = Static<typeof CheckChaseWifeEventSemanticsSchema>;
 export type ScoreChaseWifeChapterParams = Static<typeof ScoreChaseWifeChapterSchema>;
 export type FinalizeChapterParams = Static<typeof FinalizeChapterSchema>;
 export type ContextSection = Static<typeof ContextSectionSchema>;
