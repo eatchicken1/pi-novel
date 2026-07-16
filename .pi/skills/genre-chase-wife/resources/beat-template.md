@@ -31,4 +31,4 @@ informationChange / emotionBefore / emotionAfter / physicalReaction
 setupOrPayoff / readerRelease / exitHook
 ```
 
-第一事件的 `role` 必须是 `opening-intro-conflict`，同时承接开篇引言并立即制造冲突。事件地图只用于创作控制和审查，正式正文不得输出这些字段名。
+第一章第一事件的 `role` 必须是 `opening-intro-conflict`，同时承接开篇引言并立即制造冲突。第二章及以后不重复引言，第一事件应从上一章钩子或当前冲突开始，且不得使用 `opening-intro-conflict`。事件地图只用于创作控制和审查，正式正文不得输出这些字段名。

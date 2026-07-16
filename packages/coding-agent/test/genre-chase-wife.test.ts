@@ -87,6 +87,22 @@ describe("chase-wife genre branch", () => {
 				events: [event(1, "opening-intro-conflict"), event(2, "escalation"), event(3, "reversal")],
 			});
 			expect((await store.checkChaseWifeEventMap({ projectId: "chase", chapter: 1 })).status).toBe("ok");
+			await store.saveChaseWifeEventMap({
+				projectId: "chase",
+				chapter: 2,
+				openingConflict: "the old relationship returns with a demand",
+				events: [event(1, "escalation"), event(2, "reversal"), event(3, "aftermath")],
+			});
+			expect((await store.checkChaseWifeEventMap({ projectId: "chase", chapter: 2 })).status).toBe("ok");
+			await expect(
+				store.saveChaseWifeEventMap({
+					projectId: "chase",
+					chapter: 2,
+					openingIntro: "opening intro ".repeat(8),
+					openingConflict: "the old relationship returns with a demand",
+					events: [event(1, "escalation"), event(2, "reversal"), event(3, "aftermath")],
+				}),
+			).rejects.toThrow("Only chapter 1");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -171,8 +187,10 @@ describe("chase-wife genre branch", () => {
 			);
 			const report = await store.checkChaseWifeArc({ projectId: "invalid-arc" });
 			expect(report.status).toBe("error");
-			expect(report.issues).toEqual(expect.arrayContaining(["chase-wife beat sheet must declare first-person narration"]));
-			expect(report.issues).toEqual(expect.arrayContaining(["opening intro must contain 80-300 characters"]));
+			expect(report.issues).toEqual(
+				expect.arrayContaining(["chase-wife beat sheet must declare first-person narration"]),
+			);
+			expect(report.issues).toEqual(expect.arrayContaining(["opening intro must contain 80-180 characters"]));
 			expect(report.issues).toEqual(expect.arrayContaining(["beat sheet contains invalid beat records"]));
 			expect(report.issues).toEqual(
 				expect.arrayContaining(["chase-wife phases must follow the defined emotional arc order"]),

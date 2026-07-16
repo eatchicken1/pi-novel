@@ -353,7 +353,7 @@ export const ChaseWifeBeatSchema = Type.Object({
 export const SaveChaseWifeBeatSheetSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	pov: ChaseWifePovSchema,
-	openingIntro: Type.String({ minLength: 80, maxLength: 300 }),
+	openingIntro: Type.String({ minLength: 80, maxLength: 180 }),
 	openingConflict: Type.String({ minLength: 1 }),
 	beats: Type.Array(ChaseWifeBeatSchema, { minItems: 12, maxItems: 24 }),
 });
@@ -385,7 +385,7 @@ export const ChaseWifeEventSchema = Type.Object({
 export const SaveChaseWifeEventMapSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	chapter: ChapterNumberSchema,
-	openingIntro: Type.String({ minLength: 80, maxLength: 300 }),
+	openingIntro: Type.Optional(Type.String({ minLength: 80, maxLength: 180 })),
 	openingConflict: Type.String({ minLength: 1 }),
 	events: Type.Array(ChaseWifeEventSchema, { minItems: 3, maxItems: 6 }),
 });

@@ -930,7 +930,7 @@ export class NovelProjectStore {
 	async saveChaseWifeBeatSheet(params: SaveChaseWifeBeatSheetParams, signal?: AbortSignal): Promise<{ projectId: string; path: string; beats: number }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
 		if (params.pov !== "first-person") throw new Error("Chase-wife projects must use first-person narration.");
-		if (params.openingIntro.trim().length < 80 || params.openingIntro.trim().length > 300) throw new Error("The chase-wife opening intro must contain 80-300 characters.");
+		if (params.openingIntro.trim().length < 80 || params.openingIntro.trim().length > 180) throw new Error("The chase-wife opening intro must contain 80-180 characters.");
 		if (!isNonEmptyString(params.openingConflict)) throw new Error("The chase-wife opening must define a concrete conflict.");
 		const beats = [...params.beats].sort((left, right) => left.beat - right.beat);
 		if (beats.length < 12 || beats.length > 24) throw new Error("Chase-wife beat sheets must contain 12-24 beats.");
@@ -959,8 +959,8 @@ export class NovelProjectStore {
 				issues.push("chase-wife beat sheet must declare first-person narration");
 				hasStructuralError = true;
 			}
-			if (!isNonEmptyString(value.openingIntro) || value.openingIntro.trim().length < 80 || value.openingIntro.trim().length > 300) {
-				issues.push("opening intro must contain 80-300 characters");
+			if (!isNonEmptyString(value.openingIntro) || value.openingIntro.trim().length < 80 || value.openingIntro.trim().length > 180) {
+				issues.push("opening intro must contain 80-180 characters");
 				hasStructuralError = true;
 			}
 			if (!isNonEmptyString(value.openingConflict)) {
@@ -1016,15 +1016,17 @@ export class NovelProjectStore {
 
 	async saveChaseWifeEventMap(params: SaveChaseWifeEventMapParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; path: string; events: number }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
-		if (params.openingIntro.trim().length < 80 || params.openingIntro.trim().length > 300) throw new Error("The chase-wife opening intro must contain 80-300 characters.");
+		if (params.chapter === 1 && (!params.openingIntro || params.openingIntro.trim().length < 80 || params.openingIntro.trim().length > 180)) throw new Error("Chapter 1 requires an 80-180 character opening intro.");
+		if (params.chapter > 1 && params.openingIntro !== undefined) throw new Error("Only chapter 1 may contain an opening intro.");
 		if (!isNonEmptyString(params.openingConflict)) throw new Error("The chase-wife opening must define a concrete conflict.");
 		const events = [...params.events].sort((left, right) => left.eventId - right.eventId);
 		if (events.length < 3 || events.length > 6) throw new Error("Chase-wife chapters must contain 3-6 events.");
 		if (events.some((event, index) => event.eventId !== index + 1)) throw new Error("Chase-wife event IDs must be contiguous starting at 1.");
 		if (events.some((event) => event.pov !== "first-person")) throw new Error("Every chase-wife event must use first-person narration.");
-		if (events[0].role !== "opening-intro-conflict") throw new Error("The first chase-wife event must combine the intro with an immediate conflict.");
+		if (params.chapter === 1 && events[0].role !== "opening-intro-conflict") throw new Error("The first chase-wife event must combine the intro with an immediate conflict.");
+		if (params.chapter > 1 && events[0].role === "opening-intro-conflict") throw new Error("Only chapter 1 may use the opening-intro-conflict event role.");
 		const relativePath = `work/chase-wife-events/${chapterName(params.chapter)}.json`;
-		const document = { version: 1, genre: "chase-wife", projectId: params.projectId, chapter: params.chapter, pov: "first-person", openingIntro: params.openingIntro, openingConflict: params.openingConflict, events, updatedAt: new Date().toISOString() };
+		const document = { version: 1, genre: "chase-wife", projectId: params.projectId, chapter: params.chapter, pov: "first-person", ...(params.openingIntro ? { openingIntro: params.openingIntro } : {}), openingConflict: params.openingConflict, events, updatedAt: new Date().toISOString() };
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
 		return { projectId: params.projectId, chapter: params.chapter, path: relativePath, events: events.length };
 	}
@@ -1044,8 +1046,13 @@ export class NovelProjectStore {
 				issues.push("chase-wife event map must declare first-person narration");
 				hasStructuralError = true;
 			}
-			if (!isNonEmptyString(value.openingIntro) || value.openingIntro.trim().length < 80 || value.openingIntro.trim().length > 300) {
-				issues.push("opening intro must contain 80-300 characters");
+			if (params.chapter === 1) {
+				if (!isNonEmptyString(value.openingIntro) || value.openingIntro.trim().length < 80 || value.openingIntro.trim().length > 180) {
+					issues.push("chapter 1 opening intro must contain 80-180 characters");
+					hasStructuralError = true;
+				}
+			} else if (value.openingIntro !== undefined) {
+				issues.push("only chapter 1 may contain an opening intro");
 				hasStructuralError = true;
 			}
 			if (!isNonEmptyString(value.openingConflict)) {
@@ -1066,8 +1073,12 @@ export class NovelProjectStore {
 				issues.push("event IDs must be unique and contiguous starting at 1");
 				hasStructuralError = true;
 			}
-			if (events[0]?.role !== "opening-intro-conflict") {
+			if (params.chapter === 1 && events[0]?.role !== "opening-intro-conflict") {
 				issues.push("the first event must combine the intro with an immediate conflict");
+				hasStructuralError = true;
+			}
+			if (params.chapter > 1 && events[0]?.role === "opening-intro-conflict") {
+				issues.push("only chapter 1 may use the opening-intro-conflict event role");
 				hasStructuralError = true;
 			}
 			if (events.some((event) => event.charTarget < 300 || event.charTarget > 600)) {

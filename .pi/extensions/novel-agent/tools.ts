@@ -84,7 +84,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "save_chase_wife_event_map",
 			label: "Save Chase-wife Event Map",
-			description: "Save a chase-wife chapter event map with first-person opening intro, immediate conflict, emotional reactions, and 300-600 character event targets.",
+			description: "Save a chase-wife chapter event map with first-person narration, a chapter-1-only opening intro, immediate conflict, emotional reactions, and 300-600 character event targets.",
 			parameters: SaveChaseWifeEventMapSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: SaveChaseWifeEventMapParams, signal, _onUpdate, ctx) {
@@ -98,7 +98,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "check_chase_wife_event_map",
 			label: "Check Chase-wife Event Map",
-			description: "Check chase-wife chapter pacing, first-person narration, opening intro, immediate conflict, event count, and event targets.",
+			description: "Check chase-wife chapter pacing, first-person narration, chapter-1-only opening intro, immediate conflict, event count, and event targets.",
 			parameters: CheckChaseWifeEventMapSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckChaseWifeEventMapParams, signal, _onUpdate, ctx) {
