@@ -5,6 +5,7 @@ import type {
 	CheckChaseWifeArcParams,
 	CheckChaseWifeEventDraftParams,
 	CheckChaseWifeEventSemanticsParams,
+	CheckChaseWifeHarmRepairProgressParams,
 	SaveChaseWifeEventSemanticReportParams,
 	SaveChaseWifeHarmLedgerParams,
 	SaveChaseWifeRepairLedgerParams,
@@ -54,6 +55,7 @@ import {
 	SaveChaseWifeRepairLedgerSchema,
 	SaveChaseWifeEndingContractSchema,
 	CheckChaseWifeEndingEligibilitySchema,
+	CheckChaseWifeHarmRepairProgressSchema,
 	CheckChaseWifeEventMapSchema,
 	CheckChaseWifeStoryPacingSchema,
 	CheckChaseWifePacingSchema,
@@ -264,11 +266,11 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "check_harm_repair_progress",
 			label: "Check Chase-wife Harm Repair Progress",
-			description: "Report whether confirmed relationship harms have specific, costly, boundary-respecting repair attempts.",
-			parameters: CheckChaseWifeEndingEligibilitySchema,
+			description: "Report chapter-scoped harm recognition, pursuit errors, real consequences, unresolved relationship debt, and repair progress. Returns on-track, warning, or stalled; this is not the final ending eligibility gate.",
+			parameters: CheckChaseWifeHarmRepairProgressSchema,
 			executionMode: "sequential",
-			async execute(_toolCallId, params: CheckChaseWifeEndingEligibilityParams, signal, _onUpdate, ctx) {
-				const result = await getStore(ctx.cwd).checkChaseWifeEndingEligibility(params, signal);
+			async execute(_toolCallId, params: CheckChaseWifeHarmRepairProgressParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkChaseWifeHarmRepairProgress(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),

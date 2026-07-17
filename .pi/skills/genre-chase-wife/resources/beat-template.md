@@ -3,14 +3,16 @@
 ## 项目级开篇合同
 
 ```text
-openingIntro: 80-180 字的引言，不提前讲完整真相
-povMode: heroine-first-person 或 split-pov
-openingConflict: 引言后 250 字内出现的具体冲突
-heroineArc: injury / recognition / micro-withdrawal / boundary-test / irreversible-exit / self-rebuild / final-boundary
-maleArc: entitlement / loss-of-control / wrong-pursuit / real-consequence / recognition / respect-or-failure
+openingMode: cold-conflict | result-first | exit-in-progress | quiet-dislocation
+openingIntro: quiet-dislocation 使用 80—180 字引言
+openingConflict: 250 字内可验证的具体冲突
+povMode: heroine-first-person | split-pov
+stayingLogic: emotionalReason / materialReason / socialReason / falseBelief / sustainingEvidence / breakingThreshold
+heroineArc: injury → recognition → micro-withdrawal → boundary-test → irreversible-exit → self-rebuild → final-boundary
+maleArc: entitlement → loss-of-control → wrong-pursuit → real-consequence → recognition → respect-or-failure
 ```
 
-每个 beat 填写：
+每个 Beat 填写：
 
 ```text
 beat / heroinePhase / malePhase / targetTrack / paywallHook / sceneCount
@@ -19,18 +21,14 @@ emotionBefore / emotionAfter / emotionStack
 painPoint / rewardPoint / hook
 ```
 
-前半重点是伤口的具体化和女主退出理由，后半重点是追悔的行动证据、旧关系的现实后果和女主的新秩序。
+前半段具体化伤害和女主退出理由，后半段展示男方错误追逐、现实后果、具体认知、修复成本和女主新秩序。不要把 `paywallHook` 当作故事阶段。
 
-## 章节微事件地图
+## 章节事件地图
 
-每章必须拆成 3—6 个事件，按功能选择长度预算：
-
-```text
-flash: 60-180 字；bridge: 100-250 字；standard: 220-450 字；anchor: 450-850 字
-```
+每章 3—6 个事件，长度使用 `flash=60—180`、`bridge=100—250`、`standard=220—450`、`anchor=450—850`。
 
 ```text
-eventId / role / scene / pov / targetTrack / paywallHook
+eventId / role / scene / pov / targetTrack / paywallHook / beatRefs
 causes / injuryMechanism
 informationDelta / relationshipDelta / resourceDelta / riskDelta
 heroineAgencyBefore / heroineAgencyAfter / irreversible / cannotRemoveBecause
@@ -41,4 +39,11 @@ informationChange / emotionBefore / emotionAfter / physicalReaction
 setupOrPayoff / readerRelease / entryHook / exitHook
 ```
 
-第一章第一事件的 `role` 必须是 `opening-injury`，同时承接开篇引言并立即制造冲突。第二章及以后不重复引言，第一事件应从上一章钩子或当前冲突开始，且不得使用 `opening-injury`。女主在 `irreversible-exit` 前至少两次提高主动权；男方 `recognition` 必须发生在 `real-consequence` 之后。事件地图只用于创作控制和审查，正式正文不得输出这些字段名。
+第一章第一个事件必须是 `opening-injury`，同时承接引言并制造冲突。后续章节从上一章出口钩子或当前冲突切入，不重复引言。事件地图只用于规划和审查，正文不能输出字段名。
+
+## 最低结构要求
+
+- 每个事件至少改变两项信息、关系、资源、风险或主动权，或产生不可逆行动、现实后果或铺垫回收。
+- 女主在 `irreversible-exit` 前至少有两次主动权升级。
+- 男方 `recognition` 必须晚于 `real-consequence`。
+- 每个事件必须引用有效 Beat；全篇所有 Beat 至少被一个事件兑现。

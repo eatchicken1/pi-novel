@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,6 +89,20 @@ function semanticAnchor(content: string, start: number): { startChar: number; en
 	return { startChar: safeStart, endChar, excerpt: normalized.slice(safeStart, endChar) };
 }
 
+function ledgerEvidence(
+	content: string,
+	chapter: number,
+	start: number,
+	eventId?: number,
+): { chapter: number; startChar: number; endChar: number; excerpt: string; contentHash: string; eventId?: number } {
+	return {
+		chapter,
+		...semanticAnchor(content, start),
+		contentHash: createHash("sha256").update(content, "utf8").digest("hex"),
+		...(eventId === undefined ? {} : { eventId }),
+	};
+}
+
 async function saveFixtureSemanticReport(
 	store: NovelProjectStore,
 	projectId: string,
@@ -120,7 +135,12 @@ async function saveFixtureSemanticReport(
 	});
 }
 
-async function saveFixtureRelationshipContracts(store: NovelProjectStore, projectId: string): Promise<void> {
+async function saveFixtureRelationshipContracts(
+	store: NovelProjectStore,
+	cwd: string,
+	projectId: string,
+): Promise<void> {
+	const chapterContent = await readFile(join(cwd, "novels", projectId, "chapters", "chapter-001.md"), "utf8");
 	await store.saveChaseWifeHarmLedger({
 		projectId,
 		status: "confirmed",
@@ -140,6 +160,8 @@ async function saveFixtureRelationshipContracts(store: NovelProjectStore, projec
 				recognizedByMale: true,
 				repaired: true,
 				repairable: true,
+				evidence: [ledgerEvidence(chapterContent, 1, 0, 1)],
+				recognitionEvidence: [ledgerEvidence(chapterContent, 1, 20, 2)],
 			},
 		],
 	});
@@ -159,6 +181,7 @@ async function saveFixtureRelationshipContracts(store: NovelProjectStore, projec
 				violatesBoundary: false,
 				acceptedByHeroine: true,
 				effectiveness: "credible",
+				evidence: [ledgerEvidence(chapterContent, 1, 40, 2)],
 			},
 			{
 				id: "repair-002",
@@ -171,6 +194,7 @@ async function saveFixtureRelationshipContracts(store: NovelProjectStore, projec
 				violatesBoundary: false,
 				acceptedByHeroine: true,
 				effectiveness: "credible",
+				evidence: [ledgerEvidence(chapterContent, 1, 60, 3)],
 			},
 		],
 	});
@@ -185,6 +209,7 @@ async function saveFixtureRelationshipContracts(store: NovelProjectStore, projec
 			restitutionRequired: true,
 			boundaryRespectRequired: true,
 			reunionEligibilityRules: ["the heroine chooses whether contact resumes"],
+			heroineIndependentFutureEvidence: [ledgerEvidence(chapterContent, 1, 80, 3)],
 		},
 	});
 }
@@ -196,6 +221,13 @@ async function finalizeFixtureChapter(
 	chapter: number,
 	events: ChaseWifeEvent[],
 ): Promise<number> {
+	const eventMapEvents = events.map((eventRecord) => {
+		if (chapter !== 1) return eventRecord;
+		if (eventRecord.eventId === 1) return { ...eventRecord, harmRefs: ["harm-001"] };
+		if (eventRecord.eventId === 2) return { ...eventRecord, repairRefs: ["repair-001"] };
+		if (eventRecord.eventId === 3) return { ...eventRecord, repairRefs: ["repair-002"] };
+		return eventRecord;
+	});
 	await store.saveChaseWifeEventMap({
 		projectId,
 		chapter,
@@ -207,7 +239,7 @@ async function finalizeFixtureChapter(
 					openingConflictMarker: "交出位置",
 				}
 			: { openingConflict: "the old relationship creates a new demand" }),
-		events,
+		events: eventMapEvents,
 	});
 	const mapReport = await store.checkChaseWifeEventMap({ projectId, chapter });
 	expect(mapReport.status, `${chapter}:${JSON.stringify(mapReport)}`).toBe("ok");
@@ -302,6 +334,14 @@ async function finalizeFixtureChapter(
 				characterIssues: [],
 				pacingIssues: [],
 				priorities: ["keep the heroine's final choice visible"],
+				verifiedStrengths: [
+					{
+						location: "chars:0-8",
+						evidence: "the heroine leaves",
+						problem: "the review verifies the final choice",
+						anchor: semanticAnchor(chapterContent, 0),
+					},
+				],
 				allowFinalize: true,
 			},
 		},
@@ -374,6 +414,14 @@ describe("chase-wife genre branch", () => {
 				],
 				openingIntro: "opening intro ".repeat(8),
 				openingConflict: "the protagonist is asked to surrender her place immediately",
+				stayingLogic: {
+					emotionalReason: "she still believes the old promise can be repaired",
+					materialReason: "her home and work are tied to the relationship",
+					socialReason: "both families expect her to keep the commitment",
+					falseBelief: "one more explanation will make him choose her",
+					sustainingEvidence: ["he keeps asking her to wait"],
+					breakingThreshold: "he publicly gives her place to someone else",
+				},
 				beats: heroinePhases.map((phase, index) =>
 					beat(
 						index + 1,
@@ -392,6 +440,18 @@ describe("chase-wife genre branch", () => {
 			});
 			const report = await store.checkChaseWifeArc({ projectId: "chase" });
 			expect(report.status).toBe("ok");
+			const beatSheetPath = join(cwd, "novels", "chase", "outline", "genre", "chase-wife-beat-sheet.json");
+			const beatSheetWithoutStayingLogic = JSON.parse(await readFile(beatSheetPath, "utf8")) as Record<
+				string,
+				unknown
+			>;
+			delete beatSheetWithoutStayingLogic.stayingLogic;
+			await writeFile(beatSheetPath, `${JSON.stringify(beatSheetWithoutStayingLogic)}\n`, "utf8");
+			const missingStayingLogic = await store.checkChaseWifeArc({ projectId: "chase" });
+			expect(missingStayingLogic.status).toBe("error");
+			expect(missingStayingLogic.issues).toContain(
+				"staying logic must explain why the heroine remains before choosing to leave",
+			);
 			expect(JSON.parse(await readFile(join(cwd, "novels", "chase", "project.json"), "utf8")).genre).toBe(
 				"chase-wife",
 			);
@@ -436,6 +496,144 @@ describe("chase-wife genre branch", () => {
 		}
 	});
 
+	it("matches the first event role to the selected opening mode", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-opening-mode-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "result-first", title: "结果先行", genre: "chase-wife" });
+			await store.saveChaseWifeBeatSheet({
+				projectId: "result-first",
+				povMode: "split-pov",
+				openingMode: "result-first",
+				openingConflict: "她正在签下结束关系的文件",
+				stayingLogic: {
+					emotionalReason: "她仍想确认自己没有误会",
+					materialReason: "共同住所让她暂时无法立刻离开",
+					socialReason: "双方家庭仍在等待一个结果",
+					falseBelief: "只要拿到最后的解释就能放下",
+					sustainingEvidence: ["他一直要求她再等一天"],
+					breakingThreshold: "她发现文件上的签名人已经换成别人",
+				},
+				heroineArc: [
+					"injury",
+					"recognition",
+					"micro-withdrawal",
+					"boundary-test",
+					"irreversible-exit",
+					"self-rebuild",
+					"final-boundary",
+				],
+				maleArc: [
+					"entitlement",
+					"loss-of-control",
+					"wrong-pursuit",
+					"real-consequence",
+					"recognition",
+					"respect-or-failure",
+				],
+				beats: Array.from({ length: 12 }, (_, index) =>
+					beat(
+						index + 1,
+						[
+							"injury",
+							"recognition",
+							"micro-withdrawal",
+							"boundary-test",
+							"irreversible-exit",
+							"self-rebuild",
+							"final-boundary",
+						][Math.min(index, 6)] as ChaseWifeBeat["heroinePhase"],
+						[
+							"entitlement",
+							"entitlement",
+							"loss-of-control",
+							"wrong-pursuit",
+							"real-consequence",
+							"recognition",
+							"respect-or-failure",
+						][Math.min(index, 6)] as ChaseWifeBeat["malePhase"],
+					),
+				),
+			});
+			await expect(
+				store.saveChaseWifeEventMap({
+					projectId: "result-first",
+					chapter: 1,
+					povMode: "split-pov",
+					openingConflict: "她正在签下结束关系的文件",
+					openingConflictMarker: "签下结束关系的文件",
+					events: [
+						event(1, "decision", {
+							heroineAgencyBefore: 10,
+							heroineAgencyAfter: 30,
+							irreversible: false,
+							beatRefs: [1],
+						}),
+						event(2, "boundary-test", { heroineAgencyBefore: 30, heroineAgencyAfter: 40, beatRefs: [2] }),
+						event(3, "irreversible-exit", { heroineAgencyBefore: 40, heroineAgencyAfter: 60, beatRefs: [3] }),
+					],
+				}),
+			).resolves.toBeTruthy();
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("blocks male POV until an irreversible exit exists in an earlier chapter", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-cross-chapter-pov-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "cross-pov", title: "cross chapter pov", genre: "chase-wife" });
+			await store.saveChaseWifeEventMap({
+				projectId: "cross-pov",
+				chapter: 1,
+				povMode: "split-pov",
+				openingIntro: "opening intro ".repeat(8),
+				openingConflict: "the heroine discovers that her place has already been given away",
+				openingConflictMarker: "a signed replacement contract",
+				events: [event(1, "opening-injury"), event(2, "boundary-test"), event(3, "evidence")],
+			});
+			const maleChapter = [
+				event(1, "pursuit-control", { pov: "male-limited-third-person", targetTrack: "male" }),
+				event(2, "real-consequence", { pov: "male-limited-third-person", targetTrack: "male" }),
+				event(3, "recognition", { pov: "male-limited-third-person", targetTrack: "male" }),
+			];
+			await expect(
+				store.saveChaseWifeEventMap({
+					projectId: "cross-pov",
+					chapter: 2,
+					povMode: "split-pov",
+					openingConflict: "the man tries to recover the access he treated as permanent",
+					events: maleChapter,
+				}),
+			).rejects.toThrow("after the irreversible exit");
+			await store.saveChaseWifeEventMap({
+				projectId: "cross-pov",
+				chapter: 1,
+				povMode: "split-pov",
+				openingIntro: "opening intro ".repeat(8),
+				openingConflict: "the heroine discovers that her place has already been given away",
+				openingConflictMarker: "a signed replacement contract",
+				events: [
+					event(1, "opening-injury"),
+					event(2, "boundary-test"),
+					event(3, "irreversible-exit", { heroineAgencyBefore: 30, heroineAgencyAfter: 60 }),
+				],
+			});
+			await expect(
+				store.saveChaseWifeEventMap({
+					projectId: "cross-pov",
+					chapter: 2,
+					povMode: "split-pov",
+					openingConflict: "the man tries to recover the access he treated as permanent",
+					events: maleChapter,
+				}),
+			).resolves.toBeTruthy();
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
 	it("does not allow chase-wife tools on other genre projects", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-other-genre-"));
 		try {
@@ -470,8 +668,8 @@ describe("chase-wife genre branch", () => {
 						maxChars: 850,
 					}),
 					event(4, "pursuit-control", {
-						pov: "male-limited-third-person",
-						targetTrack: "male",
+						pov: "heroine-first-person",
+						targetTrack: "shared",
 						lengthMode: "flash",
 						minChars: 60,
 						maxChars: 180,
@@ -511,8 +709,8 @@ describe("chase-wife genre branch", () => {
 						maxChars: 850,
 					}),
 					event(4, "pursuit-control", {
-						pov: "male-limited-third-person",
-						targetTrack: "male",
+						pov: "heroine-first-person",
+						targetTrack: "shared",
 						lengthMode: "flash",
 						minChars: 60,
 						maxChars: 180,
@@ -542,6 +740,7 @@ describe("chase-wife genre branch", () => {
 			const storyPacing = await store.checkChaseWifeStoryPacing({ projectId: "pacing", mode: "standard" });
 			expect(storyPacing.metrics.exitRatio).toBeGreaterThan(0.45);
 			expect(storyPacing.metrics.exitRatio).toBeLessThan(0.65);
+			expect(storyPacing.metrics.newLifeRatio).toBe(0);
 			const score = await store.scoreChaseWifeChapter({ projectId: "pacing", chapter: 1 });
 			expect(score.passed).toBe(true);
 		} finally {
@@ -720,6 +919,14 @@ describe("chase-wife genre branch", () => {
 				],
 				openingIntro: "opening intro ".repeat(8),
 				openingConflict: "the heroine is asked to surrender her place",
+				stayingLogic: {
+					emotionalReason: "she still believes the old promise can be repaired",
+					materialReason: "her home and work are tied to the relationship",
+					socialReason: "both families expect her to keep the commitment",
+					falseBelief: "one more explanation will make him choose her",
+					sustainingEvidence: ["he keeps asking her to wait"],
+					breakingThreshold: "he publicly gives her place to someone else",
+				},
 				beats: [
 					beat(1, "injury", "entitlement"),
 					beat(2, "recognition", "entitlement"),
@@ -801,17 +1008,27 @@ describe("chase-wife genre branch", () => {
 					event(3, "recognition", { pov: "male-limited-third-person", targetTrack: "male" }),
 				],
 			];
-			for (const chapterEvents of chapters)
-				for (const eventRecord of chapterEvents) eventRecord.beatRefs = [eventRecord.eventId];
+			const beatGroups = [
+				[1, 2],
+				[3, 4],
+				[5, 6],
+				[7, 8],
+				[9, 10],
+				[11, 12],
+			];
+			for (const [chapterIndex, chapterEvents] of chapters.entries())
+				for (const [eventIndex, eventRecord] of chapterEvents.entries())
+					eventRecord.beatRefs = beatGroups[(chapterIndex * 3 + eventIndex) % beatGroups.length];
 			for (const [index, events] of chapters.entries())
 				await finalizeFixtureChapter(store, cwd, "six", index + 1, events);
-			await saveFixtureRelationshipContracts(store, "six");
+			await saveFixtureRelationshipContracts(store, cwd, "six");
 			const finalizedPacing = await store.checkChaseWifeStoryPacing({ projectId: "six", scope: "finalized" });
 			expect(finalizedPacing.status, JSON.stringify(finalizedPacing)).not.toBe("error");
 			expect(finalizedPacing.metrics.chapterCount).toBe(6);
 			expect(finalizedPacing.metrics.eventCount).toBe(18);
 			const seal = await store.finalizeManuscript({ projectId: "six", confirmation: "USER_CONFIRMED" });
 			expect(seal.status).toBe("finalized");
+			await store.checkChaseWifeArc({ projectId: "six" });
 			const exported = await store.exportManuscript({ projectId: "six" });
 			expect(exported.chapters).toBe(6);
 			await store.saveChaseWifeEventMap({
@@ -1004,6 +1221,16 @@ describe("chase-wife genre branch", () => {
 			const score = await store.scoreChaseWifeChapter({ projectId: "finalize", chapter: 1 });
 			expect(score.passed, JSON.stringify(score)).toBe(true);
 			await store.checkAiArtifacts({ projectId: "finalize", chapter: 1, draftRevision: assembled.draftRevision });
+			const aiArtifactPath = join(
+				cwd,
+				"novels",
+				"finalize",
+				"evaluations",
+				"chapter",
+				"chapter-001-ai-artifacts-r01.json",
+			);
+			const aiArtifact = JSON.parse(await readFile(aiArtifactPath, "utf8")) as Record<string, unknown>;
+			expect(aiArtifact.contentHash).toBe(createHash("sha256").update(content, "utf8").digest("hex"));
 			await store.saveChapterPlan({ projectId: "finalize", chapter: 1, content: "chapter plan" });
 			await store.saveSceneContract({
 				projectId: "finalize",
@@ -1077,7 +1304,6 @@ describe("chase-wife genre branch", () => {
 				{
 					projectId: "finalize",
 					chapter: 1,
-					draftRevision: assembled.draftRevision,
 					content: "the reader follows the heroine's choice",
 					structuredReport: {
 						status: "ok",
@@ -1120,6 +1346,27 @@ describe("chase-wife genre branch", () => {
 					confirmation: "USER_CONFIRMED",
 				}),
 			).rejects.toThrow("reader simulation and story review");
+			await expect(
+				store.saveQualityReport(
+					{
+						projectId: "finalize",
+						chapter: 1,
+						draftRevision: assembled.draftRevision,
+						content: "an empty review cannot authorize finalization",
+						structuredReport: {
+							status: "ok",
+							structuralIssues: [],
+							sceneIssues: [],
+							characterIssues: [],
+							pacingIssues: [],
+							priorities: ["keep the heroine's final choice visible"],
+							verifiedStrengths: [],
+							allowFinalize: true,
+						},
+					},
+					"review",
+				),
+			).rejects.toThrow("structured");
 			await store.saveQualityReport(
 				{
 					projectId: "finalize",
@@ -1133,11 +1380,46 @@ describe("chase-wife genre branch", () => {
 						characterIssues: [],
 						pacingIssues: [],
 						priorities: ["keep the heroine's final choice visible"],
+						verifiedStrengths: [
+							{
+								location: "chars:0-8",
+								evidence: "the heroine leaves",
+								problem: "the review verifies the final choice",
+								anchor: semanticAnchor(content, 0),
+							},
+						],
 						allowFinalize: true,
 					},
 				},
 				"review",
 			);
+			const staleAiArtifact = JSON.parse(await readFile(aiArtifactPath, "utf8")) as Record<string, unknown>;
+			staleAiArtifact.contentHash = "stale-draft-hash";
+			await writeFile(aiArtifactPath, `${JSON.stringify(staleAiArtifact, null, 2)}\n`, "utf8");
+			await expect(
+				store.finalizeChapter({
+					projectId: "finalize",
+					chapter: 1,
+					title: "chapter 1",
+					content,
+					summary: {
+						pov: "heroine",
+						time: "today",
+						locations: ["home"],
+						characters: ["heroine"],
+						events: ["she leaves"],
+						newFacts: ["the promise was false"],
+						relationshipChanges: ["trust ends"],
+						cluesIntroduced: [],
+						cluesResolved: [],
+						itemsChanged: ["key"],
+						openQuestions: [],
+					},
+					draftRevision: assembled.draftRevision,
+					confirmation: "USER_CONFIRMED",
+				}),
+			).rejects.toThrow("AI-artifact");
+			await store.checkAiArtifacts({ projectId: "finalize", chapter: 1, draftRevision: assembled.draftRevision });
 			await expect(
 				store.finalizeChapter({
 					projectId: "finalize",
@@ -1328,6 +1610,7 @@ describe("chase-wife genre branch", () => {
 					{ dimension: "information", delta: "fact", evidence: semanticAnchor(semanticContent, 0) },
 					{ dimension: "relationship", delta: "trust", evidence: semanticAnchor(semanticContent, 0) },
 				],
+				entryHookEvidence: semanticAnchor(semanticContent, 2),
 				exitHookEvidence: semanticAnchor(semanticContent, 2),
 				injuryMechanismEvidence: semanticAnchor(semanticContent, 4),
 			});
@@ -1351,7 +1634,7 @@ describe("chase-wife genre branch", () => {
 				conflictShown: true,
 				stateDeltasShown: [
 					{ dimension: "information", delta: "fact", evidence: semanticAnchor(semanticContent, 0) },
-					{ dimension: "relationship", delta: "trust", evidence: semanticAnchor(semanticContent, 6) },
+					{ dimension: "relationship", delta: "trust", evidence: semanticAnchor(semanticContent, 20) },
 				],
 				agencyActionEvidence: semanticAnchor(semanticContent, 0),
 				entryHookEvidence: semanticAnchor(semanticContent, 2),
@@ -1359,6 +1642,166 @@ describe("chase-wife genre branch", () => {
 				injuryMechanismEvidence: semanticAnchor(semanticContent, 4),
 			});
 			expect(saved.status).toBe("ok");
+			await store.checkChaseWifeEventDraft({ projectId: "semantic-gate", chapter: 1, eventId: 1 });
+			const semanticReport = JSON.parse(
+				await readFile(
+					join(cwd, "novels", "semantic-gate", "continuity", "reports", "chapter-001-event-001-semantics.json"),
+					"utf8",
+				),
+			) as { source?: string };
+			expect(semanticReport.source).toBe("model");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("does not treat confirmed relationship claims as prose evidence", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-chase-ledger-evidence-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "ledger-evidence", title: "ledger evidence", genre: "chase-wife" });
+			await store.saveChaseWifeHarmLedger({
+				projectId: "ledger-evidence",
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				harms: [
+					{
+						id: "harm-1",
+						category: "deception",
+						victimImpact: { emotional: "trust is broken" },
+						maleBeliefAtTheTime: "the truth can wait",
+						heroineBeliefAtTheTime: "the promise is real",
+						severity: "relationship-breaking",
+						recognizedByHeroine: true,
+						recognizedByMale: true,
+						repaired: true,
+						repairable: true,
+					},
+				],
+			});
+			await store.saveChaseWifeRepairLedger({
+				projectId: "ledger-evidence",
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				repairs: [
+					{
+						id: "repair-1",
+						addressesHarmIds: ["harm-1"],
+						type: "costly-accountability",
+						action: "he accepts the public consequence",
+						costToMale: "he loses status",
+						benefitToHeroine: "the record is repaired",
+						requestedReward: "none",
+						violatesBoundary: false,
+						acceptedByHeroine: true,
+						effectiveness: "credible",
+					},
+					{
+						id: "repair-2",
+						addressesHarmIds: ["harm-1"],
+						type: "boundary-respect",
+						action: "he accepts her refusal",
+						costToMale: "he gives up reconciliation",
+						benefitToHeroine: "her boundary remains intact",
+						requestedReward: "none",
+						violatesBoundary: false,
+						acceptedByHeroine: true,
+						effectiveness: "credible",
+					},
+				],
+			});
+			await store.saveChaseWifeEndingContract({
+				projectId: "ledger-evidence",
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				contract: {
+					mode: "earned-reunion",
+					heroineIndependentFutureRequired: true,
+					maleRecognitionRequired: true,
+					restitutionRequired: true,
+					boundaryRespectRequired: true,
+					reunionEligibilityRules: ["no pressure after refusal"],
+				},
+			});
+			const progress = await store.checkChaseWifeHarmRepairProgress({ projectId: "ledger-evidence", chapter: 1 });
+			expect(progress.status).toBe("stalled");
+			expect(progress.harms).toEqual([
+				expect.objectContaining({ harmId: "harm-1", repairCount: 2, credibleRepairCount: 0, evidenceBound: false }),
+			]);
+			const eligibility = await store.checkChaseWifeEndingEligibility({ projectId: "ledger-evidence" });
+			expect(eligibility.status).toBe("error");
+			expect(eligibility.issues.some((issue) => issue.includes("prose evidence"))).toBe(true);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("rejects an event plan that leaves beats unreferenced", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-chase-beat-coverage-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "beat-coverage", title: "beat coverage", genre: "chase-wife" });
+			await store.saveChaseWifeBeatSheet({
+				projectId: "beat-coverage",
+				povMode: "split-pov",
+				heroineArc: [
+					"injury",
+					"recognition",
+					"micro-withdrawal",
+					"boundary-test",
+					"irreversible-exit",
+					"self-rebuild",
+					"final-boundary",
+				],
+				maleArc: [
+					"entitlement",
+					"loss-of-control",
+					"wrong-pursuit",
+					"real-consequence",
+					"recognition",
+					"respect-or-failure",
+				],
+				openingIntro: "opening intro ".repeat(8),
+				openingConflict: "the heroine is asked to surrender her place",
+				stayingLogic: {
+					emotionalReason: "she still believes the old promise can be repaired",
+					materialReason: "her home and work are tied to the relationship",
+					socialReason: "both families expect her to keep the commitment",
+					falseBelief: "one more explanation will make him choose her",
+					sustainingEvidence: ["he keeps asking her to wait"],
+					breakingThreshold: "he publicly gives her place to someone else",
+				},
+				beats: [
+					beat(1, "injury", "entitlement"),
+					beat(2, "recognition", "entitlement"),
+					beat(3, "micro-withdrawal", "loss-of-control"),
+					beat(4, "boundary-test", "wrong-pursuit"),
+					beat(5, "irreversible-exit", "real-consequence"),
+					beat(6, "irreversible-exit", "recognition"),
+					beat(7, "self-rebuild", "recognition"),
+					beat(8, "self-rebuild", "respect-or-failure"),
+					beat(9, "final-boundary"),
+					beat(10, "final-boundary"),
+					beat(11, "final-boundary"),
+					beat(12, "final-boundary"),
+				],
+			});
+			await store.saveChaseWifeEventMap({
+				projectId: "beat-coverage",
+				chapter: 1,
+				povMode: "split-pov",
+				openingIntro: "opening intro ".repeat(8),
+				openingConflict: "the heroine is asked to surrender her place",
+				openingConflictMarker: "surrender her place",
+				events: [
+					event(1, "opening-injury", { beatRefs: [1] }),
+					event(2, "micro-withdrawal", { beatRefs: [2] }),
+					event(3, "irreversible-exit", { beatRefs: [3] }),
+				],
+			});
+			const report = await store.checkChaseWifeArc({ projectId: "beat-coverage" });
+			expect(report.status).toBe("error");
+			expect(report.issues).toContain("beat 4 is not referenced by any chapter event");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -1382,6 +1825,9 @@ describe("chase-wife genre branch", () => {
 		try {
 			const store = new NovelProjectStore(cwd);
 			await store.initializeNovel({ projectId: "ledgers", title: "ledgers", genre: "chase-wife" });
+			const ledgerContent = "她在公开场合确认了自己的新生活，男方承认曾经的选择造成了伤害。";
+			await mkdir(join(cwd, "novels", "ledgers", "chapters"), { recursive: true });
+			await writeFile(join(cwd, "novels", "ledgers", "chapters", "chapter-001.md"), ledgerContent, "utf8");
 			await store.saveChaseWifeHarmLedger({
 				projectId: "ledgers",
 				status: "confirmed",
@@ -1398,6 +1844,8 @@ describe("chase-wife genre branch", () => {
 						recognizedByMale: false,
 						repaired: false,
 						repairable: true,
+						evidence: [ledgerEvidence(ledgerContent, 1, 0)],
+						recognitionEvidence: [ledgerEvidence(ledgerContent, 1, 20)],
 					},
 				],
 			});
@@ -1417,6 +1865,7 @@ describe("chase-wife genre branch", () => {
 						violatesBoundary: false,
 						acceptedByHeroine: true,
 						effectiveness: "credible",
+						evidence: [ledgerEvidence(ledgerContent, 1, 10)],
 					},
 					{
 						id: "repair-2",
@@ -1429,6 +1878,7 @@ describe("chase-wife genre branch", () => {
 						violatesBoundary: false,
 						acceptedByHeroine: true,
 						effectiveness: "credible",
+						evidence: [ledgerEvidence(ledgerContent, 1, 30)],
 					},
 				],
 			});
@@ -1443,11 +1893,20 @@ describe("chase-wife genre branch", () => {
 					restitutionRequired: true,
 					boundaryRespectRequired: true,
 					reunionEligibilityRules: ["no pressure after refusal"],
+					eligibilityRules: [
+						{
+							id: "public-correction-required",
+							type: "repair-type-required",
+							repairType: "public-correction",
+							harmId: "harm-1",
+						},
+					],
+					heroineIndependentFutureEvidence: [ledgerEvidence(ledgerContent, 1, 0)],
 				},
 			});
 			const blocked = await store.checkChaseWifeEndingEligibility({ projectId: "ledgers" });
 			expect(blocked.status).toBe("error");
-			expect(blocked.issues).toContain("earned reunion requires male recognition of a specific harm");
+			expect(blocked.issues.some((issue) => issue.includes("male recognition"))).toBe(true);
 			await store.saveChaseWifeHarmLedger({
 				projectId: "ledgers",
 				status: "confirmed",
@@ -1464,11 +1923,351 @@ describe("chase-wife genre branch", () => {
 						recognizedByMale: true,
 						repaired: true,
 						repairable: true,
+						evidence: [ledgerEvidence(ledgerContent, 1, 0)],
+						recognitionEvidence: [ledgerEvidence(ledgerContent, 1, 20)],
+					},
+				],
+			});
+			const blockedByRule = await store.checkChaseWifeEndingEligibility({ projectId: "ledgers" });
+			expect(blockedByRule.status).toBe("error");
+			expect(blockedByRule.issues.some((issue) => issue.includes("public-correction-required"))).toBe(true);
+			await store.saveChaseWifeRepairLedger({
+				projectId: "ledgers",
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				repairs: [
+					{
+						id: "repair-3",
+						addressesHarmIds: ["harm-1"],
+						type: "public-correction",
+						action: "he corrects the public record",
+						costToMale: "he loses the reputation he protected",
+						benefitToHeroine: "her name is cleared",
+						requestedReward: "none",
+						violatesBoundary: false,
+						acceptedByHeroine: true,
+						effectiveness: "credible",
+						evidence: [ledgerEvidence(ledgerContent, 1, 40)],
 					},
 				],
 			});
 			const eligible = await store.checkChaseWifeEndingEligibility({ projectId: "ledgers" });
 			expect(eligible.status).toBe("ok");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("enforces no-reunion and open-ending eligibility requirements", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-ending-modes-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "ending-modes", title: "ending modes", genre: "chase-wife" });
+			const chapterContent =
+				"The heroine names the harm, keeps her own work, and chooses the boundary without waiting for his permission. ".repeat(
+					8,
+				);
+			await mkdir(join(cwd, "novels", "ending-modes", "chapters"), { recursive: true });
+			await writeFile(join(cwd, "novels", "ending-modes", "chapters", "chapter-001.md"), chapterContent, "utf8");
+			const evidence = ledgerEvidence(chapterContent, 1, 0, 1);
+			await store.saveChaseWifeHarmLedger({
+				projectId: "ending-modes",
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				harms: [
+					{
+						id: "harm-1",
+						category: "boundary-violation",
+						victimImpact: { future: "she stops planning her future around him" },
+						maleBeliefAtTheTime: "she will stay",
+						heroineBeliefAtTheTime: "the promise still has value",
+						severity: "relationship-breaking",
+						recognizedByHeroine: true,
+						recognizedByMale: true,
+						repaired: true,
+						repairable: true,
+						evidence: [evidence],
+						recognitionEvidence: [ledgerEvidence(chapterContent, 1, 30, 2)],
+					},
+				],
+			});
+			await store.saveChaseWifeRepairLedger({
+				projectId: "ending-modes",
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				repairs: [
+					{
+						id: "repair-1",
+						addressesHarmIds: ["harm-1"],
+						type: "boundary-respect",
+						action: "he stops contacting her after the refusal",
+						costToMale: "he gives up immediate reconciliation",
+						benefitToHeroine: "her boundary remains intact",
+						requestedReward: "none",
+						violatesBoundary: false,
+						acceptedByHeroine: true,
+						effectiveness: "credible",
+						evidence: [ledgerEvidence(chapterContent, 1, 60, 2)],
+					},
+				],
+			});
+			const baseContract = {
+				heroineIndependentFutureRequired: true,
+				maleRecognitionRequired: true,
+				restitutionRequired: false,
+				boundaryRespectRequired: true,
+				reunionEligibilityRules: ["the heroine keeps the final choice"],
+				heroineIndependentFutureEvidence: [ledgerEvidence(chapterContent, 1, 90, 3)],
+			};
+			await store.saveChaseWifeEndingContract({
+				projectId: "ending-modes",
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				contract: { mode: "no-reunion", ...baseContract },
+			});
+			const noBoundary = await store.checkChaseWifeEndingEligibility({ projectId: "ending-modes" });
+			expect(noBoundary.status).toBe("error");
+			expect(noBoundary.issues.some((issue) => issue.includes("final-boundary"))).toBe(true);
+			await store.saveChaseWifeEventMap({
+				projectId: "ending-modes",
+				chapter: 1,
+				povMode: "heroine-first-person",
+				openingIntro: "opening intro ".repeat(8),
+				openingConflict: "the heroine sees the relationship's true priority",
+				openingConflictMarker: "the replacement is already public",
+				events: [
+					event(1, "opening-injury", { harmRefs: ["harm-1"] }),
+					event(2, "irreversible-exit", { repairRefs: ["repair-1"] }),
+					event(3, "final-boundary"),
+				],
+			});
+			const noReunion = await store.checkChaseWifeEndingEligibility({ projectId: "ending-modes" });
+			expect(noReunion.status).toBe("ok");
+			await store.saveChaseWifeEndingContract({
+				projectId: "ending-modes",
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				contract: { mode: "open-ending", ...baseContract },
+			});
+			const closedOpenEnding = await store.checkChaseWifeEndingEligibility({ projectId: "ending-modes" });
+			expect(closedOpenEnding.status).toBe("error");
+			expect(closedOpenEnding.issues.some((issue) => issue.includes("open choice"))).toBe(true);
+			await store.saveChaseWifeEndingContract({
+				projectId: "ending-modes",
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				contract: {
+					mode: "open-ending",
+					...baseContract,
+					openChoice: "Whether she ever allows a new relationship remains her choice.",
+				},
+			});
+			const openEnding = await store.checkChaseWifeEndingEligibility({ projectId: "ending-modes" });
+			expect(openEnding.status).toBe("ok");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("rejects ledger claims that are not bound to referenced event prose", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-ledger-event-binding-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "ledger-events", title: "ledger events", genre: "chase-wife" });
+			const chapterContent =
+				"The heroine names the broken promise, leaves the shared home, and keeps the future she planned for herself. ".repeat(
+					8,
+				);
+			await mkdir(join(cwd, "novels", "ledger-events", "chapters"), { recursive: true });
+			await writeFile(join(cwd, "novels", "ledger-events", "chapters", "chapter-001.md"), chapterContent, "utf8");
+			const saveHarm = async (withEventId: boolean): Promise<void> => {
+				await store.saveChaseWifeHarmLedger({
+					projectId: "ledger-events",
+					status: "confirmed",
+					confirmation: "USER_CONFIRMED",
+					harms: [
+						{
+							id: "harm-1",
+							category: "deception",
+							victimImpact: { future: "she stops building a future around him" },
+							maleBeliefAtTheTime: "she will stay",
+							heroineBeliefAtTheTime: "the promise still matters",
+							severity: "relationship-breaking",
+							recognizedByHeroine: true,
+							recognizedByMale: true,
+							repaired: true,
+							repairable: true,
+							evidence: [ledgerEvidence(chapterContent, 1, 0, withEventId ? 1 : undefined)],
+							recognitionEvidence: [ledgerEvidence(chapterContent, 1, 30, 2)],
+						},
+					],
+				});
+			};
+			const saveRepair = async (withEventId: boolean): Promise<void> => {
+				await store.saveChaseWifeRepairLedger({
+					projectId: "ledger-events",
+					status: "confirmed",
+					confirmation: "USER_CONFIRMED",
+					repairs: [
+						{
+							id: "repair-1",
+							addressesHarmIds: ["harm-1"],
+							type: "boundary-respect",
+							action: "he stops after her refusal",
+							costToMale: "he gives up immediate reconciliation",
+							benefitToHeroine: "her boundary remains intact",
+							requestedReward: "none",
+							violatesBoundary: false,
+							acceptedByHeroine: true,
+							effectiveness: "credible",
+							evidence: [ledgerEvidence(chapterContent, 1, 60, withEventId ? 2 : undefined)],
+						},
+					],
+				});
+			};
+			await saveHarm(false);
+			await saveRepair(false);
+			await store.saveChaseWifeEventMap({
+				projectId: "ledger-events",
+				chapter: 1,
+				povMode: "heroine-first-person",
+				openingIntro: "opening intro ".repeat(8),
+				openingConflict: "the relationship's priority is exposed",
+				openingConflictMarker: "the promise is already broken",
+				events: [
+					event(1, "opening-injury", { harmRefs: ["harm-1"] }),
+					event(2, "irreversible-exit", { repairRefs: ["repair-1"] }),
+					event(3, "final-boundary"),
+				],
+			});
+			await store.saveChaseWifeEndingContract({
+				projectId: "ledger-events",
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				contract: {
+					mode: "no-reunion",
+					heroineIndependentFutureRequired: true,
+					maleRecognitionRequired: true,
+					restitutionRequired: false,
+					boundaryRespectRequired: true,
+					reunionEligibilityRules: ["her refusal is final"],
+					heroineIndependentFutureEvidence: [ledgerEvidence(chapterContent, 1, 90)],
+				},
+			});
+			const unbound = await store.checkChaseWifeEndingEligibility({ projectId: "ledger-events" });
+			expect(unbound.status).toBe("error");
+			expect(
+				unbound.issues.some((issue) => issue.includes("harm-1 evidence must identify its referenced event")),
+			).toBe(true);
+			await saveHarm(true);
+			await saveRepair(true);
+			const bound = await store.checkChaseWifeEndingEligibility({ projectId: "ledger-events" });
+			expect(bound.status).toBe("ok");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("recognizes real Chinese action evidence in semantic prose checks", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-chinese-evidence-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "chinese-evidence", title: "中文证据", genre: "chase-wife" });
+			await store.saveChaseWifeEventMap({
+				projectId: "chinese-evidence",
+				chapter: 1,
+				povMode: "heroine-first-person",
+				openingIntro: "开场引言先给出被替代的事实，再把选择压到女主面前。".repeat(5),
+				openingConflict: "他把我的位置让给了别人",
+				openingConflictMarker: "让给了别人",
+				events: [
+					event(1, "opening-injury", { minChars: 220, maxChars: 450 }),
+					event(2, "micro-withdrawal"),
+					event(3, "irreversible-exit"),
+				],
+			});
+			const prose = Array.from(
+				{ length: 18 },
+				(_, index) => `I在第${index + 1}次确认后转身离开，把决定写进新的生活。`,
+			).join("");
+			await store.saveChaseWifeEventDraft({ projectId: "chinese-evidence", chapter: 1, eventId: 1, content: prose });
+			const report = await store.checkChaseWifeEventSemantics({
+				projectId: "chinese-evidence",
+				chapter: 1,
+				eventId: 1,
+			});
+			expect(report.status, JSON.stringify(report)).toBe("ok");
+			expect(report.roleSatisfied).toBe(true);
+			expect(report.agencyActionEvidence).toContain("转身离开");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("assembles a compact Chinese chase-wife chapter from event-level prose", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-chinese-chapter-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "chinese-chapter", title: "离开以后", genre: "chase-wife" });
+			const events = [
+				event(1, "opening-injury", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+				event(2, "micro-withdrawal", {
+					heroineAgencyBefore: 20,
+					heroineAgencyAfter: 30,
+					lengthMode: "flash",
+					minChars: 60,
+					maxChars: 180,
+				}),
+				event(3, "irreversible-exit", {
+					heroineAgencyBefore: 30,
+					heroineAgencyAfter: 50,
+					lengthMode: "anchor",
+					minChars: 450,
+					maxChars: 850,
+				}),
+			];
+			await store.saveChaseWifeEventMap({
+				projectId: "chinese-chapter",
+				chapter: 1,
+				povMode: "heroine-first-person",
+				openingIntro: "引言先给出被替代的事实，再让女主在第一段就看见关系的真实位置。".repeat(4),
+				openingConflict: "他把我的位置让给了别人",
+				openingConflictMarker: "把我的位置让给了别人",
+				events,
+			});
+			const prose = [
+				[
+					1,
+					Array.from(
+						{ length: 12 },
+						(_, index) => `他把我的位置让给了别人。我在第${index + 1}次确认后转身离开，把决定写进了新的生活。`,
+					).join(""),
+				],
+				[
+					2,
+					Array.from({ length: 4 }, (_, index) => `我删除了共同日程里的第${index + 1}项安排，没有再解释。`).join(
+						"",
+					),
+				],
+				[
+					3,
+					Array.from(
+						{ length: 27 },
+						(_, index) => `我把钥匙放在桌上，签下离开的文件。第${index + 1}次回头时，门已经关上。`,
+					).join(""),
+				],
+			] as const;
+			for (const [eventId, content] of prose) {
+				await store.saveChaseWifeEventDraft({ projectId: "chinese-chapter", chapter: 1, eventId, content });
+				const budget = await store.checkChaseWifeEventDraft({ projectId: "chinese-chapter", chapter: 1, eventId });
+				expect(budget.status, JSON.stringify(budget)).toBe("ok");
+				await saveFixtureSemanticReport(store, "chinese-chapter", 1, events[eventId - 1], content);
+			}
+			const assembled = await store.assembleChaseWifeChapter({ projectId: "chinese-chapter", chapter: 1 });
+			const assembledContent = await readFile(join(cwd, "novels", "chinese-chapter", assembled.path), "utf8");
+			expect(assembled.eventCount).toBe(3);
+			expect(assembledContent).toContain("我把钥匙放在桌上");
+			expect(assembledContent).toContain("把我的位置让给了别人");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -1484,6 +2283,14 @@ describe("chase-wife genre branch", () => {
 			expect(report.findingCount).toBeGreaterThan(1);
 			expect(report.passed).toBe(false);
 			expect(report.status).toBe("error");
+			await store.saveChapterDraft({ projectId: "ai-artifacts", chapter: 1, content: "仿佛。仿佛。仿佛。仿佛。" });
+			const chineseReport = await store.checkAiArtifacts({
+				projectId: "ai-artifacts",
+				chapter: 1,
+				draftRevision: 2,
+			});
+			expect(chineseReport.findingCount).toBeGreaterThan(1);
+			expect(chineseReport.passed).toBe(false);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

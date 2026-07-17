@@ -103,6 +103,21 @@ describe("NovelProjectStore", () => {
 		});
 	});
 
+	it("keeps generic saves available for non-canon materials", async () => {
+		await withStore(async (store, cwd) => {
+			await store.initializeNovel({ projectId: "research", title: "研究资料", genre: "chase-wife" });
+			const saved = await store.saveStoryDocument({
+				projectId: "research",
+				documentType: "research",
+				name: "reference-001",
+				format: "markdown",
+				content: "参考资料只能进入工作区。",
+			});
+			expect(saved.path.replace(/\\/gu, "/")).toBe("work/research/reference-001.md");
+			expect(await readFile(join(cwd, "novels", "research", saved.path), "utf8")).toContain("参考资料");
+		});
+	});
+
 	it("rejects invalid JSON without replacing the original document", async () => {
 		await withStore(async (store, cwd) => {
 			await store.initializeNovel({ projectId: "demo", title: "题名", genre: "悬疑" });
