@@ -27,6 +27,8 @@
 
 `event map → event draft → mechanical check → model semantic report → assemble_chase_wife_chapter → chapter pacing/review → finalize`
 
+追妻文正文必须先有 60—140 个非空白字符的女主第一人称短引言，再进入第一章。引言必须在极短篇幅内给出具体关系冲突、情绪压力和动作或选择；组装工具负责输出 `# 引言` 与 `# 第一章` 标题，不能直接从第一章开始，也不能用长背景说明替代引言。
+
 追妻文章节定稿前使用 `check_harm_repair_progress` 检查当前章节的伤害、错误追回、现实后果和修复进度；只有全篇章节定稿后，才运行 `check_chase_wife_ending_eligibility` 验证结局契约。导出前必须执行 `finalize_manuscript`。
 
 其他类型使用各自的 Skill、资源和工具。公共工具可以复用，但类型专属规则、提示词和质量门不得混用。

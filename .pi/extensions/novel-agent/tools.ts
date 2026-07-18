@@ -112,7 +112,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "save_chase_wife_event_map",
 			label: "Save Chase-wife Event Map",
-			description: "Save a chase-wife chapter event map with heroine-first-person or split-pov, state deltas, agency changes, causal links, and variable length budgets.",
+			description: "Save a chase-wife chapter event map with heroine-first-person or split-pov, a required 60-140 character chapter-one hook intro, state deltas, agency changes, causal links, and variable length budgets. The intro is prose only; assembly adds the 引言 and 第一章 headings.",
 			parameters: SaveChaseWifeEventMapSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: SaveChaseWifeEventMapParams, signal, _onUpdate, ctx) {
@@ -266,7 +266,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "assemble_chase_wife_chapter",
 			label: "Assemble Chase-wife Chapter",
-			description: "Assemble checked event drafts in event order into a revisioned chapter draft.",
+			description: "Assemble checked event drafts in event order into a revisioned chapter draft. Chapter 1 is always formatted as 引言 → 第一章, with a short hook intro before event prose.",
 			parameters: AssembleChaseWifeChapterSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: AssembleChaseWifeChapterParams, signal, _onUpdate, ctx) {
@@ -336,7 +336,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "save_chase_wife_beat_sheet",
 			label: "Save Chase-wife Beat Sheet",
-			description: "Save the chase-wife-specific dual-track heroine/male beat sheet; paywallHook is an event property, not a story phase.",
+			description: "Save the chase-wife-specific dual-track heroine/male beat sheet with a required 60-140 character first-person hook intro; paywallHook is an event property, not a story phase.",
 			parameters: SaveChaseWifeBeatSheetSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: SaveChaseWifeBeatSheetParams, signal, _onUpdate, ctx) {

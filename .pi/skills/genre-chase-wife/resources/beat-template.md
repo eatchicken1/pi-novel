@@ -4,7 +4,7 @@
 
 ```text
 openingMode: cold-conflict | result-first | exit-in-progress | quiet-dislocation
-openingIntro: quiet-dislocation 使用 80—180 字引言
+openingIntro: 所有 openingMode 均必填，60—140 个非空白字符的女主第一人称短引言；只填正文，不填标题
 openingConflict: 250 字内可验证的具体冲突
 povMode: heroine-first-person | split-pov
 stayingLogic: emotionalReason / falseBelief / sustainingEvidence / breakingThreshold / optional materialReason / optional socialReason / optional familyReason / optional careerReason
@@ -39,7 +39,7 @@ informationChange / emotionBefore / emotionAfter / physicalReaction
 setupOrPayoff / readerRelease / entryHook / exitHook
 ```
 
-第一章第一个事件必须是 `opening-injury`，同时承接引言并制造冲突。后续章节从上一章出口钩子或当前冲突切入，不重复引言。事件地图只用于规划和审查，正文不能输出字段名。
+组装结果必须按 `# 引言` → 引言正文 → `# 第一章` → 第一章事件正文输出。第一章第一个事件的角色按 openingMode 匹配：`cold-conflict` 使用 `opening-injury` 或 `preference-exposure`，`result-first` 使用 `decision` 或 `irreversible-exit`，`exit-in-progress` 使用 `irreversible-exit`，`quiet-dislocation` 使用 `opening-injury`。该事件承接引言并继续制造冲突。后续章节从上一章出口钩子或当前冲突切入，不重复引言。事件地图只用于规划和审查，正文不能输出字段名。
 
 ## 最低结构要求
 

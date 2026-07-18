@@ -526,6 +526,8 @@ describe("chase-wife genre branch", () => {
 				projectId: "result-first",
 				povMode: "split-pov",
 				openingMode: "result-first",
+				openingIntro:
+					"我在签字前看见了那份已经替我决定好的离婚协议，抬头时，他正把最后一份温柔留给另一个人。我没有哭，只问他还要不要我签名啊。",
 				openingConflict: "她正在签下结束关系的文件",
 				stayingLogic: {
 					emotionalReason: "她仍想确认自己没有误会",
@@ -581,6 +583,8 @@ describe("chase-wife genre branch", () => {
 					projectId: "result-first",
 					chapter: 1,
 					povMode: "split-pov",
+					openingIntro:
+						"我在签字前看见了那份已经替我决定好的离婚协议，抬头时，他正把最后一份温柔留给另一个人。我没有哭，只问他还要不要我签名啊。",
 					openingConflict: "她正在签下结束关系的文件",
 					openingConflictMarker: "签下结束关系的文件",
 					events: [
@@ -595,6 +599,36 @@ describe("chase-wife genre branch", () => {
 					],
 				}),
 			).resolves.toBeTruthy();
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("requires a short hook intro for every opening mode", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-opening-intro-gate-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "intro-gate", title: "开篇引言门", genre: "chase-wife" });
+			const events = [event(1, "decision"), event(2, "boundary-test"), event(3, "irreversible-exit")];
+			const base = {
+				projectId: "intro-gate",
+				chapter: 1,
+				povMode: "heroine-first-person" as const,
+				openingMode: "result-first" as const,
+				openingConflict: "她已经看见关系的结局",
+				openingConflictMarker: "关系的结局",
+				events,
+			};
+			await expect(store.saveChaseWifeEventMap(base)).rejects.toThrow("short opening intro");
+			await expect(
+				store.saveChaseWifeEventMap({
+					...base,
+					openingIntro:
+						"她已经在所有人面前替我签好了离开的名字，而我还握着那枚曾经以为会戴到老的戒指。我抬起头，第一次问他是不是终于满意了。".repeat(
+							3,
+						),
+				}),
+			).rejects.toThrow("60-140");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -698,6 +732,8 @@ describe("chase-wife genre branch", () => {
 				chapter: 1,
 				povMode: "heroine-first-person",
 				openingMode: "exit-in-progress",
+				openingIntro:
+					"我已经签下了离开的名字，身后的门却还没有关上。真正让我停住的，不是他追出来，而是那句迟到太久的解释。可我知道，这一次不能再回头。",
 				openingConflict: "the heroine signs the document and leaves before anyone can stop her",
 				openingConflictMarker: "formal-exit",
 				causalExitMarker: "causal-exit-resolved",
@@ -818,7 +854,12 @@ describe("chase-wife genre branch", () => {
 			}
 			const assembled = await store.assembleChaseWifeChapter({ projectId: "pacing", chapter: 1 });
 			expect(assembled.eventCount).toBe(5);
-			expect(await readFile(join(cwd, "novels", "pacing", assembled.path), "utf8")).toContain("opening intro");
+			const assembledContent = await readFile(join(cwd, "novels", "pacing", assembled.path), "utf8");
+			expect(assembledContent).toContain("# 引言");
+			expect(assembledContent).toContain("# 第一章");
+			expect(assembledContent.indexOf("# 引言")).toBeLessThan(assembledContent.indexOf("# 第一章"));
+			expect(assembledContent.indexOf("# 引言")).toBeLessThan(assembledContent.indexOf("opening intro"));
+			expect(assembledContent.indexOf("opening intro")).toBeLessThan(assembledContent.indexOf("# 第一章"));
 			expect(await readFile(join(cwd, "novels", "pacing", assembled.manifestPath), "utf8")).toContain(
 				'"openingIntroIncluded": true',
 			);
@@ -1768,7 +1809,9 @@ describe("chase-wife genre branch", () => {
 			expect(report.issues).toEqual(
 				expect.arrayContaining(["chase-wife beat sheet must declare heroine-first-person or split-pov"]),
 			);
-			expect(report.issues).toEqual(expect.arrayContaining(["opening intro must contain 80-180 characters"]));
+			expect(report.issues).toEqual(
+				expect.arrayContaining(["Chase-wife projects require a short opening intro before chapter 1."]),
+			);
 			expect(report.issues).toEqual(expect.arrayContaining(["beat sheet contains invalid beat records"]));
 			expect(report.issues).toEqual(expect.arrayContaining(["heroine arc must contain unique phases in order"]));
 		} finally {

@@ -133,6 +133,10 @@ const CHASE_WIFE_LENGTH_LIMITS: Record<ChaseWifeEvent["lengthMode"], { min: numb
 	standard: { min: 220, max: 450 },
 	anchor: { min: 450, max: 850 },
 };
+const CHASE_WIFE_INTRO_MIN_CHARS = 60;
+const CHASE_WIFE_INTRO_MAX_CHARS = 140;
+const CHASE_WIFE_INTRO_HEADING = "# 引言";
+const CHASE_WIFE_CHAPTER_ONE_HEADING = "# 第一章";
 
 function isValidChaseWifeOpeningRole(openingMode: string, role: ChaseWifeEvent["role"]): boolean {
 	if (openingMode === "result-first") return role === "decision" || role === "irreversible-exit";
@@ -143,6 +147,22 @@ function isValidChaseWifeOpeningRole(openingMode: string, role: ChaseWifeEvent["
 
 function isFormalChaseWifeExit(event: ChaseWifeEvent): boolean {
 	return event.role === "irreversible-exit" && event.chronology !== "flashforward-preview";
+}
+
+function validateChaseWifeOpeningIntro(value: unknown): string | undefined {
+	if (!isNonEmptyString(value)) return "Chase-wife projects require a short opening intro before chapter 1.";
+	const characterCount = countChineseCharacters(value);
+	if (characterCount < CHASE_WIFE_INTRO_MIN_CHARS || characterCount > CHASE_WIFE_INTRO_MAX_CHARS) {
+		return `The chase-wife opening intro must contain ${CHASE_WIFE_INTRO_MIN_CHARS}-${CHASE_WIFE_INTRO_MAX_CHARS} non-whitespace characters.`;
+	}
+	if (value.includes(CHASE_WIFE_INTRO_HEADING) || value.includes(CHASE_WIFE_CHAPTER_ONE_HEADING)) {
+		return "The opening intro must contain hook prose only; the assembly tool adds the 引言 and 第一章 headings.";
+	}
+	return undefined;
+}
+
+function chaseWifeChapterOnePrefix(intro: string): string {
+	return [CHASE_WIFE_INTRO_HEADING, intro.trim(), CHASE_WIFE_CHAPTER_ONE_HEADING].join("\n\n");
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -1478,8 +1498,8 @@ export class NovelProjectStore {
 		await this.ensureChaseWifeProject(params.projectId, signal);
 		if (!isValidPovMode(params.povMode)) throw new Error("Chase-wife beat sheets must declare heroine-first-person or split-pov.");
 		const openingMode = params.openingMode ?? "quiet-dislocation";
-		if (params.openingIntro !== undefined && params.openingIntro.trim().length > 180) throw new Error("The chase-wife opening intro cannot exceed 180 characters.");
-		if (openingMode === "quiet-dislocation" && (params.openingIntro === undefined || params.openingIntro.trim().length < 80)) throw new Error("The quiet-dislocation opening intro must contain 80-180 characters.");
+		const openingIntroIssue = validateChaseWifeOpeningIntro(params.openingIntro);
+		if (openingIntroIssue !== undefined) throw new Error(openingIntroIssue);
 		if (!isNonEmptyString(params.openingConflict)) throw new Error("The chase-wife opening must define a concrete conflict.");
 		if (!isOrderedUniqueArc(params.heroineArc, CHASE_WIFE_HEROINE_ARC_ORDER)) throw new Error("The heroine arc must contain unique phases in order.");
 		if (!isOrderedUniqueArc(params.maleArc, CHASE_WIFE_MALE_ARC_ORDER)) throw new Error("The male arc must contain unique phases in order.");
@@ -1526,8 +1546,9 @@ export class NovelProjectStore {
 				hasStructuralError = true;
 			}
 			const openingMode = value.openingMode === "cold-conflict" || value.openingMode === "result-first" || value.openingMode === "exit-in-progress" || value.openingMode === "quiet-dislocation" ? value.openingMode : "quiet-dislocation";
-			if (openingMode === "quiet-dislocation" && (!isNonEmptyString(value.openingIntro) || value.openingIntro.trim().length < 80 || value.openingIntro.trim().length > 180)) {
-				issues.push("opening intro must contain 80-180 characters");
+			const openingIntroIssue = validateChaseWifeOpeningIntro(value.openingIntro);
+			if (openingIntroIssue !== undefined) {
+				issues.push(openingIntroIssue);
 				hasStructuralError = true;
 			}
 			if (!isNonEmptyString(value.openingConflict)) {
@@ -1866,7 +1887,10 @@ export class NovelProjectStore {
 		const beatSheetOpeningMode = isJsonRecord(beatSheet) && (beatSheet.openingMode === "cold-conflict" || beatSheet.openingMode === "result-first" || beatSheet.openingMode === "exit-in-progress" || beatSheet.openingMode === "quiet-dislocation") ? beatSheet.openingMode : undefined;
 		if (params.openingMode !== undefined && beatSheetOpeningMode !== undefined && params.openingMode !== beatSheetOpeningMode) throw new Error("Chapter event map openingMode must match the story beat sheet.");
 		const openingMode = params.openingMode ?? beatSheetOpeningMode ?? "quiet-dislocation";
-		if (params.chapter === 1 && openingMode === "quiet-dislocation" && (!params.openingIntro || params.openingIntro.trim().length < 80 || params.openingIntro.trim().length > 180)) throw new Error("Chapter 1 requires an 80-180 character opening intro in quiet-dislocation mode.");
+		if (params.chapter === 1) {
+			const openingIntroIssue = validateChaseWifeOpeningIntro(params.openingIntro);
+			if (openingIntroIssue !== undefined) throw new Error(openingIntroIssue);
+		}
 		if (params.chapter > 1 && params.openingIntro !== undefined) throw new Error("Only chapter 1 may contain an opening intro.");
 		if (!isNonEmptyString(params.openingConflict)) throw new Error("The chase-wife opening must define a concrete conflict.");
 		if (params.chapter === 1 && !isNonEmptyString(params.openingConflictMarker)) throw new Error("Chapter 1 requires a short opening conflict marker for pacing checks.");
@@ -1925,8 +1949,9 @@ export class NovelProjectStore {
 			}
 			if (params.chapter === 1) {
 				const openingMode = value.openingMode === "cold-conflict" || value.openingMode === "result-first" || value.openingMode === "exit-in-progress" || value.openingMode === "quiet-dislocation" ? value.openingMode : "quiet-dislocation";
-				if (openingMode === "quiet-dislocation" && (!isNonEmptyString(value.openingIntro) || value.openingIntro.trim().length < 80 || value.openingIntro.trim().length > 180)) {
-					issues.push("chapter 1 opening intro must contain 80-180 characters");
+				const openingIntroIssue = validateChaseWifeOpeningIntro(value.openingIntro);
+				if (openingIntroIssue !== undefined) {
+					issues.push(openingIntroIssue);
 					hasStructuralError = true;
 				}
 				if (!isNonEmptyString(value.openingConflictMarker)) {
@@ -2420,14 +2445,16 @@ export class NovelProjectStore {
 			manifestEvents.push({ eventId: event.eventId, revision: draft.revision, charCount: countChineseCharacters(draft.content), contentHash: sha256(draft.content), eventSpecHash: hashJson(event) });
 		}
 		const intro = params.chapter === 1 && isNonEmptyString(map.openingIntro) ? map.openingIntro.trim() : "";
-		const assembledContent = [intro, ...drafts].filter((part) => part.length > 0).join("\n\n");
+		if (params.chapter === 1 && intro.length === 0) throw new Error("Chapter 1 assembly requires the opening intro before the first chapter.");
+		const introPrefix = params.chapter === 1 ? chaseWifeChapterOnePrefix(intro) : "";
+		const assembledContent = [introPrefix, ...drafts].filter((part) => part.length > 0).join("\n\n");
 		const manifestEventRanges = manifestEvents.map((manifestEvent, index) => {
-			const startChar = countChineseCharacters(intro) + manifestEvents.slice(0, index).reduce((sum, item) => sum + item.charCount, 0);
+			const startChar = countChineseCharacters(introPrefix) + manifestEvents.slice(0, index).reduce((sum, item) => sum + item.charCount, 0);
 			return { ...manifestEvent, startChar, endChar: startChar + manifestEvent.charCount };
 		});
 		const chapterDraft = await this.saveChapterDraftInternal({ projectId: params.projectId, chapter: params.chapter, revision: params.revision, content: assembledContent }, signal);
 		const manifestPath = `work/chase-wife-assemblies/${chapterName(params.chapter)}-r${String(chapterDraft.revision).padStart(2, "0")}.json`;
-		const manifest = { version: 3, projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft.revision, openingIntroIncluded: intro.length > 0, eventMapHash, eventDrafts: manifestEventRanges, assembledCharCount: countChineseCharacters(assembledContent), assembledHash: sha256(normalizeText(assembledContent)), generatedAt: new Date().toISOString() };
+		const manifest = { version: 4, projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft.revision, openingIntroIncluded: intro.length > 0, openingIntroHeading: params.chapter === 1 ? CHASE_WIFE_INTRO_HEADING : undefined, chapterHeading: params.chapter === 1 ? CHASE_WIFE_CHAPTER_ONE_HEADING : undefined, eventMapHash, eventDrafts: manifestEventRanges, assembledCharCount: countChineseCharacters(assembledContent), assembledHash: sha256(normalizeText(assembledContent)), generatedAt: new Date().toISOString() };
 		await this.writeAtomically(this.projectFile(params.projectId, manifestPath), `${JSON.stringify(manifest, null, 2)}\n`, signal);
 		return { projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft.revision, eventCount: events.length, path: chapterDraft.path, manifestPath };
 	}
@@ -2457,7 +2484,7 @@ export class NovelProjectStore {
 		const manifest = chapterDraft?.content === undefined ? undefined : await this.readJsonIfExists(this.projectFile(params.projectId, `work/chase-wife-assemblies/${chapterName(params.chapter)}-r${String(chapterDraft.revision).padStart(2, "0")}.json`), signal);
 		if (!isJsonRecord(manifest)) addIssue("missing-assembly-manifest", "error", "current assembly manifest is missing", 15);
 		else if (manifest.eventMapHash !== eventMapHash || manifest.assembledHash !== sha256(normalizeText(chapterDraft?.content ?? ""))) addIssue("stale-assembly-manifest", "error", "current assembly manifest is stale", 15);
-		const introChars = params.chapter === 1 && typeof map.openingIntro === "string" ? countChineseCharacters(map.openingIntro) : 0;
+		const introChars = params.chapter === 1 && typeof map.openingIntro === "string" ? countChineseCharacters(chaseWifeChapterOnePrefix(map.openingIntro)) : 0;
 		const openingMode = map.openingMode === "cold-conflict" || map.openingMode === "result-first" || map.openingMode === "exit-in-progress" || map.openingMode === "quiet-dislocation" ? map.openingMode : "quiet-dislocation";
 		const assembledChars = chapterDraft?.content === undefined ? introChars + eventDrafts.reduce((sum, item) => sum + item.chars, 0) : countChineseCharacters(chapterDraft.content);
 		const totalChars = assembledChars;
@@ -2551,7 +2578,7 @@ export class NovelProjectStore {
 					continue;
 				}
 				sourceHashes.push(hashJson(mapValue));
-				if (chapter === 1 && typeof mapValue.openingIntro === "string") introChars = countChineseCharacters(mapValue.openingIntro);
+				if (chapter === 1 && typeof mapValue.openingIntro === "string") introChars = countChineseCharacters(chaseWifeChapterOnePrefix(mapValue.openingIntro));
 				if (chapter === 1) {
 					openingMode = mapValue.openingMode === "cold-conflict" || mapValue.openingMode === "result-first" || mapValue.openingMode === "exit-in-progress" || mapValue.openingMode === "quiet-dislocation" ? mapValue.openingMode : "quiet-dislocation";
 					causalExitMarker = typeof mapValue.causalExitMarker === "string" ? mapValue.causalExitMarker : undefined;
