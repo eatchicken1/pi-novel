@@ -13,7 +13,7 @@ Story Bible、当前章节方向和必要上下文已经确认，准备规划、
 
 1. 使用 `read_story_context(task="chapter-writing", chapter=N, includePreviousChapterEnding=true)`。
 2. 保存 `save_chapter_plan` 和 `save_scene_contract`；每个场景必须改变目标、关系、知识、风险、方向或伏笔状态之一。
-3. 普通题材按计划保存章节草稿；追妻文必须先保存并检查事件地图，再逐事件调用 `save_chase_wife_event_draft`、`check_chase_wife_event_draft`、`check_chase_wife_event_semantics` 和 `save_chase_wife_event_semantic_report`。
+3. 普通题材按计划保存章节草稿；追妻文必须先保存并检查事件地图，再逐事件调用 `save_chase_wife_event_draft`、`check_chase_wife_event_draft`、`check_chase_wife_event_prose` 和 `save_chase_wife_event_semantic_report`。
 4. 只有所有事件语义报告为当前版本且 `status=ok`，才能 `assemble_chase_wife_chapter`；组装后执行章节节奏、评分、AI 痕迹和结构化 Reader/Review 检查。
 5. 连续性报告必须绑定当前 draft revision/contentHash；用户确认后才调用 `finalize_chapter`。
 

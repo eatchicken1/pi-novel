@@ -166,20 +166,6 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 
 	pi.registerTool(
 		defineTool({
-			name: "check_chase_wife_event_semantics",
-			label: "Check Chase-wife Event Semantics",
-			description: "Independently check one chase-wife event for repeated prose, planning labels, visible action, POV evidence, and pure-psychology runs.",
-			parameters: CheckChaseWifeEventSemanticsSchema,
-			executionMode: "sequential",
-			async execute(_toolCallId, params: CheckChaseWifeEventSemanticsParams, signal, _onUpdate, ctx) {
-				const result = await getStore(ctx.cwd).checkChaseWifeEventSemantics(params, signal);
-				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
-			},
-		}),
-	);
-
-	pi.registerTool(
-		defineTool({
 			name: "save_chase_wife_event_semantic_report",
 			label: "Save Chase-wife Semantic Report",
 			description: "Save model-submitted semantic evidence for one event. The report must prove the role, conflict, two independent state deltas, required agency action, exit hook, and declared injury mechanism.",
@@ -200,7 +186,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			parameters: CheckChaseWifeEventSemanticsSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckChaseWifeEventSemanticsParams, signal, _onUpdate, ctx) {
-				const result = await getStore(ctx.cwd).checkChaseWifeEventSemantics(params, signal);
+				const result = await getStore(ctx.cwd).checkChaseWifeEventProse(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),

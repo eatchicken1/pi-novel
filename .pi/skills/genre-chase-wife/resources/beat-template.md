@@ -7,7 +7,7 @@ openingMode: cold-conflict | result-first | exit-in-progress | quiet-dislocation
 openingIntro: quiet-dislocation 使用 80—180 字引言
 openingConflict: 250 字内可验证的具体冲突
 povMode: heroine-first-person | split-pov
-stayingLogic: emotionalReason / materialReason / socialReason / falseBelief / sustainingEvidence / breakingThreshold
+stayingLogic: emotionalReason / falseBelief / sustainingEvidence / breakingThreshold / optional materialReason / optional socialReason / optional familyReason / optional careerReason
 heroineArc: injury → recognition → micro-withdrawal → boundary-test → irreversible-exit → self-rebuild → final-boundary
 maleArc: entitlement → loss-of-control → wrong-pursuit → real-consequence → recognition → respect-or-failure
 ```

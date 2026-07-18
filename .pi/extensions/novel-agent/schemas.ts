@@ -427,6 +427,12 @@ const ChaseWifeAgencyStateSchema = Type.Object({
 	future: Type.Integer({ minimum: 0, maximum: 4 }),
 });
 
+const ChaseWifeAgencySetbackSchema = Type.Object({
+	dimension: ChaseWifeAgencyDimensionSchema,
+	reason: Type.String({ minLength: 1 }),
+	recoveryBeatRef: Type.Integer({ minimum: 1, maximum: 24 }),
+});
+
 const ChaseWifeInjuryMechanismSchema = Type.Union([
 	Type.Literal("neglect"),
 	Type.Literal("substitution"),
@@ -453,14 +459,21 @@ const ChaseWifeOpeningModeSchema = Type.Union([
 	Type.Literal("exit-in-progress"),
 	Type.Literal("quiet-dislocation"),
 ]);
+const ChaseWifeChronologySchema = Type.Union([
+	Type.Literal("present"),
+	Type.Literal("flashback"),
+	Type.Literal("flashforward-preview"),
+]);
 
 const ChaseWifeStayingLogicSchema = Type.Object({
 	emotionalReason: Type.String({ minLength: 1 }),
-	materialReason: Type.String({ minLength: 1 }),
-	socialReason: Type.String({ minLength: 1 }),
 	falseBelief: Type.String({ minLength: 1 }),
 	sustainingEvidence: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
 	breakingThreshold: Type.String({ minLength: 1 }),
+	materialReason: Type.Optional(Type.String({ minLength: 1 })),
+	socialReason: Type.Optional(Type.String({ minLength: 1 })),
+	familyReason: Type.Optional(Type.String({ minLength: 1 })),
+	careerReason: Type.Optional(Type.String({ minLength: 1 })),
 });
 
 const ChaseWifeMemorySpanSchema = Type.Object({
@@ -495,7 +508,7 @@ export const SaveChaseWifeBeatSheetSchema = Type.Object({
 	maleArc: Type.Array(ChaseWifeMaleArcPhaseSchema, { minItems: 3, maxItems: 6 }),
 	openingIntro: Type.Optional(Type.String({ minLength: 1, maxLength: 180 })),
 	openingConflict: Type.String({ minLength: 1 }),
-	stayingLogic: Type.Optional(ChaseWifeStayingLogicSchema),
+	stayingLogic: ChaseWifeStayingLogicSchema,
 	beats: Type.Array(ChaseWifeBeatSchema, { minItems: 12, maxItems: 24 }),
 });
 
@@ -507,6 +520,7 @@ export const ChaseWifeEventSchema = Type.Object({
 	beatRefs: Type.Optional(Type.Array(Type.Integer({ minimum: 1, maximum: 24 }))),
 	harmRefs: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
 	repairRefs: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
+	chronology: Type.Optional(ChaseWifeChronologySchema),
 	heroinePhase: Type.Optional(ChaseWifeHeroineArcPhaseSchema),
 	malePhase: Type.Optional(ChaseWifeMaleArcPhaseSchema),
 	scene: Type.Integer({ minimum: 1, maximum: 8 }),
@@ -521,8 +535,9 @@ export const ChaseWifeEventSchema = Type.Object({
 	riskDelta: Type.Array(Type.String()),
 	heroineAgencyBefore: Type.Integer({ minimum: 0, maximum: 100 }),
 	heroineAgencyAfter: Type.Integer({ minimum: 0, maximum: 100 }),
-	heroineAgencyStateBefore: Type.Optional(ChaseWifeAgencyStateSchema),
-	heroineAgencyStateAfter: Type.Optional(ChaseWifeAgencyStateSchema),
+	heroineAgencyStateBefore: ChaseWifeAgencyStateSchema,
+	heroineAgencyStateAfter: ChaseWifeAgencyStateSchema,
+	setback: Type.Optional(ChaseWifeAgencySetbackSchema),
 	irreversible: Type.Boolean(),
 	cannotRemoveBecause: Type.String({ minLength: 1 }),
 	lengthMode: ChaseWifeLengthModeSchema,
@@ -629,6 +644,8 @@ export const SaveChaseWifeEventSemanticReportSchema = Type.Object({
 	revision: Type.Optional(Type.Integer({ minimum: 1 })),
 	roleSatisfied: Type.Boolean(),
 	conflictShown: Type.Boolean(),
+	roleEvidence: SemanticEvidenceAnchorSchema,
+	conflictEvidence: SemanticEvidenceAnchorSchema,
 	stateDeltasShown: Type.Array(
 		Type.Object({
 			dimension: Type.Union([
@@ -704,6 +721,12 @@ const ChaseWifeRepairEffectivenessSchema = Type.Union([
 	Type.Literal("partial"),
 	Type.Literal("credible"),
 ]);
+const ChaseWifeHeroineResponseSchema = Type.Union([
+	Type.Literal("accepted"),
+	Type.Literal("acknowledged"),
+	Type.Literal("rejected"),
+	Type.Literal("unresolved"),
+]);
 
 const RepairAttemptSchema = Type.Object({
 	id: Type.String({ minLength: 1 }),
@@ -712,9 +735,11 @@ const RepairAttemptSchema = Type.Object({
 	action: Type.String({ minLength: 1 }),
 	costToMale: Type.String({ minLength: 1 }),
 	benefitToHeroine: Type.String({ minLength: 1 }),
-	requestedReward: Type.String({ minLength: 1 }),
+	requestedReward: Type.Union([Type.Boolean(), Type.String({ minLength: 1 })]),
+	requestedRewardDescription: Type.Optional(Type.String({ minLength: 1 })),
 	violatesBoundary: Type.Boolean(),
 	acceptedByHeroine: Type.Boolean(),
+	heroineResponse: Type.Optional(ChaseWifeHeroineResponseSchema),
 	effectiveness: ChaseWifeRepairEffectivenessSchema,
 	evidence: Type.Optional(Type.Array(ChaseWifeLedgerEvidenceSchema, { minItems: 1 })),
 });

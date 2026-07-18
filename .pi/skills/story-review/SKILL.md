@@ -19,7 +19,7 @@ Editorial、Developmental、Scene、Continuity、Line、Copyedit 和 Proofreadin
 2. 先给出文件位置和正文证据，再给影响、优先级和定向修改任务。
 3. 区分事实、推断和建议，不自动把报告写入正史。
 4. 使用 `save_continuity_report` 保存连续性结果；追妻文使用 `save_reader_report` 或 `save_review_report`，必须提交结构化 evidence、status 和当前 draftRevision/contentHash。
-5. 追妻文优先执行 `check_chase_wife_chapter_pacing`、`check_chase_wife_event_semantics`、`save_chase_wife_event_semantic_report` 和 `score_chase_wife_chapter`；全篇分别使用 `scope=working` 和 `scope=finalized`。
+5. 追妻文优先执行 `check_chase_wife_chapter_pacing`、`check_chase_wife_event_prose`、`save_chase_wife_event_semantic_report` 和 `score_chase_wife_chapter`；全篇分别使用 `scope=working` 和 `scope=finalized`。
 
 ## 完成条件
 

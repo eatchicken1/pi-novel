@@ -6,7 +6,7 @@
 
 1. `povMode` 是 `heroine-first-person` 还是 `split-pov`。
 2. 开局模式是 `cold-conflict`、`result-first`、`exit-in-progress` 还是 `quiet-dislocation`。
-3. `stayingLogic` 是否回答：她为什么还留下、留下付出什么、她相信了什么、什么证据维持这个信念、哪件事越过临界点。
+3. `stayingLogic` 是否回答：她为什么还留下、她相信了什么、什么证据维持这个信念、哪件事越过临界点；物质、社会、家庭或职业压力是否确实存在再填写。
 4. 当前事件改变了什么信息、关系、资源、风险、主动权或伏笔状态。
 5. 男方追逐是否产生新的现实代价，而非只增加哭泣、回忆和表白。
 
@@ -30,7 +30,7 @@
 ## 工具顺序
 
 ```text
-read_story_context
+read_story_context(task="planning")
 → save_chase_wife_event_draft
 → check_chase_wife_event_draft
 → check_chase_wife_event_prose
@@ -43,4 +43,4 @@ read_story_context
 → finalize_chapter
 ```
 
-语义报告必须提交正文证据、入口钩子、出口钩子、伤害机制证据和至少两个不重叠的状态证据。缺证据时修改正文或报告，不能用空数组、规划字段或作者台账代替。
+语义报告必须提交角色证据、冲突证据、正文入口钩子、出口钩子、伤害机制证据和至少两个不重叠且与事件地图同维度的状态证据。缺证据时修改正文或报告，不能用空数组、规划字段或作者台账代替。
