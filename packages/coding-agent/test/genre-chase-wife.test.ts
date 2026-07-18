@@ -126,11 +126,13 @@ async function saveFixtureSemanticReport(
 		conflictShown: true,
 		stateDeltasShown: [
 			{
+				deltaId: "information-1",
 				dimension: "information",
 				delta: eventRecord.informationDelta[0] ?? "new fact",
 				evidence: semanticAnchor(content, 0),
 			},
 			{
+				deltaId: "relationship-1",
 				dimension: "relationship",
 				delta: eventRecord.relationshipDelta[0] ?? "relationship shift",
 				evidence: semanticAnchor(content, 16),
@@ -639,6 +641,23 @@ describe("chase-wife genre branch", () => {
 					event(3, "irreversible-exit", { heroineAgencyBefore: 30, heroineAgencyAfter: 60 }),
 				],
 			});
+			const assembledEvents = [
+				event(1, "opening-injury"),
+				event(2, "boundary-test"),
+				event(3, "irreversible-exit", { heroineAgencyBefore: 30, heroineAgencyAfter: 60 }),
+			];
+			for (const eventRecord of assembledEvents) {
+				const content = fixtureEventProse(eventRecord, 1);
+				await store.saveChaseWifeEventDraft({
+					projectId: "cross-pov",
+					chapter: 1,
+					eventId: eventRecord.eventId,
+					content,
+				});
+				await store.checkChaseWifeEventDraft({ projectId: "cross-pov", chapter: 1, eventId: eventRecord.eventId });
+				await saveFixtureSemanticReport(store, "cross-pov", 1, eventRecord, content);
+			}
+			await store.assembleChaseWifeChapter({ projectId: "cross-pov", chapter: 1 });
 			await expect(
 				store.saveChaseWifeEventMap({
 					projectId: "cross-pov",
@@ -659,6 +678,57 @@ describe("chase-wife genre branch", () => {
 			const store = new NovelProjectStore(cwd);
 			await store.initializeNovel({ projectId: "other", title: "悬疑测试", genre: "suspense" });
 			await expect(store.checkChaseWifeArc({ projectId: "other" })).rejects.toThrow("only available");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("treats exit-in-progress as an opening result and checks its later cause separately", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-exit-in-progress-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({ projectId: "exit-progress", title: "exit in progress", genre: "chase-wife" });
+			const events = [
+				event(1, "irreversible-exit", { heroineAgencyBefore: 10, heroineAgencyAfter: 30 }),
+				event(2, "decision", { heroineAgencyBefore: 30, heroineAgencyAfter: 40 }),
+				event(3, "self-rebuild", { heroineAgencyBefore: 40, heroineAgencyAfter: 50 }),
+			];
+			await store.saveChaseWifeEventMap({
+				projectId: "exit-progress",
+				chapter: 1,
+				povMode: "heroine-first-person",
+				openingMode: "exit-in-progress",
+				openingConflict: "the heroine signs the document and leaves before anyone can stop her",
+				openingConflictMarker: "formal-exit",
+				causalExitMarker: "causal-exit-resolved",
+				events,
+			});
+			for (const eventRecord of events) {
+				const marker =
+					eventRecord.eventId === 1 ? "formal-exit" : eventRecord.eventId === 2 ? "causal-exit-resolved" : "";
+				const content = `${marker}${fixtureEventProse(eventRecord, 1)}`;
+				await store.saveChaseWifeEventDraft({
+					projectId: "exit-progress",
+					chapter: 1,
+					eventId: eventRecord.eventId,
+					content,
+				});
+				await store.checkChaseWifeEventDraft({
+					projectId: "exit-progress",
+					chapter: 1,
+					eventId: eventRecord.eventId,
+				});
+				await saveFixtureSemanticReport(store, "exit-progress", 1, eventRecord, content);
+			}
+			await store.assembleChaseWifeChapter({ projectId: "exit-progress", chapter: 1 });
+			const pacing = await store.checkChaseWifeChapterPacing({
+				projectId: "exit-progress",
+				chapter: 1,
+				mode: "standard",
+			});
+			expect(pacing.status).toBe("ok");
+			expect(pacing.metrics.exitRatio).toBeLessThan(0.2);
+			expect(pacing.metrics.causalExitRatio).toBeGreaterThan(0);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -1734,8 +1804,18 @@ describe("chase-wife genre branch", () => {
 				roleSatisfied: false,
 				conflictShown: false,
 				stateDeltasShown: [
-					{ dimension: "information", delta: "fact", evidence: semanticAnchor(semanticContent, 0) },
-					{ dimension: "relationship", delta: "trust", evidence: semanticAnchor(semanticContent, 0) },
+					{
+						deltaId: "information-1",
+						dimension: "information",
+						delta: "fact",
+						evidence: semanticAnchor(semanticContent, 0),
+					},
+					{
+						deltaId: "relationship-1",
+						dimension: "relationship",
+						delta: "trust",
+						evidence: semanticAnchor(semanticContent, 0),
+					},
 				],
 				roleEvidence: semanticAnchor(semanticContent, 0),
 				conflictEvidence: semanticAnchor(semanticContent, 2),
@@ -1762,8 +1842,18 @@ describe("chase-wife genre branch", () => {
 				roleSatisfied: true,
 				conflictShown: true,
 				stateDeltasShown: [
-					{ dimension: "information", delta: "fact", evidence: semanticAnchor(semanticContent, 0) },
-					{ dimension: "relationship", delta: "trust", evidence: semanticAnchor(semanticContent, 20) },
+					{
+						deltaId: "information-1",
+						dimension: "information",
+						delta: "the protagonist learns one new fact",
+						evidence: semanticAnchor(semanticContent, 0),
+					},
+					{
+						deltaId: "relationship-1",
+						dimension: "relationship",
+						delta: "the relationship loses one promise",
+						evidence: semanticAnchor(semanticContent, 20),
+					},
 				],
 				roleEvidence: semanticAnchor(semanticContent, 0),
 				conflictEvidence: semanticAnchor(semanticContent, 2),
@@ -2303,8 +2393,10 @@ describe("chase-wife genre branch", () => {
 			const bound = await store.checkChaseWifeEndingEligibility({ projectId: "ledger-events" });
 			expect(bound.status).toBe("error");
 			expect(
-				bound.issues.some((issue) => issue.includes("harm-1 evidence must identify its referenced event")),
-			).toBe(false);
+				bound.issues.some((issue) =>
+					issue.includes("harm-1 evidence must identify its referenced event in finalized scope"),
+				),
+			).toBe(true);
 			expect(bound.issues.some((issue) => issue.includes("finalized final-boundary"))).toBe(true);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });

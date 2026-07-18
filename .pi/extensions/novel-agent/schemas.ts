@@ -400,6 +400,9 @@ const ChaseWifeEventRoleSchema = Type.Union([
 	Type.Literal("pursuit-failure"),
 	Type.Literal("real-consequence"),
 	Type.Literal("recognition"),
+	Type.Literal("repair-attempt"),
+	Type.Literal("credible-repair"),
+	Type.Literal("boundary-respect"),
 	Type.Literal("self-rebuild"),
 	Type.Literal("final-boundary"),
 	Type.Literal("closure"),
@@ -453,6 +456,7 @@ const ChaseWifeLengthModeSchema = Type.Union([
 const ChaseWifePacingModeSchema = Type.Union([Type.Literal("fast-burn"), Type.Literal("standard")]);
 const ChaseWifeStoryPacingScopeSchema = Type.Union([Type.Literal("working"), Type.Literal("finalized")]);
 const ChaseWifeStoryPacingEvaluationModeSchema = Type.Union([Type.Literal("projection"), Type.Literal("gate")]);
+const ChaseWifeArtifactScopeSchema = Type.Union([Type.Literal("planned"), Type.Literal("assembled"), Type.Literal("finalized")]);
 const ChaseWifeOpeningModeSchema = Type.Union([
 	Type.Literal("cold-conflict"),
 	Type.Literal("result-first"),
@@ -512,7 +516,7 @@ export const SaveChaseWifeBeatSheetSchema = Type.Object({
 	beats: Type.Array(ChaseWifeBeatSchema, { minItems: 12, maxItems: 24 }),
 });
 
-export const CheckChaseWifeArcSchema = Type.Object({ projectId: ProjectIdSchema });
+export const CheckChaseWifeArcSchema = Type.Object({ projectId: ProjectIdSchema, scope: Type.Optional(ChaseWifeArtifactScopeSchema) });
 
 export const ChaseWifeEventSchema = Type.Object({
 	eventId: Type.Integer({ minimum: 1, maximum: 8 }),
@@ -568,6 +572,7 @@ export const SaveChaseWifeEventMapSchema = Type.Object({
 	openingIntro: Type.Optional(Type.String({ minLength: 1, maxLength: 180 })),
 	openingConflict: Type.String({ minLength: 1 }),
 	openingConflictMarker: Type.Optional(Type.String({ minLength: 2, maxLength: 80 })),
+	causalExitMarker: Type.Optional(Type.String({ minLength: 2, maxLength: 100 })),
 	events: Type.Array(ChaseWifeEventSchema, { minItems: 3, maxItems: 6 }),
 });
 
@@ -648,6 +653,7 @@ export const SaveChaseWifeEventSemanticReportSchema = Type.Object({
 	conflictEvidence: SemanticEvidenceAnchorSchema,
 	stateDeltasShown: Type.Array(
 		Type.Object({
+			deltaId: Type.String({ minLength: 1 }),
 			dimension: Type.Union([
 				Type.Literal("information"),
 				Type.Literal("relationship"),
@@ -863,6 +869,7 @@ export type CheckAiArtifactsParams = Static<typeof CheckAiArtifactsSchema>;
 export type ChaseWifeBeat = Static<typeof ChaseWifeBeatSchema>;
 export type SaveChaseWifeBeatSheetParams = Static<typeof SaveChaseWifeBeatSheetSchema>;
 export type CheckChaseWifeArcParams = Static<typeof CheckChaseWifeArcSchema>;
+export type ChaseWifeArtifactScope = Static<typeof ChaseWifeArtifactScopeSchema>;
 export type ChaseWifeEvent = Static<typeof ChaseWifeEventSchema>;
 export type ChaseWifeAgencyState = Static<typeof ChaseWifeAgencyStateSchema>;
 export type SaveChaseWifeEventMapParams = Static<typeof SaveChaseWifeEventMapSchema>;

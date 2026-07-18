@@ -456,7 +456,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "check_ai_artifacts",
 			label: "Check AI Artifacts",
-			description: "Run mechanical style-pattern checks and save findings as warnings, not literary verdicts.",
+			description: "Run mechanical style-pattern checks. The report includes findings, severity, score, and a passed quality-gate flag; a failed gate blocks chapter finalization but is not a literary verdict.",
 			parameters: CheckAiArtifactsSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckAiArtifactsParams, signal, _onUpdate, ctx) {

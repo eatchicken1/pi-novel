@@ -30,7 +30,20 @@
 ## 工具顺序
 
 ```text
+规划：
 read_story_context(task="planning")
+→ save_chase_wife_beat_sheet
+→ check_chase_wife_arc(scope="planned")
+→ save_chase_wife_harm_ledger(status="proposed")
+→ save_chase_wife_repair_ledger(status="proposed")
+→ save_chase_wife_ending_contract(status="proposed")
+
+章节：
+read_story_context(task="chapter-writing")
+→ save_chapter_plan
+→ save_scene_contract
+→ save_chase_wife_event_map
+→ check_chase_wife_event_map
 → save_chase_wife_event_draft
 → check_chase_wife_event_draft
 → check_chase_wife_event_prose
@@ -39,8 +52,16 @@ read_story_context(task="planning")
 → check_chase_wife_pacing
 → score_chase_wife_chapter
 → check_ai_artifacts
-→ save_reader_report / save_review_report
+→ save_reader_report
+→ save_review_report
+→ check_harm_repair_progress
 → finalize_chapter
+
+全篇：
+check_chase_wife_story_pacing(scope="finalized")
+→ check_chase_wife_arc(scope="finalized")
+→ check_chase_wife_ending_eligibility
+→ finalize_manuscript
 ```
 
 语义报告必须提交角色证据、冲突证据、正文入口钩子、出口钩子、伤害机制证据和至少两个不重叠且与事件地图同维度的状态证据。缺证据时修改正文或报告，不能用空数组、规划字段或作者台账代替。

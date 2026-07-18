@@ -24,12 +24,12 @@ description: 追妻文专属创作流程：女主第一人称、关系失衡、�
 
 ## 固定流程
 
-1. 规划阶段先调用 `read_story_context(task=planning)`，再保存双轨 Beat Sheet、`openingMode`、`stayingLogic`、伤害账本、修复账本和 ending contract；修复方案先保持 `proposed`。
+1. 规划阶段先调用 `read_story_context(task=planning)`，依次完成双轨 Beat Sheet、`check_chase_wife_arc(scope=planned)`、`openingMode`、`stayingLogic`、候选伤害账本、候选修复账本和 ending contract；修复方案先保持 `proposed`。
 2. 进入具体章节后调用 `read_story_context(task=chapter-writing)`，只读取当前章节需要的正史、Beat、事件地图和相关台账。
 3. 保存章节事件地图；每个事件填写 `beatRefs`、因果来源、伤害机制、状态差、主动权差、入口钩子和出口钩子。
-4. 对每个事件依次调用 `save_chase_wife_event_draft`、`check_chase_wife_event_draft`、机械正文检查和 `save_chase_wife_event_semantic_report`。
+4. 对每个事件依次调用 `save_chase_wife_event_draft`、`check_chase_wife_event_draft`、`check_chase_wife_event_prose` 和 `save_chase_wife_event_semantic_report`。
 5. 所有事件报告必须是 `source=model` 且 `status=ok`，再调用 `assemble_chase_wife_chapter`。
-6. 组装后运行章节节奏、章节评分、AI 痕迹、Reader Sim 和 Story Review；报告必须带当前正文哈希和正文锚点。
+6. 组装后运行章节节奏、章节评分、AI 痕迹、Reader Sim 和 Story Review；Reader 与 Story Review 两者都必须通过，报告必须带当前正文哈希和正文锚点。
 7. 章节定稿前检查 `check_harm_repair_progress`（可传 `chapter`，返回 `on-track`、`warning` 或 `stalled`）、连续性和用户确认；全篇结束后才运行 `check_chase_wife_ending_eligibility`、finalized pacing、`finalize_manuscript` 和导出门。
 
 ## 必须加载的资源
