@@ -468,15 +468,17 @@ function isChaseWifeStayingLogic(value: unknown): boolean {
 }
 
 function repairHasNoRequestedReward(repair: JsonRecord): boolean {
-	return repair.requestedReward === false || repair.requestedReward === "none";
+	return repair.requestedReward === false;
 }
 
 function heroineAcceptedRepair(repair: JsonRecord): boolean {
-	return repair.heroineResponse === "accepted" || (repair.heroineResponse === undefined && repair.acceptedByHeroine === true);
+	return repair.heroineResponse === "accepted";
 }
 
 function normalizeChaseWifeRepair(repair: JsonRecord): JsonRecord {
-	const requestedReward = repair.requestedReward === true || (typeof repair.requestedReward === "string" && repair.requestedReward !== "none");
+	const requestedReward = typeof repair.requestedReward === "boolean"
+		? repair.requestedReward
+		: typeof repair.requestedReward === "string" && repair.requestedReward !== "none";
 	const heroineResponse = repair.heroineResponse === "accepted" || repair.heroineResponse === "acknowledged" || repair.heroineResponse === "rejected" || repair.heroineResponse === "unresolved"
 		? repair.heroineResponse
 		: repair.acceptedByHeroine === true ? "accepted" : "unresolved";
@@ -1504,6 +1506,30 @@ export class NovelProjectStore {
 		return issues;
 	}
 
+	private async validateChaseWifeConfirmedLedgerWrite(
+		projectId: string,
+		harms: unknown[],
+		repairs: unknown[],
+		signal?: AbortSignal,
+	): Promise<string[]> {
+		const harmRecords = harms.filter(isJsonRecord);
+		const repairRecords = repairs.filter(isJsonRecord);
+		const issues: string[] = [];
+		for (const harm of harmRecords) {
+			const harmId = typeof harm.id === "string" ? harm.id : "unknown";
+			issues.push(...await this.validateChaseWifeLedgerEvidence(projectId, harm.evidence, `relationship harm ${harmId}`, signal));
+			if (harm.recognizedByMale === true || harm.recognitionEvidence !== undefined) {
+				issues.push(...await this.validateChaseWifeLedgerEvidence(projectId, harm.recognitionEvidence, `relationship harm ${harmId} male recognition`, signal));
+			}
+		}
+		for (const repair of repairRecords) {
+			const repairId = typeof repair.id === "string" ? repair.id : "unknown";
+			issues.push(...await this.validateChaseWifeLedgerEvidence(projectId, repair.evidence, `repair ${repairId}`, signal));
+		}
+		issues.push(...await this.validateChaseWifeLedgerEventBindings(projectId, harmRecords, repairRecords, "finalized", signal, false));
+		return issues;
+	}
+
 	private async chaseWifePacingMode(projectId: string, signal?: AbortSignal): Promise<"fast-burn" | "standard"> {
 		const beatSheet = await this.readJsonIfExists(this.projectFile(projectId, "outline/genre/chase-wife-beat-sheet.json"), signal);
 		return isJsonRecord(beatSheet) && (beatSheet.pacingMode === "fast-burn" || beatSheet.pacingMode === "standard") ? beatSheet.pacingMode : "standard";
@@ -1698,6 +1724,12 @@ export class NovelProjectStore {
 		const merged = params.status === "confirmed"
 			? [...prior.filter((item) => !params.harms.some((harm) => harm.id === item.id)), ...params.harms]
 			: params.harms;
+		if (params.status === "confirmed") {
+			const repairLedger = await this.readJsonIfExists(this.projectFile(params.projectId, "continuity/chase-wife-repair-ledger.json"), signal);
+			const existingRepairs = isJsonRecord(repairLedger) && Array.isArray(repairLedger.repairs) ? repairLedger.repairs.filter(isJsonRecord).map(normalizeChaseWifeRepair) : [];
+			const issues = await this.validateChaseWifeConfirmedLedgerWrite(params.projectId, merged, existingRepairs, signal);
+			if (issues.length > 0) throw new Error(`Confirmed relationship harm ledger cannot be saved: ${issues.join("; ")}`);
+		}
 		const document = { version: 1, projectId: params.projectId, genre: "chase-wife", status: params.status, harms: merged, updatedAt: new Date().toISOString() };
 		await this.writeAtomically(path, `${JSON.stringify(document, null, 2)}\n`, signal);
 		return { projectId: params.projectId, status: params.status, count: params.harms.length, path: relativePath };
@@ -1709,9 +1741,6 @@ export class NovelProjectStore {
 		if (new Set(params.repairs.map((repair) => repair.id)).size !== params.repairs.length) throw new Error("Repair attempt IDs must be unique.");
 		for (const repair of params.repairs) {
 			if (repair.requestedReward === true && repair.requestedRewardDescription === undefined) throw new Error(`Repair ${repair.id} must describe the requested reward when requestedReward is true.`);
-			if (params.status === "confirmed" && repair.heroineResponse === undefined && repair.acceptedByHeroine === undefined) throw new Error(`Confirmed repair ${repair.id} must declare heroineResponse.`);
-			if (repair.heroineResponse === "accepted" && repair.acceptedByHeroine === false) throw new Error(`Repair ${repair.id} cannot be accepted when acceptedByHeroine is false.`);
-			if (repair.heroineResponse === "rejected" && repair.acceptedByHeroine === true) throw new Error(`Repair ${repair.id} cannot be rejected when acceptedByHeroine is true.`);
 		}
 		const harmPath = this.projectFile(params.projectId, "continuity/chase-wife-harm-ledger.json");
 		const harmLedger = await this.readJsonIfExists(harmPath, signal);
@@ -1725,6 +1754,11 @@ export class NovelProjectStore {
 		const merged = params.status === "confirmed"
 			? [...prior.filter((item) => !normalizedRepairs.some((repair) => repair.id === item.id)).map(normalizeChaseWifeRepair), ...normalizedRepairs]
 			: normalizedRepairs;
+		if (params.status === "confirmed") {
+			const existingHarms = isJsonRecord(harmLedger) && Array.isArray(harmLedger.harms) ? harmLedger.harms.filter(isJsonRecord) : [];
+			const issues = await this.validateChaseWifeConfirmedLedgerWrite(params.projectId, existingHarms, merged, signal);
+			if (issues.length > 0) throw new Error(`Confirmed repair ledger cannot be saved: ${issues.join("; ")}`);
+		}
 		const document = { version: 1, projectId: params.projectId, genre: "chase-wife", status: params.status, repairs: merged, updatedAt: new Date().toISOString() };
 		await this.writeAtomically(path, `${JSON.stringify(document, null, 2)}\n`, signal);
 		return { projectId: params.projectId, status: params.status, count: params.repairs.length, path: relativePath };
@@ -1746,7 +1780,7 @@ export class NovelProjectStore {
 		const issues: string[] = [];
 		let stalled = false;
 		const harms = isJsonRecord(harmDocument) && Array.isArray(harmDocument.harms) ? harmDocument.harms.filter(isJsonRecord) : [];
-		const repairs = isJsonRecord(repairDocument) && Array.isArray(repairDocument.repairs) ? repairDocument.repairs.filter(isJsonRecord) : [];
+		const repairs = isJsonRecord(repairDocument) && Array.isArray(repairDocument.repairs) ? repairDocument.repairs.filter(isJsonRecord).map(normalizeChaseWifeRepair) : [];
 		if (!isJsonRecord(harmDocument) || harmDocument.status !== "confirmed" || harms.length === 0) {
 			issues.push("a confirmed relationship harm ledger is required");
 			stalled = true;
@@ -1817,7 +1851,7 @@ export class NovelProjectStore {
 		const issues: string[] = [];
 		const contract = isJsonRecord(contractDocument) && isJsonRecord(contractDocument.contract) ? contractDocument.contract : undefined;
 		const harms = isJsonRecord(harmDocument) && Array.isArray(harmDocument.harms) ? harmDocument.harms.filter(isJsonRecord) : [];
-		const repairs = isJsonRecord(repairDocument) && Array.isArray(repairDocument.repairs) ? repairDocument.repairs.filter(isJsonRecord) : [];
+		const repairs = isJsonRecord(repairDocument) && Array.isArray(repairDocument.repairs) ? repairDocument.repairs.filter(isJsonRecord).map(normalizeChaseWifeRepair) : [];
 		if (!isJsonRecord(contractDocument) || contractDocument.status !== "confirmed" || contract === undefined) issues.push("a confirmed chase-wife ending contract is required");
 		if (!isJsonRecord(harmDocument) || harmDocument.status !== "confirmed" || harms.length === 0) issues.push("a confirmed relationship harm ledger is required");
 		if (!isJsonRecord(repairDocument) || repairDocument.status !== "confirmed") issues.push("a confirmed repair ledger is required");
@@ -2229,9 +2263,20 @@ export class NovelProjectStore {
 		return { hasEventMaps: paths.length > 0, eventKeys, harmRefs, repairRefs, eventRanges };
 	}
 
-	private async validateChaseWifeLedgerEventBindings(projectId: string, harms: JsonRecord[], repairs: JsonRecord[], scope: ChaseWifeArtifactScope = "assembled", signal?: AbortSignal): Promise<string[]> {
+	private async validateChaseWifeLedgerEventBindings(
+		projectId: string,
+		harms: JsonRecord[],
+		repairs: JsonRecord[],
+		scope: ChaseWifeArtifactScope = "assembled",
+		signal?: AbortSignal,
+		checkReferencedLedgerIds = true,
+	): Promise<string[]> {
 		const references = await this.readChaseWifeEventReferences(projectId, scope, signal);
-		if (!references.hasEventMaps) return [];
+		if (!references.hasEventMaps) {
+			return checkReferencedLedgerIds || (harms.length === 0 && repairs.length === 0)
+				? []
+				: ["confirmed chase-wife ledgers require a finalized event map before evidence can be saved"];
+		}
 		const issues: string[] = [];
 		const evidenceMatchesReference = (item: ChaseWifeLedgerEvidence, reference: ChaseWifeEventReference): boolean => {
 			if (reference.chapter !== item.chapter || reference.eventId !== item.eventId) return false;
@@ -2246,11 +2291,13 @@ export class NovelProjectStore {
 		};
 		const harmIds = new Set(harms.map((harm) => typeof harm.id === "string" ? harm.id : undefined).filter((id): id is string => id !== undefined));
 		const repairIds = new Set(repairs.map((repair) => typeof repair.id === "string" ? repair.id : undefined).filter((id): id is string => id !== undefined));
-		for (const [harmId, refs] of references.harmRefs) {
-			if (!harmIds.has(harmId)) issues.push(`event references unknown relationship harm ${harmId}`);
-			if (refs.length === 0) continue;
+		if (checkReferencedLedgerIds) {
+			for (const [harmId, refs] of references.harmRefs) {
+				if (!harmIds.has(harmId)) issues.push(`event references unknown relationship harm ${harmId}`);
+				if (refs.length === 0) continue;
+			}
+			for (const [repairId] of references.repairRefs) if (!repairIds.has(repairId)) issues.push(`event references unknown repair ${repairId}`);
 		}
-		for (const [repairId] of references.repairRefs) if (!repairIds.has(repairId)) issues.push(`event references unknown repair ${repairId}`);
 		for (const harm of harms) {
 			const harmId = typeof harm.id === "string" ? harm.id : "unknown";
 			const refs = references.harmRefs.get(harmId) ?? [];

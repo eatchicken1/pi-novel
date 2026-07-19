@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ChaseWifeBeat, ChaseWifeEvent } from "../../../.pi/extensions/novel-agent/schemas.ts";
+import { SaveChaseWifeRepairLedgerSchema } from "../../../.pi/extensions/novel-agent/schemas.ts";
 import { NovelProjectStore } from "../../../.pi/extensions/novel-agent/services/project-store.ts";
 
 function beat(
@@ -198,9 +199,9 @@ async function saveFixtureRelationshipContracts(
 				action: "he publicly corrects the record and accepts the lost relationship",
 				costToMale: "he loses status and access",
 				benefitToHeroine: "her choice is respected and the record is repaired",
-				requestedReward: "none",
+				requestedReward: false,
 				violatesBoundary: false,
-				acceptedByHeroine: true,
+				heroineResponse: "accepted",
 				effectiveness: "credible",
 				evidence: [eventEvidence(2, 0)],
 			},
@@ -211,9 +212,9 @@ async function saveFixtureRelationshipContracts(
 				action: "he accepts the heroine's refusal without further contact",
 				costToMale: "he gives up immediate reconciliation",
 				benefitToHeroine: "her boundary remains intact",
-				requestedReward: "none",
+				requestedReward: false,
 				violatesBoundary: false,
-				acceptedByHeroine: true,
+				heroineResponse: "accepted",
 				effectiveness: "credible",
 				evidence: [eventEvidence(3, 0)],
 			},
@@ -242,12 +243,15 @@ async function finalizeFixtureChapter(
 	projectId: string,
 	chapter: number,
 	events: ChaseWifeEvent[],
+	options?: { harmId?: string; repairIds?: [string, string] },
 ): Promise<number> {
+	const harmId = options?.harmId ?? "harm-001";
+	const repairIds = options?.repairIds ?? ["repair-001", "repair-002"];
 	const eventMapEvents = events.map((eventRecord) => {
 		if (chapter !== 1) return eventRecord;
-		if (eventRecord.eventId === 1) return { ...eventRecord, harmRefs: ["harm-001"] };
-		if (eventRecord.eventId === 2) return { ...eventRecord, repairRefs: ["repair-001"] };
-		if (eventRecord.eventId === 3) return { ...eventRecord, repairRefs: ["repair-002"] };
+		if (eventRecord.eventId === 1) return { ...eventRecord, harmRefs: [harmId] };
+		if (eventRecord.eventId === 2) return { ...eventRecord, repairRefs: [repairIds[0]] };
+		if (eventRecord.eventId === 3) return { ...eventRecord, repairRefs: [repairIds[1]] };
 		return eventRecord;
 	});
 	await store.saveChaseWifeEventMap({
@@ -394,6 +398,24 @@ async function finalizeFixtureChapter(
 }
 
 describe("chase-wife genre branch", () => {
+	it("exposes one canonical repair representation to model tools", () => {
+		const schema = SaveChaseWifeRepairLedgerSchema as unknown as {
+			properties: {
+				repairs: {
+					items: {
+						properties: Record<string, { type?: string }>;
+						required: string[];
+					};
+				};
+			};
+		};
+		const repairSchema = schema.properties.repairs.items;
+		expect(repairSchema.properties.requestedReward.type).toBe("boolean");
+		expect(repairSchema.properties.acceptedByHeroine).toBeUndefined();
+		expect(repairSchema.required).toContain("requestedReward");
+		expect(repairSchema.required).toContain("heroineResponse");
+	});
+
 	it("normalizes the Chinese genre selection and checks its dedicated arc", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-chase-wife-"));
 		try {
@@ -1237,33 +1259,32 @@ describe("chase-wife genre branch", () => {
 			) as { eventDrafts: Array<{ eventId: number; startChar: number }> };
 			const eventThreeRange = chapterOneManifest.eventDrafts.find((item) => item.eventId === 3);
 			if (eventThreeRange === undefined) throw new Error("fixture event range is missing");
-			await store.saveChaseWifeHarmLedger({
-				projectId: "six",
-				status: "confirmed",
-				confirmation: "USER_CONFIRMED",
-				harms: [
-					{
-						id: "harm-001",
-						category: "deprioritization",
-						victimImpact: {
-							emotional: "the heroine is treated as replaceable",
-							future: "the shared future is withdrawn",
+			await expect(
+				store.saveChaseWifeHarmLedger({
+					projectId: "six",
+					status: "confirmed",
+					confirmation: "USER_CONFIRMED",
+					harms: [
+						{
+							id: "harm-001",
+							category: "deprioritization",
+							victimImpact: {
+								emotional: "the heroine is treated as replaceable",
+								future: "the shared future is withdrawn",
+							},
+							maleBeliefAtTheTime: "he believes she will keep waiting",
+							heroineBeliefAtTheTime: "she believes the promise still matters",
+							severity: "major",
+							recognizedByHeroine: true,
+							recognizedByMale: true,
+							repaired: true,
+							repairable: true,
+							evidence: [ledgerEvidence(chapterOneContent, 1, eventThreeRange.startChar, 1)],
+							recognitionEvidence: [ledgerEvidence(chapterOneContent, 1, 0, 2)],
 						},
-						maleBeliefAtTheTime: "he believes she will keep waiting",
-						heroineBeliefAtTheTime: "she believes the promise still matters",
-						severity: "major",
-						recognizedByHeroine: true,
-						recognizedByMale: true,
-						repaired: true,
-						repairable: true,
-						evidence: [ledgerEvidence(chapterOneContent, 1, eventThreeRange.startChar, 1)],
-						recognitionEvidence: [ledgerEvidence(chapterOneContent, 1, 0, 2)],
-					},
-				],
-			});
-			const outOfRange = await store.checkChaseWifeEndingEligibility({ projectId: "six" });
-			expect(outOfRange.status).toBe("error");
-			expect(outOfRange.issues.some((issue) => issue.includes("harm-001 evidence must stay inside"))).toBe(true);
+					],
+				}),
+			).rejects.toThrow("stay inside its referenced event prose range");
 			await saveFixtureRelationshipContracts(store, cwd, "six");
 			const seal = await store.finalizeManuscript({ projectId: "six", confirmation: "USER_CONFIRMED" });
 			expect(seal.status).toBe("finalized");
@@ -1934,85 +1955,35 @@ describe("chase-wife genre branch", () => {
 		}
 	});
 
-	it("does not treat confirmed relationship claims as prose evidence", async () => {
+	it("rejects confirmed ledger writes without current prose evidence", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-chase-ledger-evidence-"));
 		try {
 			const store = new NovelProjectStore(cwd);
 			await store.initializeNovel({ projectId: "ledger-evidence", title: "ledger evidence", genre: "chase-wife" });
-			await store.saveChaseWifeHarmLedger({
-				projectId: "ledger-evidence",
-				status: "confirmed",
-				confirmation: "USER_CONFIRMED",
-				harms: [
-					{
-						id: "harm-1",
-						category: "deception",
-						victimImpact: { emotional: "trust is broken" },
-						maleBeliefAtTheTime: "the truth can wait",
-						heroineBeliefAtTheTime: "the promise is real",
-						severity: "relationship-breaking",
-						recognizedByHeroine: true,
-						recognizedByMale: true,
-						repaired: true,
-						repairable: true,
-					},
-				],
-			});
-			await store.saveChaseWifeRepairLedger({
-				projectId: "ledger-evidence",
-				status: "confirmed",
-				confirmation: "USER_CONFIRMED",
-				repairs: [
-					{
-						id: "repair-1",
-						addressesHarmIds: ["harm-1"],
-						type: "costly-accountability",
-						action: "he accepts the public consequence",
-						costToMale: "he loses status",
-						benefitToHeroine: "the record is repaired",
-						requestedReward: "none",
-						violatesBoundary: false,
-						acceptedByHeroine: true,
-						effectiveness: "credible",
-					},
-					{
-						id: "repair-2",
-						addressesHarmIds: ["harm-1"],
-						type: "boundary-respect",
-						action: "he accepts her refusal",
-						costToMale: "he gives up reconciliation",
-						benefitToHeroine: "her boundary remains intact",
-						requestedReward: "none",
-						violatesBoundary: false,
-						acceptedByHeroine: true,
-						effectiveness: "credible",
-					},
-				],
-			});
-			await store.saveChaseWifeEndingContract({
-				projectId: "ledger-evidence",
-				status: "confirmed",
-				confirmation: "USER_CONFIRMED",
-				contract: {
-					mode: "earned-reunion",
-					heroineIndependentFutureRequired: true,
-					maleRecognitionRequired: true,
-					restitutionRequired: true,
-					boundaryRespectRequired: true,
-					reunionEligibilityRules: ["no pressure after refusal"],
-				},
-			});
-			const progress = await store.checkChaseWifeHarmRepairProgress({ projectId: "ledger-evidence", chapter: 1 });
-			expect(progress.status).toBe("stalled");
-			expect(progress.harms).toEqual([
-				expect.objectContaining({ harmId: "harm-1", repairCount: 2, credibleRepairCount: 0, evidenceBound: false }),
-			]);
-			const eligibility = await store.checkChaseWifeEndingEligibility({ projectId: "ledger-evidence" });
-			expect(eligibility.status).toBe("error");
-			expect(eligibility.issues.some((issue) => issue.includes("prose evidence"))).toBe(true);
-			expect(eligibility.issues).toContain(
-				"reunionEligibilityRules are narrative notes only; at least one structured eligibilityRules entry is required for final validation",
-			);
+			await expect(
+				store.saveChaseWifeHarmLedger({
+					projectId: "ledger-evidence",
+					status: "confirmed",
+					confirmation: "USER_CONFIRMED",
+					harms: [
+						{
+							id: "harm-1",
+							category: "deception",
+							victimImpact: { emotional: "trust is broken" },
+							maleBeliefAtTheTime: "the truth can wait",
+							heroineBeliefAtTheTime: "the promise is real",
+							severity: "relationship-breaking",
+							recognizedByHeroine: true,
+							recognizedByMale: true,
+							repaired: true,
+							repairable: true,
+						},
+					],
+				}),
+			).rejects.toThrow("current finalized prose evidence");
+			await expect(
+				readFile(join(cwd, "novels", "ledger-evidence", "continuity", "chase-wife-harm-ledger.json"), "utf8"),
+			).rejects.toThrow();
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -2107,9 +2078,28 @@ describe("chase-wife genre branch", () => {
 		try {
 			const store = new NovelProjectStore(cwd);
 			await store.initializeNovel({ projectId: "ledgers", title: "ledgers", genre: "chase-wife" });
-			const ledgerContent = "她在公开场合确认了自己的新生活，男方承认曾经的选择造成了伤害。";
-			await mkdir(join(cwd, "novels", "ledgers", "chapters"), { recursive: true });
-			await writeFile(join(cwd, "novels", "ledgers", "chapters", "chapter-001.md"), ledgerContent, "utf8");
+			const events = [
+				event(1, "opening-injury", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+				event(2, "decision", { heroineAgencyBefore: 20, heroineAgencyAfter: 35 }),
+				event(3, "boundary-test", { heroineAgencyBefore: 35, heroineAgencyAfter: 45 }),
+			];
+			await finalizeFixtureChapter(store, cwd, "ledgers", 1, events, {
+				harmId: "harm-1",
+				repairIds: ["repair-1", "repair-2"],
+			});
+			const ledgerContent = await readFile(join(cwd, "novels", "ledgers", "chapters", "chapter-001.md"), "utf8");
+			const manifest = JSON.parse(
+				await readFile(
+					join(cwd, "novels", "ledgers", "work", "chase-wife-assemblies", "chapter-001-r01.json"),
+					"utf8",
+				),
+			) as { eventDrafts: Array<{ eventId: number; startChar: number; endChar: number }> };
+			const eventEvidence = (eventId: number, offset: number) => {
+				const range = manifest.eventDrafts.find((item) => item.eventId === eventId);
+				if (range === undefined || range.startChar + offset >= range.endChar)
+					throw new Error(`Missing event range for ${eventId}`);
+				return ledgerEvidence(ledgerContent, 1, range.startChar + offset, eventId);
+			};
 			await store.saveChaseWifeHarmLedger({
 				projectId: "ledgers",
 				status: "confirmed",
@@ -2126,8 +2116,8 @@ describe("chase-wife genre branch", () => {
 						recognizedByMale: false,
 						repaired: false,
 						repairable: true,
-						evidence: [ledgerEvidence(ledgerContent, 1, 0)],
-						recognitionEvidence: [ledgerEvidence(ledgerContent, 1, 20)],
+						evidence: [eventEvidence(1, 0)],
+						recognitionEvidence: [eventEvidence(2, 20)],
 					},
 				],
 			});
@@ -2145,9 +2135,9 @@ describe("chase-wife genre branch", () => {
 						benefitToHeroine: "she receives the truth",
 						requestedReward: false,
 						violatesBoundary: false,
-						acceptedByHeroine: true,
+						heroineResponse: "accepted",
 						effectiveness: "credible",
-						evidence: [ledgerEvidence(ledgerContent, 1, 10)],
+						evidence: [eventEvidence(2, 10)],
 					},
 					{
 						id: "repair-2",
@@ -2156,11 +2146,11 @@ describe("chase-wife genre branch", () => {
 						action: "he accepts public consequences",
 						costToMale: "he loses status",
 						benefitToHeroine: "the record is repaired",
-						requestedReward: "none",
+						requestedReward: false,
 						violatesBoundary: false,
-						acceptedByHeroine: true,
+						heroineResponse: "accepted",
 						effectiveness: "credible",
-						evidence: [ledgerEvidence(ledgerContent, 1, 30)],
+						evidence: [eventEvidence(3, 30)],
 					},
 				],
 			});
@@ -2183,7 +2173,7 @@ describe("chase-wife genre branch", () => {
 							harmId: "harm-1",
 						},
 					],
-					heroineIndependentFutureEvidence: [ledgerEvidence(ledgerContent, 1, 0)],
+					heroineIndependentFutureEvidence: [eventEvidence(3, 0)],
 				},
 			});
 			const blocked = await store.checkChaseWifeEndingEligibility({ projectId: "ledgers" });
@@ -2205,8 +2195,8 @@ describe("chase-wife genre branch", () => {
 						recognizedByMale: true,
 						repaired: true,
 						repairable: true,
-						evidence: [ledgerEvidence(ledgerContent, 1, 0)],
-						recognitionEvidence: [ledgerEvidence(ledgerContent, 1, 20)],
+						evidence: [eventEvidence(1, 0)],
+						recognitionEvidence: [eventEvidence(2, 20)],
 					},
 				],
 			});
@@ -2219,17 +2209,17 @@ describe("chase-wife genre branch", () => {
 				confirmation: "USER_CONFIRMED",
 				repairs: [
 					{
-						id: "repair-3",
+						id: "repair-2",
 						addressesHarmIds: ["harm-1"],
 						type: "public-correction",
 						action: "he corrects the public record",
 						costToMale: "he loses the reputation he protected",
 						benefitToHeroine: "her name is cleared",
-						requestedReward: "none",
+						requestedReward: false,
 						violatesBoundary: false,
-						acceptedByHeroine: true,
+						heroineResponse: "accepted",
 						effectiveness: "credible",
-						evidence: [ledgerEvidence(ledgerContent, 1, 40)],
+						evidence: [eventEvidence(3, 40)],
 					},
 				],
 			});
@@ -2245,13 +2235,31 @@ describe("chase-wife genre branch", () => {
 		try {
 			const store = new NovelProjectStore(cwd);
 			await store.initializeNovel({ projectId: "ending-modes", title: "ending modes", genre: "chase-wife" });
-			const chapterContent =
-				"The heroine names the harm, keeps her own work, and chooses the boundary without waiting for his permission. ".repeat(
-					8,
-				);
-			await mkdir(join(cwd, "novels", "ending-modes", "chapters"), { recursive: true });
-			await writeFile(join(cwd, "novels", "ending-modes", "chapters", "chapter-001.md"), chapterContent, "utf8");
-			const evidence = ledgerEvidence(chapterContent, 1, 0, 1);
+			const events = [
+				event(1, "opening-injury", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+				event(2, "decision", { heroineAgencyBefore: 20, heroineAgencyAfter: 35 }),
+				event(3, "final-boundary", { heroineAgencyBefore: 35, heroineAgencyAfter: 45 }),
+			];
+			await finalizeFixtureChapter(store, cwd, "ending-modes", 1, events, {
+				harmId: "harm-1",
+				repairIds: ["repair-1", "repair-1"],
+			});
+			const chapterContent = await readFile(
+				join(cwd, "novels", "ending-modes", "chapters", "chapter-001.md"),
+				"utf8",
+			);
+			const manifest = JSON.parse(
+				await readFile(
+					join(cwd, "novels", "ending-modes", "work", "chase-wife-assemblies", "chapter-001-r01.json"),
+					"utf8",
+				),
+			) as { eventDrafts: Array<{ eventId: number; startChar: number; endChar: number }> };
+			const eventEvidence = (eventId: number, offset: number) => {
+				const range = manifest.eventDrafts.find((item) => item.eventId === eventId);
+				if (range === undefined || range.startChar + offset >= range.endChar)
+					throw new Error(`Missing event range for ${eventId}`);
+				return ledgerEvidence(chapterContent, 1, range.startChar + offset, eventId);
+			};
 			await store.saveChaseWifeHarmLedger({
 				projectId: "ending-modes",
 				status: "confirmed",
@@ -2268,8 +2276,8 @@ describe("chase-wife genre branch", () => {
 						recognizedByMale: true,
 						repaired: true,
 						repairable: true,
-						evidence: [evidence],
-						recognitionEvidence: [ledgerEvidence(chapterContent, 1, 30, 2)],
+						evidence: [eventEvidence(1, 0)],
+						recognitionEvidence: [eventEvidence(2, 30)],
 					},
 				],
 			});
@@ -2285,12 +2293,11 @@ describe("chase-wife genre branch", () => {
 						action: "he stops contacting her after the refusal",
 						costToMale: "he gives up immediate reconciliation",
 						benefitToHeroine: "her boundary remains intact",
-						requestedReward: "none",
+						requestedReward: false,
 						violatesBoundary: false,
-						acceptedByHeroine: false,
 						heroineResponse: "rejected",
 						effectiveness: "credible",
-						evidence: [ledgerEvidence(chapterContent, 1, 60, 2)],
+						evidence: [eventEvidence(2, 60)],
 					},
 				],
 			});
@@ -2300,7 +2307,7 @@ describe("chase-wife genre branch", () => {
 				restitutionRequired: false,
 				boundaryRespectRequired: true,
 				reunionEligibilityRules: ["the heroine keeps the final choice"],
-				heroineIndependentFutureEvidence: [ledgerEvidence(chapterContent, 1, 90, 3)],
+				heroineIndependentFutureEvidence: [eventEvidence(3, 90)],
 			};
 			await store.saveChaseWifeEndingContract({
 				projectId: "ending-modes",
@@ -2314,23 +2321,10 @@ describe("chase-wife genre branch", () => {
 			]);
 			const noBoundary = await store.checkChaseWifeEndingEligibility({ projectId: "ending-modes" });
 			expect(noBoundary.status).toBe("error");
-			expect(noBoundary.issues.some((issue) => issue.includes("final-boundary"))).toBe(true);
-			await store.saveChaseWifeEventMap({
-				projectId: "ending-modes",
-				chapter: 1,
-				povMode: "heroine-first-person",
-				openingIntro: "opening intro ".repeat(8),
-				openingConflict: "the heroine sees the relationship's true priority",
-				openingConflictMarker: "the replacement is already public",
-				events: [
-					event(1, "opening-injury", { harmRefs: ["harm-1"] }),
-					event(2, "irreversible-exit", { repairRefs: ["repair-1"] }),
-					event(3, "final-boundary"),
-				],
-			});
+			expect(noBoundary.issues.some((issue) => issue.includes("structured eligibilityRules"))).toBe(true);
 			const noReunion = await store.checkChaseWifeEndingEligibility({ projectId: "ending-modes" });
 			expect(noReunion.status).toBe("error");
-			expect(noReunion.issues.some((issue) => issue.includes("finalized final-boundary"))).toBe(true);
+			expect(noReunion.issues.some((issue) => issue.includes("structured eligibilityRules"))).toBe(true);
 			await store.saveChaseWifeEndingContract({
 				projectId: "ending-modes",
 				status: "confirmed",
@@ -2340,7 +2334,6 @@ describe("chase-wife genre branch", () => {
 			const closedOpenEnding = await store.checkChaseWifeEndingEligibility({ projectId: "ending-modes" });
 			expect(closedOpenEnding.status).toBe("error");
 			expect(closedOpenEnding.issues.some((issue) => issue.includes("open choice"))).toBe(true);
-			expect(closedOpenEnding.issues.some((issue) => issue.includes("finalized final-boundary"))).toBe(true);
 			await store.saveChaseWifeEndingContract({
 				projectId: "ending-modes",
 				status: "confirmed",
@@ -2353,7 +2346,7 @@ describe("chase-wife genre branch", () => {
 			});
 			const openEnding = await store.checkChaseWifeEndingEligibility({ projectId: "ending-modes" });
 			expect(openEnding.status).toBe("error");
-			expect(openEnding.issues.some((issue) => issue.includes("finalized final-boundary"))).toBe(true);
+			expect(openEnding.issues.some((issue) => issue.includes("structured eligibilityRules"))).toBe(true);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -2364,14 +2357,33 @@ describe("chase-wife genre branch", () => {
 		try {
 			const store = new NovelProjectStore(cwd);
 			await store.initializeNovel({ projectId: "ledger-events", title: "ledger events", genre: "chase-wife" });
-			const chapterContent =
-				"The heroine names the broken promise, leaves the shared home, and keeps the future she planned for herself. ".repeat(
-					8,
-				);
-			await mkdir(join(cwd, "novels", "ledger-events", "chapters"), { recursive: true });
-			await writeFile(join(cwd, "novels", "ledger-events", "chapters", "chapter-001.md"), chapterContent, "utf8");
+			const events = [
+				event(1, "opening-injury", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+				event(2, "decision", { heroineAgencyBefore: 20, heroineAgencyAfter: 35 }),
+				event(3, "final-boundary", { heroineAgencyBefore: 35, heroineAgencyAfter: 45 }),
+			];
+			await finalizeFixtureChapter(store, cwd, "ledger-events", 1, events, {
+				harmId: "harm-1",
+				repairIds: ["repair-1", "repair-1"],
+			});
+			const chapterContent = await readFile(
+				join(cwd, "novels", "ledger-events", "chapters", "chapter-001.md"),
+				"utf8",
+			);
+			const manifest = JSON.parse(
+				await readFile(
+					join(cwd, "novels", "ledger-events", "work", "chase-wife-assemblies", "chapter-001-r01.json"),
+					"utf8",
+				),
+			) as { eventDrafts: Array<{ eventId: number; startChar: number; endChar: number }> };
+			const eventEvidence = (eventId: number, offset: number, includeEventId: boolean) => {
+				const range = manifest.eventDrafts.find((item) => item.eventId === eventId);
+				if (range === undefined || range.startChar + offset >= range.endChar)
+					throw new Error(`Missing event range for ${eventId}`);
+				return ledgerEvidence(chapterContent, 1, range.startChar + offset, includeEventId ? eventId : undefined);
+			};
 			const saveHarm = async (withEventId: boolean): Promise<void> => {
-				await store.saveChaseWifeHarmLedger({
+				const operation = store.saveChaseWifeHarmLedger({
 					projectId: "ledger-events",
 					status: "confirmed",
 					confirmation: "USER_CONFIRMED",
@@ -2387,14 +2399,16 @@ describe("chase-wife genre branch", () => {
 							recognizedByMale: true,
 							repaired: true,
 							repairable: true,
-							evidence: [ledgerEvidence(chapterContent, 1, 0, withEventId ? 1 : undefined)],
-							recognitionEvidence: [ledgerEvidence(chapterContent, 1, 30, 2)],
+							evidence: [eventEvidence(1, 0, withEventId)],
+							recognitionEvidence: [eventEvidence(2, 30, true)],
 						},
 					],
 				});
+				if (withEventId) await operation;
+				else await expect(operation).rejects.toThrow("must identify its referenced event");
 			};
 			const saveRepair = async (withEventId: boolean): Promise<void> => {
-				await store.saveChaseWifeRepairLedger({
+				const operation = store.saveChaseWifeRepairLedger({
 					projectId: "ledger-events",
 					status: "confirmed",
 					confirmation: "USER_CONFIRMED",
@@ -2406,30 +2420,21 @@ describe("chase-wife genre branch", () => {
 							action: "he stops after her refusal",
 							costToMale: "he gives up immediate reconciliation",
 							benefitToHeroine: "her boundary remains intact",
-							requestedReward: "none",
+							requestedReward: false,
 							violatesBoundary: false,
-							acceptedByHeroine: true,
+							heroineResponse: "accepted",
 							effectiveness: "credible",
-							evidence: [ledgerEvidence(chapterContent, 1, 60, withEventId ? 2 : undefined)],
+							evidence: [eventEvidence(2, 60, withEventId)],
 						},
 					],
 				});
+				if (withEventId) await operation;
+				else await expect(operation).rejects.toThrow("must identify its referenced event");
 			};
 			await saveHarm(false);
+			await saveHarm(true);
 			await saveRepair(false);
-			await store.saveChaseWifeEventMap({
-				projectId: "ledger-events",
-				chapter: 1,
-				povMode: "heroine-first-person",
-				openingIntro: "opening intro ".repeat(8),
-				openingConflict: "the relationship's priority is exposed",
-				openingConflictMarker: "the promise is already broken",
-				events: [
-					event(1, "opening-injury", { harmRefs: ["harm-1"] }),
-					event(2, "irreversible-exit", { repairRefs: ["repair-1"] }),
-					event(3, "final-boundary"),
-				],
-			});
+			await saveRepair(true);
 			await store.saveChaseWifeEndingContract({
 				projectId: "ledger-events",
 				status: "confirmed",
@@ -2441,24 +2446,12 @@ describe("chase-wife genre branch", () => {
 					restitutionRequired: false,
 					boundaryRespectRequired: true,
 					reunionEligibilityRules: ["her refusal is final"],
-					heroineIndependentFutureEvidence: [ledgerEvidence(chapterContent, 1, 90)],
+					eligibilityRules: [{ id: "boundary-respected", type: "boundary-respected", harmId: "harm-1" }],
+					heroineIndependentFutureEvidence: [eventEvidence(3, 90, true)],
 				},
 			});
-			const unbound = await store.checkChaseWifeEndingEligibility({ projectId: "ledger-events" });
-			expect(unbound.status).toBe("error");
-			expect(
-				unbound.issues.some((issue) => issue.includes("harm-1 evidence must identify its referenced event")),
-			).toBe(true);
-			await saveHarm(true);
-			await saveRepair(true);
-			const bound = await store.checkChaseWifeEndingEligibility({ projectId: "ledger-events" });
-			expect(bound.status).toBe("error");
-			expect(
-				bound.issues.some((issue) =>
-					issue.includes("harm-1 evidence must identify its referenced event in finalized scope"),
-				),
-			).toBe(true);
-			expect(bound.issues.some((issue) => issue.includes("finalized final-boundary"))).toBe(true);
+			const eligible = await store.checkChaseWifeEndingEligibility({ projectId: "ledger-events" });
+			expect(eligible.status, JSON.stringify(eligible)).toBe("ok");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

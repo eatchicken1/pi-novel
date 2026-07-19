@@ -1,0 +1,30 @@
+{
+  "realistic-tight-pass": {
+    "pacing": "ok",
+    "aiArtifacts": "warning",
+    "fakeRemorse": false,
+    "agencyLate": false,
+    "repeatedMechanism": false
+  },
+  "realistic-dragging-fail": {
+    "pacing": "fail",
+    "aiArtifacts": "warning",
+    "fakeRemorse": false,
+    "agencyLate": true,
+    "repeatedMechanism": true
+  },
+  "realistic-fake-remorse-fail": {
+    "pacing": "fail",
+    "aiArtifacts": "error",
+    "fakeRemorse": true,
+    "agencyLate": false,
+    "repeatedMechanism": false
+  },
+  "realistic-overexplained-fail": {
+    "pacing": "fail",
+    "aiArtifacts": "error",
+    "fakeRemorse": false,
+    "agencyLate": false,
+    "repeatedMechanism": false
+  }
+}

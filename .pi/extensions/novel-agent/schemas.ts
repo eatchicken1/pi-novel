@@ -741,11 +741,10 @@ const RepairAttemptSchema = Type.Object({
 	action: Type.String({ minLength: 1 }),
 	costToMale: Type.String({ minLength: 1 }),
 	benefitToHeroine: Type.String({ minLength: 1 }),
-	requestedReward: Type.Union([Type.Boolean(), Type.String({ minLength: 1 })]),
+	requestedReward: Type.Boolean(),
 	requestedRewardDescription: Type.Optional(Type.String({ minLength: 1 })),
 	violatesBoundary: Type.Boolean(),
-	acceptedByHeroine: Type.Boolean(),
-	heroineResponse: Type.Optional(ChaseWifeHeroineResponseSchema),
+	heroineResponse: ChaseWifeHeroineResponseSchema,
 	effectiveness: ChaseWifeRepairEffectivenessSchema,
 	evidence: Type.Optional(Type.Array(ChaseWifeLedgerEvidenceSchema, { minItems: 1 })),
 });
