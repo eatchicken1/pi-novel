@@ -5,7 +5,7 @@
 ```text
 openingMode: cold-conflict | result-first | exit-in-progress | quiet-dislocation
 openingIntro: 所有 openingMode 均必填，60—140 个非空白字符的女主第一人称短引言；只填正文，不填标题
-openingConflict: 250 字内可验证的具体冲突
+openingConflict: 250 字内可验证的具体冲突；第一章 openingConflictMarker 必须出现在短引言正文中
 povMode: heroine-first-person | split-pov
 stayingLogic: emotionalReason / falseBelief / sustainingEvidence / breakingThreshold / optional materialReason / optional socialReason / optional familyReason / optional careerReason
 heroineArc: injury → recognition → micro-withdrawal → boundary-test → irreversible-exit → self-rebuild → final-boundary

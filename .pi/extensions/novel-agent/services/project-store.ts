@@ -149,11 +149,17 @@ function isFormalChaseWifeExit(event: ChaseWifeEvent): boolean {
 	return event.role === "irreversible-exit" && event.chronology !== "flashforward-preview";
 }
 
-function validateChaseWifeOpeningIntro(value: unknown): string | undefined {
+function validateChaseWifeOpeningIntro(value: unknown, conflictMarker?: string): string | undefined {
 	if (!isNonEmptyString(value)) return "Chase-wife projects require a short opening intro before chapter 1.";
 	const characterCount = countChineseCharacters(value);
 	if (characterCount < CHASE_WIFE_INTRO_MIN_CHARS || characterCount > CHASE_WIFE_INTRO_MAX_CHARS) {
 		return `The chase-wife opening intro must contain ${CHASE_WIFE_INTRO_MIN_CHARS}-${CHASE_WIFE_INTRO_MAX_CHARS} non-whitespace characters.`;
+	}
+	if (/\p{Script=Han}/u.test(value) && !/(?:我|我的|我把|我看见|我看見|I\b|I'm\b|me\b)/iu.test(value)) {
+		return "The chase-wife opening intro must use the heroine's first-person voice.";
+	}
+	if (isNonEmptyString(conflictMarker) && /\p{Script=Han}/u.test(value) && !normalizedCharacterText(value).includes(normalizedCharacterText(conflictMarker))) {
+		return "The opening conflict marker must appear inside the short hook intro.";
 	}
 	if (value.includes(CHASE_WIFE_INTRO_HEADING) || value.includes(CHASE_WIFE_CHAPTER_ONE_HEADING)) {
 		return "The opening intro must contain hook prose only; the assembly tool adds the 引言 and 第一章 headings.";
@@ -165,8 +171,13 @@ function chaseWifeChapterOnePrefix(intro: string): string {
 	return [CHASE_WIFE_INTRO_HEADING, intro.trim(), CHASE_WIFE_CHAPTER_ONE_HEADING].join("\n\n");
 }
 
+function chaseWifeArcReportPath(scope: ChaseWifeArtifactScope): string {
+	return `continuity/reports/chase-wife-arc-${scope}.json`;
+}
+
 type JsonRecord = Record<string, unknown>;
 type ChaseWifeEventReference = { chapter: number; eventId: number; startChar?: number; endChar?: number };
+type AiArtifactFindingRecord = { code: string; count: number; severity: "warning" | "error"; hardFail: boolean };
 
 export interface NovelProjectInfo {
 	projectId: string;
@@ -1333,7 +1344,7 @@ export class NovelProjectStore {
 			const seal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/chase-wife-finalized.json"), signal);
 			const pacing = await this.readJsonIfExists(this.projectFile(params.projectId, "continuity/reports/chase-wife-story-pacing.json"), signal);
 			const beatSheet = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/genre/chase-wife-beat-sheet.json"), signal);
-			const arcReport = await this.readJsonIfExists(this.projectFile(params.projectId, "continuity/reports/chase-wife-arc.json"), signal);
+			const arcReport = await this.readJsonIfExists(this.projectFile(params.projectId, chaseWifeArcReportPath("finalized")), signal);
 			const endingEligibility = await this.checkChaseWifeEndingEligibility({ projectId: params.projectId }, signal);
 			const pacingMode = isJsonRecord(pacing) && isJsonRecord(pacing.metrics) ? pacing.metrics.mode : undefined;
 			if (!isJsonRecord(seal) || seal.status !== "finalized" || !isJsonRecord(pacing) || pacing.scope !== "finalized" || pacing.status === "error" || seal.storyPacingHash !== pacing.contentHash || seal.pacingMode !== pacingMode || !isJsonRecord(beatSheet) || seal.beatSheetHash !== hashJson(beatSheet) || !isJsonRecord(arcReport) || seal.arcReportHash !== hashStableReport(arcReport) || endingEligibility.status !== "ok" || seal.endingEligibilitySourceHash !== hashJson(endingEligibility.sourceHashes)) throw new Error("Chase-wife export requires a current finalized manuscript gate, pacing mode, beat sheet, arc report, event map, and ending eligibility report.");
@@ -1382,7 +1393,7 @@ export class NovelProjectStore {
 		const arc = await this.checkChaseWifeArc({ projectId: params.projectId, scope: "finalized" }, signal);
 		if (arc.status === "error") throw new Error("The chase-wife beat sheet and arc report have errors; the manuscript cannot be sealed.");
 		const beatSheet = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/genre/chase-wife-beat-sheet.json"), signal);
-		const arcReport = await this.readJsonIfExists(this.projectFile(params.projectId, "continuity/reports/chase-wife-arc.json"), signal);
+		const arcReport = await this.readJsonIfExists(this.projectFile(params.projectId, chaseWifeArcReportPath("finalized")), signal);
 		if (!isJsonRecord(beatSheet) || !isJsonRecord(arcReport)) throw new Error("The chase-wife manuscript requires a current beat sheet and arc report.");
 		const paths = (await this.listFiles(this.projectFile(params.projectId, "chapters"), signal)).filter((path) => /chapter-\d+\.md$/u.test(path)).sort();
 		if (paths.length === 0) throw new Error("A manuscript requires at least one finalized chapter.");
@@ -1408,17 +1419,19 @@ export class NovelProjectStore {
 		return { projectId: params.projectId, status: "finalized", path: relativePath, storyPacingHash: pacing.contentHash, chapters: paths.length };
 	}
 
-	async checkAiArtifacts(params: CheckAiArtifactsParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision: number; status: "ok" | "warning" | "error"; severity: "none" | "warning" | "error"; findingCount: number; score: number; passed: boolean; findings: string[]; contentHash: string; path: string }> {
+	async checkAiArtifacts(params: CheckAiArtifactsParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision: number; status: "ok" | "warning" | "error"; severity: "none" | "warning" | "error"; findingCount: number; score: number; passed: boolean; findings: string[]; findingRecords: AiArtifactFindingRecord[]; contentHash: string; path: string }> {
 		await this.ensureProject(params.projectId, signal);
 		const draft = params.draftRevision === undefined ? await this.latestDraft(params.projectId, params.chapter, signal) : { revision: params.draftRevision, content: await this.readTextIfExists(this.draftPath(params.projectId, params.chapter, params.draftRevision), signal) };
 		if (!draft || draft.content === undefined) throw new Error("The requested chapter draft does not exist.");
 		const content = draft.content;
 		const findings: string[] = [];
+		const findingRecords: AiArtifactFindingRecord[] = [];
 		const findingKeys = new Set<string>();
-		const addFinding = (key: string, message: string): void => {
+		const addFinding = (key: string, message: string, count = 1, hardFail = false): void => {
 			if (findingKeys.has(key)) return;
 			findingKeys.add(key);
 			findings.push(message);
+			findingRecords.push({ code: key, count, severity: hardFail ? "error" : "warning", hardFail });
 		};
 		const sentences = content.split(/[。！？；!?;]+/u).map((sentence) => sentence.trim()).filter(Boolean);
 		const starts = new Map<string, number>();
@@ -1434,26 +1447,28 @@ export class NovelProjectStore {
 			{ key: "这意味着", patterns: ["这意味着", "杩欐剰鍛崇潃"] },
 			{ key: "as-if", patterns: ["as if", "as though"] },
 		].map(({ key, patterns }) => ({ key, count: Math.max(...patterns.map((pattern) => (content.match(new RegExp(pattern, "giu")) ?? []).length)) })).filter((item) => item.count >= 3);
-		if ([...starts.values()].some((count) => count >= 3) && templatePatterns.length === 0) addFinding("repeated-sentence-start", "重复句式开头");
-		if (templatePatterns.length > 0) addFinding("template-expression", `高频模板表达：${templatePatterns.map(({ key, count }) => `${key}（${count}次）`).join("、")}`);
+		const repeatedSentenceStartCount = Math.max(0, ...starts.values());
+		if (repeatedSentenceStartCount >= 3 && templatePatterns.length === 0) addFinding("repeated-sentence-start", "重复句式开头", repeatedSentenceStartCount);
+		const maxTemplateCount = Math.max(0, ...templatePatterns.map((item) => item.count));
+		if (templatePatterns.length > 0) addFinding("template-expression", `高频模板表达：${templatePatterns.map(({ key, count }) => `${key}（${count}次）`).join("、")}`, maxTemplateCount, maxTemplateCount >= 4);
 		const emDashCount = (content.match(/—/gu) ?? []).length + (content.split("鈥斺€").length - 1);
-		if (emDashCount >= 4) addFinding("em-dash", "破折号使用频率较高");
+		if (emDashCount >= 4) addFinding("em-dash", "破折号使用频率较高", emDashCount, emDashCount >= 6);
 		const repeatedPsychology = (content.match(/(?:我终于明白|我知道|我累了|他才意识到|我不想再|对不起|我错了|I finally understand|I know|I'm tired|I was wrong)/giu) ?? []).length;
-		if (repeatedPsychology >= 3) addFinding("repeated-psychology-or-apology", "心理结论或道歉反复出现，缺少新的行动或后果");
+		if (repeatedPsychology >= 3) addFinding("repeated-psychology-or-apology", "心理结论或道歉反复出现，缺少新的行动或后果", repeatedPsychology, repeatedPsychology >= 5);
 		const paragraphs = content.split(/\r?\n\s*\r?\n/gu).map((paragraph) => paragraph.trim()).filter((paragraph) => paragraph.length > 0);
 		const psychologyParagraphs = paragraphs.filter((paragraph) => /(?:明白|意识到|知道|累了|后悔|爱着|害怕|不想)/u.test(paragraph) && !containsActionEvidence(paragraph)).length;
-		if (psychologyParagraphs >= 3) addFinding("psychology-without-action", "连续心理解释没有被动作、对话或选择打断");
+		if (psychologyParagraphs >= 3) addFinding("psychology-without-action", "连续心理解释没有被动作、对话或选择打断", psychologyParagraphs, psychologyParagraphs >= 5);
 		const actionExplanationMatches = content.match(/(?:走到|转身|抬手|握住|放下|打开|关上|离开|看着|拿出)[^。！？!?]{0,30}(?:这意味着|说明了|我终于明白|他才意识到)/gu) ?? [];
-		if (actionExplanationMatches.length >= 2) addFinding("action-then-explanation", "动作后重复立即解释情绪或意义");
+		if (actionExplanationMatches.length >= 2) addFinding("action-then-explanation", "动作后重复立即解释情绪或意义", actionExplanationMatches.length, actionExplanationMatches.length >= 4);
 		if (paragraphs.length >= 5) {
 			const lengths = paragraphs.map((paragraph) => [...paragraph].length);
 			const averageLength = lengths.reduce((sum, length) => sum + length, 0) / lengths.length;
-			if (averageLength > 0 && Math.max(...lengths) - Math.min(...lengths) <= averageLength * 0.15) addFinding("uniform-paragraph-length", "段落长度过度均匀，可能形成机械节奏");
+			if (averageLength > 0 && Math.max(...lengths) - Math.min(...lengths) <= averageLength * 0.15) addFinding("uniform-paragraph-length", "段落长度过度均匀，可能形成机械节奏", paragraphs.length);
 		}
 		const findingCount = findings.length;
-		const passed = findingCount <= 1 && !templatePatterns.some((item) => item.count >= 4) && emDashCount < 6;
+		const passed = findingCount <= 1 && !findingRecords.some((finding) => finding.hardFail);
 		const severity = !passed || findingCount >= 2 ? "error" as const : findingCount > 0 ? "warning" as const : "none" as const;
-		const result = { projectId: params.projectId, chapter: params.chapter, draftRevision: draft.revision, status: severity === "error" ? "error" as const : findingCount === 0 ? "ok" as const : "warning" as const, severity, findingCount, score: Math.max(0, 100 - findingCount * 20), passed, findings, contentHash: sha256(draft.content), generatedAt: new Date().toISOString() };
+		const result = { projectId: params.projectId, chapter: params.chapter, draftRevision: draft.revision, status: severity === "error" ? "error" as const : findingCount === 0 ? "ok" as const : "warning" as const, severity, findingCount, score: Math.max(0, 100 - findingCount * 20), passed, findings, findingRecords, contentHash: sha256(draft.content), generatedAt: new Date().toISOString() };
 		const relativePath = `evaluations/chapter/${chapterName(params.chapter)}-ai-artifacts-r${String(draft.revision).padStart(2, "0")}.json`;
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(result, null, 2)}\n`, signal);
 		return { ...result, path: relativePath };
@@ -1529,7 +1544,7 @@ export class NovelProjectStore {
 		return { projectId: params.projectId, path: relativePath, beats: beats.length };
 	}
 
-	async checkChaseWifeArc(params: CheckChaseWifeArcParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: string[]; checkedBeats: number; path: string }> {
+	async checkChaseWifeArc(params: CheckChaseWifeArcParams, signal?: AbortSignal): Promise<{ projectId: string; scope: ChaseWifeArtifactScope; status: "ok" | "warning" | "error"; issues: string[]; checkedBeats: number; path: string }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
 		const scope = params.scope ?? "planned";
 		const relativePath = "outline/genre/chase-wife-beat-sheet.json";
@@ -1545,7 +1560,6 @@ export class NovelProjectStore {
 				issues.push("chase-wife beat sheet must declare heroine-first-person or split-pov");
 				hasStructuralError = true;
 			}
-			const openingMode = value.openingMode === "cold-conflict" || value.openingMode === "result-first" || value.openingMode === "exit-in-progress" || value.openingMode === "quiet-dislocation" ? value.openingMode : "quiet-dislocation";
 			const openingIntroIssue = validateChaseWifeOpeningIntro(value.openingIntro);
 			if (openingIntroIssue !== undefined) {
 				issues.push(openingIntroIssue);
@@ -1667,8 +1681,8 @@ export class NovelProjectStore {
 			if (lateReward === 0) issues.push("ending half has no explicit reward or consequence release");
 		}
 		const status = (hasStructuralError ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
-		const report = { projectId: params.projectId, genre: "chase-wife", generatedAt: new Date().toISOString(), status, issues, checkedBeats };
-		const reportPath = "continuity/reports/chase-wife-arc.json";
+		const report = { projectId: params.projectId, genre: "chase-wife", scope, generatedAt: new Date().toISOString(), status, issues, checkedBeats };
+		const reportPath = chaseWifeArcReportPath(scope);
 		await this.writeVersionedJsonReport(params.projectId, reportPath, report, signal);
 		return { ...report, path: reportPath };
 	}
@@ -1829,6 +1843,10 @@ export class NovelProjectStore {
 		const relationshipBreakingHarms = harms.filter((harm) => harm.severity === "major" || harm.severity === "relationship-breaking");
 		issues.push(...await this.validateChaseWifeLedgerEventBindings(params.projectId, harms, repairs, "finalized", signal));
 		const eligibilityRules = contract !== undefined && Array.isArray(contract.eligibilityRules) ? contract.eligibilityRules.filter(isJsonRecord) : [];
+		const narrativeEligibilityRules = contract !== undefined && Array.isArray(contract.reunionEligibilityRules) ? contract.reunionEligibilityRules.filter(isNonEmptyString) : [];
+		if (contract !== undefined && narrativeEligibilityRules.length > 0 && eligibilityRules.length === 0) {
+			issues.push("reunionEligibilityRules are narrative notes only; at least one structured eligibilityRules entry is required for final validation");
+		}
 		for (const rule of eligibilityRules) {
 			const ruleId = typeof rule.id === "string" ? rule.id : "unnamed-rule";
 			const ruleType = typeof rule.type === "string" ? rule.type : undefined;
@@ -1888,7 +1906,7 @@ export class NovelProjectStore {
 		if (params.openingMode !== undefined && beatSheetOpeningMode !== undefined && params.openingMode !== beatSheetOpeningMode) throw new Error("Chapter event map openingMode must match the story beat sheet.");
 		const openingMode = params.openingMode ?? beatSheetOpeningMode ?? "quiet-dislocation";
 		if (params.chapter === 1) {
-			const openingIntroIssue = validateChaseWifeOpeningIntro(params.openingIntro);
+			const openingIntroIssue = validateChaseWifeOpeningIntro(params.openingIntro, params.openingConflictMarker);
 			if (openingIntroIssue !== undefined) throw new Error(openingIntroIssue);
 		}
 		if (params.chapter > 1 && params.openingIntro !== undefined) throw new Error("Only chapter 1 may contain an opening intro.");
@@ -1949,7 +1967,8 @@ export class NovelProjectStore {
 			}
 			if (params.chapter === 1) {
 				const openingMode = value.openingMode === "cold-conflict" || value.openingMode === "result-first" || value.openingMode === "exit-in-progress" || value.openingMode === "quiet-dislocation" ? value.openingMode : "quiet-dislocation";
-				const openingIntroIssue = validateChaseWifeOpeningIntro(value.openingIntro);
+				const openingConflictMarker = typeof value.openingConflictMarker === "string" ? value.openingConflictMarker : undefined;
+				const openingIntroIssue = validateChaseWifeOpeningIntro(value.openingIntro, openingConflictMarker);
 				if (openingIntroIssue !== undefined) {
 					issues.push(openingIntroIssue);
 					hasStructuralError = true;

@@ -15,6 +15,7 @@
 - 所有追妻文都必须先输出独立的短引言，再进入第一章。引言只写 60—140 个非空白字符，不计入章节事件预算。
 - 工具组装正式正文时固定输出 `# 引言`、引言正文、`# 第一章`；模型只提交引言正文，不自行添加标题，也不能直接从 `# 第一章` 开始。
 - 引言必须用女主第一人称，在极短篇幅内同时给出关系位置、具体替代或背叛事实、情绪压力和一个正在发生或即将发生的选择。优先使用“事实落下→情绪失衡→动作/问题”的结构。
+- 第一章的 `openingConflictMarker` 必须是引言中真实出现的短语；不要把冲突标记只放到引言之后的事件正文里。
 - `openingMode` 只决定引言的切入方式：`cold-conflict` 直接落在冲突，`result-first` 先亮出决定或结果，`exit-in-progress` 从正在执行的退出切入，`quiet-dislocation` 用异常细节制造失衡；四种模式都不能省略引言。
 - 250 字内出现可见冲突；女主前 12% 内完成取消、拒绝、取证、撤回资源、设置边界等主动行为。
 - 禁止在引言中写背景摘要、童年回忆、环境抒情、关系总评或连续解释；引言结束时必须留下一个未解决的情绪问题、动作或选择。
@@ -58,6 +59,9 @@ read_story_context(task="chapter-writing")
 → save_review_report
 → check_harm_repair_progress
 → finalize_chapter
+
+结局契约：
+`reunionEligibilityRules` 只记录作者可读说明；凡是要阻止或允许定稿的条件，必须同时写入可执行的结构化 `eligibilityRules`，不能只写自由文本。
 
 全篇：
 check_chase_wife_story_pacing(scope="finalized")

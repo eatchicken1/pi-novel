@@ -230,6 +230,7 @@ async function saveFixtureRelationshipContracts(
 			restitutionRequired: true,
 			boundaryRespectRequired: true,
 			reunionEligibilityRules: ["the heroine chooses whether contact resumes"],
+			eligibilityRules: [{ id: "boundary-respected", type: "boundary-respected", harmId: "harm-001" }],
 			heroineIndependentFutureEvidence: [eventEvidence(3, 0)],
 		},
 	});
@@ -586,7 +587,7 @@ describe("chase-wife genre branch", () => {
 					openingIntro:
 						"我在签字前看见了那份已经替我决定好的离婚协议，抬头时，他正把最后一份温柔留给另一个人。我没有哭，只问他还要不要我签名啊。",
 					openingConflict: "她正在签下结束关系的文件",
-					openingConflictMarker: "签下结束关系的文件",
+					openingConflictMarker: "离婚协议",
 					events: [
 						event(1, "decision", {
 							heroineAgencyBefore: 10,
@@ -620,6 +621,15 @@ describe("chase-wife genre branch", () => {
 				events,
 			};
 			await expect(store.saveChaseWifeEventMap(base)).rejects.toThrow("short opening intro");
+			await expect(
+				store.saveChaseWifeEventMap({
+					...base,
+					openingIntro:
+						"他已经在所有人面前替她签好了离开的名字，而她还握着那枚曾经以为会戴到老的戒指。她抬起头，第一次问他是不是终于满意了。".repeat(
+							2,
+						),
+				}),
+			).rejects.toThrow("first-person");
 			await expect(
 				store.saveChaseWifeEventMap({
 					...base,
@@ -735,7 +745,7 @@ describe("chase-wife genre branch", () => {
 				openingIntro:
 					"我已经签下了离开的名字，身后的门却还没有关上。真正让我停住的，不是他追出来，而是那句迟到太久的解释。可我知道，这一次不能再回头。",
 				openingConflict: "the heroine signs the document and leaves before anyone can stop her",
-				openingConflictMarker: "formal-exit",
+				openingConflictMarker: "离开的名字",
 				causalExitMarker: "causal-exit-resolved",
 				events,
 			});
@@ -1257,7 +1267,12 @@ describe("chase-wife genre branch", () => {
 			await saveFixtureRelationshipContracts(store, cwd, "six");
 			const seal = await store.finalizeManuscript({ projectId: "six", confirmation: "USER_CONFIRMED" });
 			expect(seal.status).toBe("finalized");
-			await store.checkChaseWifeArc({ projectId: "six" });
+			const plannedArc = await store.checkChaseWifeArc({ projectId: "six", scope: "planned" });
+			expect(plannedArc.scope).toBe("planned");
+			expect(plannedArc.path).toBe("continuity/reports/chase-wife-arc-planned.json");
+			const finalizedArc = await store.checkChaseWifeArc({ projectId: "six", scope: "finalized" });
+			expect(finalizedArc.scope).toBe("finalized");
+			expect(finalizedArc.path).toBe("continuity/reports/chase-wife-arc-finalized.json");
 			const exported = await store.exportManuscript({ projectId: "six" });
 			expect(exported.chapters).toBe(6);
 			await store.saveChaseWifeEventMap({
@@ -1995,6 +2010,9 @@ describe("chase-wife genre branch", () => {
 			const eligibility = await store.checkChaseWifeEndingEligibility({ projectId: "ledger-evidence" });
 			expect(eligibility.status).toBe("error");
 			expect(eligibility.issues.some((issue) => issue.includes("prose evidence"))).toBe(true);
+			expect(eligibility.issues).toContain(
+				"reunionEligibilityRules are narrative notes only; at least one structured eligibilityRules entry is required for final validation",
+			);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -2455,7 +2473,7 @@ describe("chase-wife genre branch", () => {
 				projectId: "chinese-evidence",
 				chapter: 1,
 				povMode: "heroine-first-person",
-				openingIntro: "开场引言先给出被替代的事实，再把选择压到女主面前。".repeat(5),
+				openingIntro: "我在开场引言先看见他把我的位置让给了别人，再把选择压到自己面前。".repeat(4),
 				openingConflict: "他把我的位置让给了别人",
 				openingConflictMarker: "让给了别人",
 				events: [
@@ -2508,7 +2526,7 @@ describe("chase-wife genre branch", () => {
 				projectId: "chinese-chapter",
 				chapter: 1,
 				povMode: "heroine-first-person",
-				openingIntro: "引言先给出被替代的事实，再让女主在第一段就看见关系的真实位置。".repeat(4),
+				openingIntro: "我在引言先看见他把我的位置让给了别人，再让自己看见关系的真实位置。".repeat(4),
 				openingConflict: "他把我的位置让给了别人",
 				openingConflictMarker: "把我的位置让给了别人",
 				events,
@@ -2569,6 +2587,17 @@ describe("chase-wife genre branch", () => {
 			});
 			expect(chineseReport.findingCount).toBe(1);
 			expect(chineseReport.passed).toBe(false);
+			await store.saveChapterDraft({ projectId: "ai-artifacts", chapter: 1, content: "——— ———" });
+			const hardFindingReport = await store.checkAiArtifacts({
+				projectId: "ai-artifacts",
+				chapter: 1,
+				draftRevision: 3,
+			});
+			expect(hardFindingReport.findingRecords).toEqual(
+				expect.arrayContaining([expect.objectContaining({ code: "em-dash", hardFail: true, severity: "error" })]),
+			);
+			expect(hardFindingReport.passed).toBe(false);
+			expect(hardFindingReport.status).toBe("error");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

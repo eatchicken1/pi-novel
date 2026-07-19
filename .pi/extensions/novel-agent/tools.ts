@@ -112,7 +112,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "save_chase_wife_event_map",
 			label: "Save Chase-wife Event Map",
-			description: "Save a chase-wife chapter event map with heroine-first-person or split-pov, a required 60-140 character chapter-one hook intro, state deltas, agency changes, causal links, and variable length budgets. The intro is prose only; assembly adds the 引言 and 第一章 headings.",
+			description: "Save a chase-wife chapter event map with heroine-first-person or split-pov, a required 60-140 character chapter-one hook intro, and an openingConflictMarker that must appear in that intro. Include state deltas, agency changes, causal links, and variable length budgets. The intro is prose only; assembly adds the 引言 and 第一章 headings.",
 			parameters: SaveChaseWifeEventMapSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: SaveChaseWifeEventMapParams, signal, _onUpdate, ctx) {
@@ -238,7 +238,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "check_chase_wife_ending_eligibility",
 			label: "Check Chase-wife Ending Eligibility",
-			description: "Check whether the confirmed harm, repair, and ending ledgers justify the configured chase-wife ending mode.",
+			description: "Check whether the confirmed harm, repair, and ending ledgers justify the configured chase-wife ending mode. Free-text reunionEligibilityRules are planning notes; final validation requires executable structured eligibilityRules.",
 			parameters: CheckChaseWifeEndingEligibilitySchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckChaseWifeEndingEligibilityParams, signal, _onUpdate, ctx) {
@@ -456,7 +456,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "check_ai_artifacts",
 			label: "Check AI Artifacts",
-			description: "Run mechanical style-pattern checks. The report includes findings, severity, score, and a passed quality-gate flag; a failed gate blocks chapter finalization but is not a literary verdict.",
+			description: "Run mechanical style-pattern checks. The report includes per-finding counts, warning/error severity, hardFail, score, and a passed quality-gate flag; a failed gate blocks chapter finalization but is not a literary verdict.",
 			parameters: CheckAiArtifactsSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckAiArtifactsParams, signal, _onUpdate, ctx) {
