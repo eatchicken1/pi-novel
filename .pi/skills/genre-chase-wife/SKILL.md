@@ -32,7 +32,7 @@ description: 追妻文专属创作流程：女主第一人称、关系失衡、�
 4. 对每个事件依次调用 `save_chase_wife_event_draft`、`check_chase_wife_event_draft`、`check_chase_wife_event_prose` 和 `save_chase_wife_event_semantic_report`。
 5. 所有事件报告必须是 `source=model` 且 `status=ok`，再调用 `assemble_chase_wife_chapter`。组装结果必须明确呈现“引言→第一章”，不能让第一章直接成为全文首段。
 6. 组装后运行章节节奏、章节评分、AI 痕迹、Reader Sim 和 Story Review；Reader 与 Story Review 两者都必须通过，报告必须带当前正文哈希和正文锚点。
-7. 章节定稿前检查 `check_harm_repair_progress`（可传 `chapter`，返回 `on-track`、`warning` 或 `stalled`）、连续性和用户确认；全篇结束后才运行 `check_chase_wife_ending_eligibility`、finalized pacing、`finalize_manuscript` 和导出门。
+7. 章节定稿前检查 `check_harm_repair_progress`（可传 `chapter`，返回 `on-track`、`warning` 或 `stalled`）、连续性和用户确认；章节阶段 confirmed 账本证据绑定 assembled 草稿，`finalizeChapter` 会拒绝 stalled 进度；全篇结束后才运行 `check_chase_wife_ending_eligibility`，该检查会重新绑定 finalized 正文，再运行 finalized pacing、`finalize_manuscript` 和导出门。
 
 ## 必须加载的资源
 

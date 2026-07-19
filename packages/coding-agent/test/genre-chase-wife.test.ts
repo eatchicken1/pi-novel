@@ -152,8 +152,12 @@ async function saveFixtureRelationshipContracts(
 	store: NovelProjectStore,
 	cwd: string,
 	projectId: string,
+	chapterContentOverride?: string,
+	harmId = "harm-001",
+	repairIds: [string, string] = ["repair-001", "repair-002"],
 ): Promise<void> {
-	const chapterContent = await readFile(join(cwd, "novels", projectId, "chapters", "chapter-001.md"), "utf8");
+	const chapterContent =
+		chapterContentOverride ?? (await readFile(join(cwd, "novels", projectId, "chapters", "chapter-001.md"), "utf8"));
 	const manifest = JSON.parse(
 		await readFile(join(cwd, "novels", projectId, "work", "chase-wife-assemblies", "chapter-001-r01.json"), "utf8"),
 	) as { eventDrafts: Array<{ eventId: number; startChar: number; endChar: number }> };
@@ -169,7 +173,7 @@ async function saveFixtureRelationshipContracts(
 		confirmation: "USER_CONFIRMED",
 		harms: [
 			{
-				id: "harm-001",
+				id: harmId,
 				category: "deprioritization",
 				victimImpact: {
 					emotional: "the heroine is treated as replaceable",
@@ -193,8 +197,8 @@ async function saveFixtureRelationshipContracts(
 		confirmation: "USER_CONFIRMED",
 		repairs: [
 			{
-				id: "repair-001",
-				addressesHarmIds: ["harm-001"],
+				id: repairIds[0],
+				addressesHarmIds: [harmId],
 				type: "costly-accountability",
 				action: "he publicly corrects the record and accepts the lost relationship",
 				costToMale: "he loses status and access",
@@ -205,19 +209,23 @@ async function saveFixtureRelationshipContracts(
 				effectiveness: "credible",
 				evidence: [eventEvidence(2, 0)],
 			},
-			{
-				id: "repair-002",
-				addressesHarmIds: ["harm-001"],
-				type: "boundary-respect",
-				action: "he accepts the heroine's refusal without further contact",
-				costToMale: "he gives up immediate reconciliation",
-				benefitToHeroine: "her boundary remains intact",
-				requestedReward: false,
-				violatesBoundary: false,
-				heroineResponse: "accepted",
-				effectiveness: "credible",
-				evidence: [eventEvidence(3, 0)],
-			},
+			...(repairIds[1] === repairIds[0]
+				? []
+				: [
+						{
+							id: repairIds[1],
+							addressesHarmIds: [harmId],
+							type: "boundary-respect" as const,
+							action: "he accepts the heroine's refusal without further contact",
+							costToMale: "he gives up immediate reconciliation",
+							benefitToHeroine: "her boundary remains intact",
+							requestedReward: false,
+							violatesBoundary: false,
+							heroineResponse: "accepted" as const,
+							effectiveness: "credible" as const,
+							evidence: [eventEvidence(3, 0)],
+						},
+					]),
 		],
 	});
 	await store.saveChaseWifeEndingContract({
@@ -231,7 +239,7 @@ async function saveFixtureRelationshipContracts(
 			restitutionRequired: true,
 			boundaryRespectRequired: true,
 			reunionEligibilityRules: ["the heroine chooses whether contact resumes"],
-			eligibilityRules: [{ id: "boundary-respected", type: "boundary-respected", harmId: "harm-001" }],
+			eligibilityRules: [{ id: "boundary-respected", type: "boundary-respected", harmId }],
 			heroineIndependentFutureEvidence: [eventEvidence(3, 0)],
 		},
 	});
@@ -373,6 +381,7 @@ async function finalizeFixtureChapter(
 		},
 		"review",
 	);
+	if (chapter === 1) await saveFixtureRelationshipContracts(store, cwd, projectId, chapterContent, harmId, repairIds);
 	await store.finalizeChapter({
 		projectId,
 		chapter,
@@ -414,6 +423,41 @@ describe("chase-wife genre branch", () => {
 		expect(repairSchema.properties.acceptedByHeroine).toBeUndefined();
 		expect(repairSchema.required).toContain("requestedReward");
 		expect(repairSchema.required).toContain("heroineResponse");
+	});
+
+	it("rejects a reward description when requestedReward is false", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-reward-constraint-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await store.initializeNovel({
+				projectId: "reward-constraint",
+				title: "reward constraint",
+				genre: "chase-wife",
+			});
+			await expect(
+				store.saveChaseWifeRepairLedger({
+					projectId: "reward-constraint",
+					status: "proposed",
+					repairs: [
+						{
+							id: "repair-1",
+							addressesHarmIds: ["harm-1"],
+							type: "specific-apology",
+							action: "he names the specific lie",
+							costToMale: "he admits fault",
+							benefitToHeroine: "she receives the truth",
+							requestedReward: false,
+							requestedRewardDescription: "she must forgive him",
+							violatesBoundary: false,
+							heroineResponse: "unresolved",
+							effectiveness: "partial",
+						},
+					],
+				}),
+			).rejects.toThrow("cannot describe a requested reward");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
 	});
 
 	it("normalizes the Chinese genre selection and checks its dedicated arc", async () => {
@@ -1429,13 +1473,14 @@ describe("chase-wife genre branch", () => {
 				openingConflict: "the protagonist is asked to surrender her place immediately",
 				openingConflictMarker: "surrender her place",
 				events: [
-					event(1, "opening-injury", { heroineAgencyBefore: 10, heroineAgencyAfter: 20 }),
+					event(1, "opening-injury", { heroineAgencyBefore: 10, heroineAgencyAfter: 20, harmRefs: ["harm-001"] }),
 					event(2, "micro-withdrawal", {
 						heroineAgencyBefore: 20,
 						heroineAgencyAfter: 35,
 						lengthMode: "flash",
 						minChars: 60,
 						maxChars: 180,
+						repairRefs: ["repair-001"],
 					}),
 					event(3, "irreversible-exit", {
 						heroineAgencyBefore: 35,
@@ -1443,6 +1488,7 @@ describe("chase-wife genre branch", () => {
 						lengthMode: "anchor",
 						minChars: 450,
 						maxChars: 850,
+						repairRefs: ["repair-002"],
 					}),
 				],
 			});
@@ -1685,7 +1731,7 @@ describe("chase-wife genre branch", () => {
 				}),
 			).rejects.toThrow("AI-artifact");
 			await store.checkAiArtifacts({ projectId: "finalize", chapter: 1, draftRevision: assembled.draftRevision });
-			await expect(
+			const finalizeCurrentChapter = () =>
 				store.finalizeChapter({
 					projectId: "finalize",
 					chapter: 1,
@@ -1706,8 +1752,10 @@ describe("chase-wife genre branch", () => {
 					},
 					draftRevision: assembled.draftRevision,
 					confirmation: "USER_CONFIRMED",
-				}),
-			).resolves.toBeTruthy();
+				});
+			await expect(finalizeCurrentChapter()).rejects.toThrow("harm-repair progress");
+			await saveFixtureRelationshipContracts(store, cwd, "finalize", content);
+			await expect(finalizeCurrentChapter()).resolves.toBeTruthy();
 			await expect(store.exportManuscript({ projectId: "finalize" })).rejects.toThrow("finalized manuscript gate");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
@@ -1980,7 +2028,7 @@ describe("chase-wife genre branch", () => {
 						},
 					],
 				}),
-			).rejects.toThrow("current finalized prose evidence");
+			).rejects.toThrow("current assembled prose evidence");
 			await expect(
 				readFile(join(cwd, "novels", "ledger-evidence", "continuity", "chase-wife-harm-ledger.json"), "utf8"),
 			).rejects.toThrow();

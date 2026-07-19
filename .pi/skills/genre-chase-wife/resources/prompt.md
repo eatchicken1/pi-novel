@@ -60,6 +60,8 @@ read_story_context(task="chapter-writing")
 → check_harm_repair_progress
 → finalize_chapter
 
+章节阶段确认伤害或修复时，证据必须绑定当前 assembled 草稿；`finalize_chapter` 会拒绝 stalled 的伤害—修复进度。全篇结局资格检查会重新读取 finalized 正文、哈希和事件区间，不能把 assembled 证据直接当作最终封存证据。
+
 结局契约：
 `reunionEligibilityRules` 只记录作者可读说明；凡是要阻止或允许定稿的条件，必须同时写入可执行的结构化 `eligibilityRules`，不能只写自由文本。
 

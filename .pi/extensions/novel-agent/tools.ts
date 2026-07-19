@@ -194,7 +194,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 
 	pi.registerTool(
 		defineTool({
-			name: "save_harm_ledger",
+			name: "save_chase_wife_harm_ledger",
 			label: "Save Chase-wife Harm Ledger",
 			description: "Save proposed or user-confirmed relationship harms. Each harm must describe the concrete impact and whether it was recognized or repaired.",
 			parameters: SaveChaseWifeHarmLedgerSchema,
@@ -208,7 +208,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 
 	pi.registerTool(
 		defineTool({
-			name: "save_repair_ledger",
+			name: "save_chase_wife_repair_ledger",
 			label: "Save Chase-wife Repair Ledger",
 			description: "Save proposed or user-confirmed repair attempts tied to specific relationship harms, including cost, boundary behavior, and heroine acceptance.",
 			parameters: SaveChaseWifeRepairLedgerSchema,
@@ -222,7 +222,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 
 	pi.registerTool(
 		defineTool({
-			name: "save_ending_contract",
+			name: "save_chase_wife_ending_contract",
 			label: "Save Chase-wife Ending Contract",
 			description: "Save a proposed or user-confirmed ending contract that defines reunion eligibility and the heroine's independent future.",
 			parameters: SaveChaseWifeEndingContractSchema,
