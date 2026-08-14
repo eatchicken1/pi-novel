@@ -370,8 +370,8 @@ describe("chase wife unified convergence", () => {
 			await initProject(store, "c6");
 			await store.saveUnifiedEventMap({ projectId: "c6", chapter: 1, events: chapterOneEvents() });
 			const prose: Record<number, string> = {
-				1: "他要求我放弃调查这件理赔，我拒绝把材料交出去，把保单放回抽屉。",
-				2: "我收回钥匙，把决定权重新握回手中，不再等他同意。",
+				1: "他要求我放弃调查这件理赔，旧约定开始松动，我拒绝交材料。",
+				2: "我收回钥匙，旧约定开始松动，决定权握回手中。",
 			};
 			for (const event of chapterOneEvents()) {
 				const content = prose[event.eventId]!.repeat(12);
@@ -387,6 +387,12 @@ describe("chase wife unified convergence", () => {
 						{ dimension: "information", evidence: anchor(content, 0) },
 						{ dimension: "relationship", evidence: anchor(content, 20) },
 					],
+					chaseEvidence: {
+						roleShown: true,
+						conflictShown: true,
+						relationshipDeltasShown: ["旧约定开始松动"],
+						agencyActionShown: true,
+					},
 				});
 			}
 			const assembled = await store.assembleUnifiedChapter({ projectId: "c6", chapter: 1 });

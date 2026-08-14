@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -138,7 +138,7 @@ function allEvents(): UnifiedEvent[] {
 		unifiedEvent(6, 1, {
 			action: "要求他把决定权放回桌面",
 			consequence: "他口头答应却继续安排",
-			chaseWifeDelta: chase("boundary-test", 3, { repairRefs: ["repair-001"] }),
+			chaseWifeDelta: chase("boundary-test", 3, { repairRefs: ["repair-001", "repair-002"] }),
 		}),
 		unifiedEvent(7, 1, {
 			action: "把家庭投资决策权摊开核对",
@@ -1159,7 +1159,11 @@ function realizationSpecs(
 	chapter: number,
 ): Array<{ recordId: string; contentType: string; engineRef: string; offset: number }> {
 	const base: Array<{ recordId: string; contentType: string; engineRef: string; offset: number }> = [];
-	for (const eventId of chapter === 1 ? [1, 2, 3, 4, 5, 6, 7, 8] : [9, 10, 11, 12, 13, 14, 15, 16]) {
+	for (const eventId of chapter === 1
+		? [1, 2, 3, 4, 5, 6, 7, 8]
+		: chapter === 2
+			? [9, 10, 11, 12, 13, 14, 15, 16]
+			: [17, 18, 19, 20, 21, 22, 23, 24]) {
 		base.push({
 			recordId: `ev${eventId}`,
 			contentType: "unified-event",
@@ -1173,7 +1177,7 @@ function realizationSpecs(
 		base.push({ recordId: "mar-d1", contentType: "marriage-transition", engineRef: "D1", offset: 90 });
 		base.push({ recordId: "clue-c1", contentType: "mystery-clue", engineRef: "C1", offset: 120 });
 		base.push({ recordId: "obs-1", contentType: "professional-observation", engineRef: "OBS-1", offset: 150 });
-	} else {
+	} else if (chapter === 2) {
 		base.push({ recordId: "mar-s1", contentType: "marriage-transition", engineRef: "S1", offset: 30 });
 		base.push({ recordId: "clue-c2", contentType: "mystery-clue", engineRef: "C2", offset: 60 });
 		base.push({ recordId: "reveal-t1", contentType: "mystery-reveal", engineRef: "T1", offset: 90 });
@@ -1224,7 +1228,11 @@ describe("vertical benchmark story", () => {
 			const assembled: Record<number, { revision: number; content: string }> = {};
 			for (const chapter of [1, 2, 3]) {
 				for (const event of events.filter((event) => event.chapter === chapter)) {
-					const content = eventProse(event.eventId, chapter);
+					const chaseDelta = event.chaseWifeDelta;
+					const content =
+						chaseDelta === undefined
+							? eventProse(event.eventId, chapter)
+							: `${eventProse(event.eventId, chapter)}旧约定出现裂缝。`;
 					await store.saveUnifiedEventDraft({ projectId: PROJECT_ID, chapter, eventId: event.eventId, content });
 					const checked = await store.checkUnifiedEventDraft({
 						projectId: PROJECT_ID,
@@ -1242,6 +1250,24 @@ describe("vertical benchmark story", () => {
 							{ dimension: "information", evidence: anchor(content, 0) },
 							{ dimension: "relationship", evidence: anchor(content, 30) },
 						],
+						...(chaseDelta === undefined
+							? {}
+							: {
+									chaseEvidence: {
+										roleShown: true,
+										conflictShown: true,
+										relationshipDeltasShown: ["旧约定出现裂缝"],
+										agencyActionShown: true,
+										...(chaseDelta.role === "pursuit-control" || chaseDelta.role === "pursuit-failure"
+											? { wrongPursuitShown: true }
+											: {}),
+										...(chaseDelta.role === "repair-attempt" ||
+										chaseDelta.role === "credible-repair" ||
+										chaseDelta.role === "boundary-respect"
+											? { repairActionShown: true }
+											: {}),
+									},
+								}),
 					});
 				}
 				const result = await store.assembleUnifiedChapter({ projectId: PROJECT_ID, chapter });
@@ -1321,12 +1347,25 @@ describe("vertical benchmark story", () => {
 						effectiveness: "credible",
 						evidence: [repairEvidence],
 					},
+					{
+						id: "repair-002",
+						addressesHarmIds: ["harm-001"],
+						type: "boundary-respect",
+						action: "他不再干涉她的职业选择并尊重不复合",
+						costToMale: "接受关系结束",
+						benefitToHeroine: "边界被尊重",
+						requestedReward: false,
+						violatesBoundary: false,
+						heroineResponse: "acknowledged",
+						effectiveness: "credible",
+						evidence: [repairEvidence],
+					},
 				],
 			});
 			const progress = await store.checkChaseWifeHarmRepairProgress({ projectId: PROJECT_ID });
 			expect(progress.status, JSON.stringify(progress)).toBe("on-track");
 			// 7. Realization（planned ≠ realized，正文锚点）
-			for (const chapter of [1, 2]) {
+			for (const chapter of [1, 2, 3]) {
 				await store.saveNarrativeRealizations({
 					projectId: PROJECT_ID,
 					chapter,
@@ -1340,7 +1379,7 @@ describe("vertical benchmark story", () => {
 			const realizedFairness = await store.checkMysteryRealizedFairness({ projectId: PROJECT_ID });
 			expect(realizedFairness.verdict, JSON.stringify(realizedFairness)).toBe("fair");
 			// 9. 章节预置 + 质量报告（reader/review + AI artifacts）
-			for (const chapter of [1, 2]) {
+			for (const chapter of [1, 2, 3]) {
 				await store.saveChapterPlan({
 					projectId: PROJECT_ID,
 					chapter,
@@ -1485,7 +1524,7 @@ describe("vertical benchmark story", () => {
 			});
 			expect(qualityReview.status, JSON.stringify(qualityReview)).toBe("ok");
 			// 12. finalize 两章（基础门禁 + converged chase-wife 门禁 + realization 门）
-			for (const chapter of [1, 2]) {
+			for (const chapter of [1, 2, 3]) {
 				const result = await store.finalizeChapter({
 					projectId: PROJECT_ID,
 					chapter,
@@ -1510,7 +1549,7 @@ describe("vertical benchmark story", () => {
 				expect(result.transactionId).toBeTruthy();
 			}
 			const status = await store.getNovelStatus({ projectId: PROJECT_ID });
-			expect(status.finalizedChapters).toEqual([1, 2]);
+			expect(status.finalizedChapters).toEqual([1, 2, 3]);
 			// 13. 上下文与读者隔离
 			const author = await store.readStoryContext({ projectId: PROJECT_ID, chapter: 3, task: "chapter-writing" });
 			expect(author.includedFiles).toContain("outline/unified/event-map.json");
@@ -1530,7 +1569,134 @@ describe("vertical benchmark story", () => {
 			).toBe(false);
 			// 14. 成稿章节（exportManuscript 的 chase-wife 终稿门为 legacy 专用，收敛项目直接校验章节产物）
 			const chapterFiles = await readFile(join(cwd, "novels", PROJECT_ID, "status.json"), "utf8");
-			expect(JSON.parse(chapterFiles).finalizedChapters).toEqual([1, 2]);
+			expect(JSON.parse(chapterFiles).finalizedChapters).toEqual([1, 2, 3]);
+			// AF2: unified manuscript seal binds chapter/event/realization/fairness/eligibility/review/architecture hashes
+			await store.reviewManuscript({
+				projectId: PROJECT_ID,
+				review: {
+					verdict: "ready-for-final-revision",
+					strongestElements: ["职业观察桥接"],
+					structuralIssues: [],
+					characterIssues: [],
+					suspenseIssues: [],
+					relationshipIssues: [],
+					professionalIssues: [],
+					socialRealityIssues: [],
+					pacingIssues: [],
+					endingIssues: [],
+					revisionPriorities: ["复核制真实落地"],
+				},
+			});
+			await store.saveChaseWifeEndingContract({
+				projectId: PROJECT_ID,
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				contract: {
+					mode: "no-reunion",
+					heroineIndependentFutureRequired: true,
+					maleRecognitionRequired: true,
+					restitutionRequired: true,
+					boundaryRespectRequired: true,
+					reunionEligibilityRules: ["她不再复合"],
+					eligibilityRules: [
+						{ id: "r1", type: "harm-recognized", harmId: "harm-001" },
+						{ id: "r2", type: "repair-type-required", repairType: "public-correction", harmId: "harm-001" },
+						{ id: "r3", type: "boundary-respected", harmId: "harm-001" },
+						{ id: "r4", type: "independent-future-required" },
+					],
+					openChoice: "她不再复合",
+					heroineIndependentFutureEvidence: [
+						{
+							chapter: 1,
+							eventId: 6,
+							...anchor(assembled[1]!.content, 100),
+							contentHash: contentHash(assembled[1]!.content),
+						},
+					],
+				},
+			});
+			const sealResult = await store.finalizeManuscriptUnified({
+				projectId: PROJECT_ID,
+				confirmation: "USER_CONFIRMED",
+			});
+			expect(sealResult.status).toBe("finalized");
+			const seal = JSON.parse(await readFile(join(cwd, "novels", PROJECT_ID, sealResult.path), "utf8")) as {
+				unifiedEventMapHash: string;
+				mysteryRealizedFairness: string;
+				endingEligibility: string;
+				manuscriptReviewHash: string;
+				endingContractHash: string;
+			};
+			expect(seal.unifiedEventMapHash).toBeTruthy();
+			expect(seal.mysteryRealizedFairness).toBe("fair");
+			expect(seal.endingEligibility).toBe("ok");
+			expect(seal.manuscriptReviewHash).not.toBe("missing");
+			expect(seal.endingContractHash).not.toBe("n/a");
+			// AF1: 全程没有 legacy chase-wife 独立事件地图
+			let legacyMap: unknown;
+			try {
+				legacyMap = JSON.parse(
+					await readFile(join(cwd, "novels", PROJECT_ID, "work", "chase-wife-events", "chapter-001.json"), "utf8"),
+				);
+			} catch {
+				legacyMap = undefined;
+			}
+			expect(legacyMap).toBeUndefined();
+			// AF6: unified export PASS
+			const exported = await store.exportManuscript({ projectId: PROJECT_ID });
+			expect(exported.chapters).toBe(3);
+			// AF3: 修改定稿章节 → seal stale → export 拒绝
+			const chapterOnePath = join(cwd, "novels", PROJECT_ID, "chapters", "chapter-001.md");
+			const chapterOneOriginal = await readFile(chapterOnePath, "utf8");
+			await writeFile(chapterOnePath, `${chapterOneOriginal}\n追加一行。`, "utf8");
+			await expect(store.exportManuscript({ projectId: PROJECT_ID })).rejects.toThrow("stale");
+			await writeFile(chapterOnePath, chapterOneOriginal, "utf8");
+			// AF4: 修改 unified 事件 → seal stale
+			await store.saveUnifiedEventMap({
+				projectId: PROJECT_ID,
+				chapter: 1,
+				events: events
+					.filter((event) => event.chapter === 1)
+					.map((event) => (event.eventId === 1 ? { ...event, consequence: "改了后果" } : event)),
+			});
+			await expect(store.exportManuscript({ projectId: PROJECT_ID })).rejects.toThrow("event map changed");
+			// 恢复事件图后重新封存（save 会更新 updatedAt，地图文档哈希随之变化）
+			await store.saveUnifiedEventMap({
+				projectId: PROJECT_ID,
+				chapter: 1,
+				events: events.filter((event) => event.chapter === 1),
+			});
+			await store.finalizeManuscriptUnified({ projectId: PROJECT_ID, confirmation: "USER_CONFIRMED" });
+			// AF5: 修改 ending contract → seal stale
+			await store.saveChaseWifeEndingContract({
+				projectId: PROJECT_ID,
+				status: "confirmed",
+				confirmation: "USER_CONFIRMED",
+				contract: {
+					mode: "no-reunion",
+					heroineIndependentFutureRequired: true,
+					maleRecognitionRequired: true,
+					restitutionRequired: true,
+					boundaryRespectRequired: true,
+					reunionEligibilityRules: ["她不再复合（修改版）"],
+					eligibilityRules: [
+						{ id: "r1", type: "harm-recognized", harmId: "harm-001" },
+						{ id: "r2", type: "repair-type-required", repairType: "public-correction", harmId: "harm-001" },
+						{ id: "r3", type: "boundary-respected", harmId: "harm-001" },
+						{ id: "r4", type: "independent-future-required" },
+					],
+					openChoice: "她不再复合",
+					heroineIndependentFutureEvidence: [
+						{
+							chapter: 1,
+							eventId: 6,
+							...anchor(assembled[1]!.content, 100),
+							contentHash: contentHash(assembled[1]!.content),
+						},
+					],
+				},
+			});
+			await expect(store.exportManuscript({ projectId: PROJECT_ID })).rejects.toThrow("ending contract changed");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
