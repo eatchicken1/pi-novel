@@ -92,6 +92,9 @@ import type {
 	NarrativeRealizationRecord,
 	SaveNarrativeRealizationParams,
 	CheckNarrativeRealizationParams,
+	StoryDistinctivenessProfile,
+	SaveStoryDistinctivenessParams,
+	CheckStoryDistinctivenessParams,
 } from "../schemas.ts";
 import { hasChaseWifeCapability, hasMatureMarriageCapability, hasPrimaryGenre, hasProfessionalDomain, normalizePrimaryGenre, normalizeProfessionalDomain, normalizeRelationshipMechanism } from "./story-profile.ts";
 import { checkMysteryDesign, checkMysteryFairness, isMysteryPrivatePath, type MysteryIssue } from "./mystery-checker.ts";
@@ -99,6 +102,7 @@ import { checkMatureMarriageRestructuring, checkMatureMarriageStructure, isMarri
 import { checkProfessionalCase, checkProfessionalDomain, isProfessionalPrivatePath, type ProfessionalIssue } from "./professional-checker.ts";
 import { checkUnifiedEventMap, collisionStats, isUnifiedPrivatePath, type UnifiedCapabilities, type UnifiedIssue, type UnifiedReferenceSets } from "./unified-event-checker.ts";
 import { checkNarrativeRealizations, collectPlannedRealizations, type PlannedRealization, type RealizationIssue } from "./realization-checker.ts";
+import { checkStoryDistinctiveness, distinctivenessStats, type DistinctivenessIssue } from "./distinctiveness-checker.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -3542,6 +3546,36 @@ export class NovelProjectStore {
 		if (blockers.length > 0) throw new Error(`Chapter ${chapter} narrative realization gate failed: ${blockers.map((item) => item.message).join("; ")}`);
 	}
 
+	async saveStoryDistinctiveness(params: SaveStoryDistinctivenessParams, signal?: AbortSignal): Promise<{ projectId: string; chapter?: number; verdict: string; path: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const scope = params.chapter === undefined ? "story" : chapterName(params.chapter);
+		const relativePath = `evaluations/distinctiveness/${scope}.json`;
+		const document = { version: 1, projectId: params.projectId, chapter: params.chapter, profile: params.profile, generatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, chapter: params.chapter, verdict: params.profile.verdict, path: relativePath };
+	}
+
+	async checkStoryDistinctiveness(params: CheckStoryDistinctivenessParams, signal?: AbortSignal): Promise<{ projectId: string; chapter?: number; status: "ok" | "warning"; issues: DistinctivenessIssue[]; verdict?: string; stats: ReturnType<typeof distinctivenessStats>; path: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const scope = params.chapter === undefined ? "story" : chapterName(params.chapter);
+		const stored = await this.readJsonIfExists(this.projectFile(params.projectId, `evaluations/distinctiveness/${scope}.json`), signal);
+		const profile = isJsonRecord(stored) && isJsonRecord(stored.profile) ? stored.profile as unknown as StoryDistinctivenessProfile : undefined;
+		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		const capabilities = {
+			hasMystery: isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense"),
+			hasMarriage: isJsonRecord(project) && hasMatureMarriageCapability(project),
+			hasChaseWife: isJsonRecord(project) && hasChaseWifeCapability(project),
+			hasProfessional: isJsonRecord(project) && hasProfessionalDomain(project, "insurance-fraud-investigation"),
+		};
+		const map = await this.readUnifiedEventMap(params.projectId, signal);
+		const issues = profile === undefined ? [{ code: "DISTINCTIVENESS_PROFILE_MISSING", severity: "warning" as const, message: `no distinctiveness review exists for ${scope}` }] : checkStoryDistinctiveness({ profile, map, capabilities });
+		const status = (issues.length > 0 ? "warning" : "ok") as "ok" | "warning";
+		const stats = distinctivenessStats(map);
+		const report = { version: 1, projectId: params.projectId, chapter: params.chapter, status, issues, verdict: profile?.verdict, stats, sourceHashes: [stored].map(hashJson), generatedAt: new Date().toISOString() };
+		const reportPath = `continuity/reports/distinctiveness-${scope}.json`;
+		await this.writeVersionedJsonReport(params.projectId, reportPath, report, signal);
+		return { projectId: params.projectId, chapter: params.chapter, status, issues, verdict: profile?.verdict, stats, path: reportPath };
+	}
 	private async writeTransaction(projectId: string, chapter: number, entries: Array<{ relativePath: string; content: string }>, signal?: AbortSignal): Promise<string> {
 		const transactionId = randomUUID();
 		const transactionPath = this.projectFile(projectId, `transactions/${transactionId}.json`);

@@ -1146,6 +1146,41 @@ export const CheckNarrativeRealizationSchema = Type.Object({
 	chapter: ChapterNumberSchema,
 });
 
+
+// ==== Story Distinctiveness（模型评审 + 确定性碰撞统计交叉验证；不伪造分数）====
+
+export const StoryDistinctivenessVerdictSchema = Type.Union([
+	Type.Literal("distinctive"),
+	Type.Literal("needs-work"),
+	Type.Literal("generic-risk"),
+]);
+
+export const StoryDistinctivenessProfileSchema = Type.Object({
+	verdict: StoryDistinctivenessVerdictSchema,
+	premises: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+	engineBlendEvidence: Type.Array(Type.String({ minLength: 1 })),
+	risks: Type.Array(Type.Object({
+		risk: Type.String({ minLength: 1 }),
+		evidence: Type.String({ minLength: 1 }),
+	})),
+	strongestMoves: Type.Array(Type.Object({
+		move: Type.String({ minLength: 1 }),
+		evidence: Type.String({ minLength: 1 }),
+	}), { minItems: 1 }),
+	notes: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const SaveStoryDistinctivenessSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: Type.Optional(ChapterNumberSchema),
+	profile: StoryDistinctivenessProfileSchema,
+});
+
+export const CheckStoryDistinctivenessSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: Type.Optional(ChapterNumberSchema),
+});
+
 export const RepairNovelProjectSchema = Type.Object({ projectId: ProjectIdSchema });
 export const GetNovelStatusSchema = Type.Object({ projectId: ProjectIdSchema });
 
@@ -1924,6 +1959,9 @@ export type AssembleUnifiedChapterParams = Static<typeof AssembleUnifiedChapterS
 export type NarrativeRealizationRecord = Static<typeof NarrativeRealizationRecordSchema>;
 export type SaveNarrativeRealizationParams = Static<typeof SaveNarrativeRealizationSchema>;
 export type CheckNarrativeRealizationParams = Static<typeof CheckNarrativeRealizationSchema>;
+export type StoryDistinctivenessProfile = Static<typeof StoryDistinctivenessProfileSchema>;
+export type SaveStoryDistinctivenessParams = Static<typeof SaveStoryDistinctivenessSchema>;
+export type CheckStoryDistinctivenessParams = Static<typeof CheckStoryDistinctivenessSchema>;
 export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
 export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
 export type ReadStoryContextParams = Static<typeof ReadStoryContextSchema>;

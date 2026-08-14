@@ -16,6 +16,8 @@ import type {
 	CheckUnifiedEventMapParams,
 	CheckNarrativeRealizationParams,
 	SaveNarrativeRealizationParams,
+	CheckStoryDistinctivenessParams,
+	SaveStoryDistinctivenessParams,
 	SaveUnifiedEventDraftParams,
 	SaveUnifiedEventMapParams,
 	SaveUnifiedEventSemanticReportParams,
@@ -77,6 +79,8 @@ import {
 	AssembleUnifiedChapterSchema,
 	CheckNarrativeRealizationSchema,
 	SaveNarrativeRealizationSchema,
+	CheckStoryDistinctivenessSchema,
+	SaveStoryDistinctivenessSchema,
 	CheckProfessionalCaseSchema,
 	CheckProfessionalDomainSchema,
 	CheckMysteryDesignSchema,
@@ -703,6 +707,33 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckNarrativeRealizationParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).checkNarrativeRealizations(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
+			name: "save_story_distinctiveness",
+			label: "Save Story Distinctiveness Review",
+			description: "Save a model-written distinctiveness review (verdict, premises, engine-blend evidence, risks, strongest moves). The review is model judgment; the deterministic cross-check runs separately and never fabricates scores.",
+			parameters: SaveStoryDistinctivenessSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveStoryDistinctivenessParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveStoryDistinctiveness(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_story_distinctiveness",
+			label: "Check Story Distinctiveness",
+			description: "Cross-check the saved distinctiveness review against deterministic facts: cross-engine collision counts, repeated event fingerprints, engine coverage, and unsupported blend claims. No fake scores.",
+			parameters: CheckStoryDistinctivenessSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckStoryDistinctivenessParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkStoryDistinctiveness(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),
