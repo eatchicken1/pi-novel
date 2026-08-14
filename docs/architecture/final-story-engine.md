@@ -1,5 +1,7 @@
 # Final Story Engine（多引擎约束驱动的小说生成系统）
 
+> Round 6 状态：Vertical Reference Stack 当前围绕女性社会派悬疑（FSS × 熟龄婚姻 × Chase Wife × 保险反欺诈）深化。新的事件权威是 Unified Narrative Event；Chase Wife 事件流水线降级为 compatibility mode。垂直智能见 docs/genre/female-social-suspense-vertical-engine.md 与 docs/genre/female-social-suspense-quality-model.md。
+
 ## 架构总览
 
 系统由四类正交能力（capability）+ 一个统一事件层构成。能力由 Story Profile 声明，统一层只引用并验证，不改写任何引擎 authority。

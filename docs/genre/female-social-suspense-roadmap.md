@@ -72,12 +72,20 @@ Mystery Engine 已落地，见 `docs/genre/female-social-suspense-mystery-engine
 - 基准作品：《离婚前，我替丈夫查最后一份保单》端到端（10 种事件类型、两章 finalize、realization + distinctiveness 全绿）；
 - 文档：docs/architecture/final-story-engine.md、docs/narrative/unified-event-engine.md、docs/narrative/realization-and-finalization.md、docs/quality/story-distinctiveness.md、docs/narrative/benchmark-divorce-policy.md。
 
+## Round 6 完成（Female Social Suspense Vertical Intelligence）
+
+- Chase Wife 收敛：Unified Narrative Event 成为唯一新事件权威；chase-wife 保留 beat sheet / harm/repair / ending / pacing / semantic validators，事件经投影适配器作用在 unified 事件上；legacy 工具标记 compatibility mode，unified 覆盖的章拒绝双事件事实（LEGACY_EVENT_AUTHORITY_CONFLICT）；
+- Realized Mystery Fairness：check_mystery_realized_fairness 用实际正文兑现（unified 事件 + realization 记录）按 reader/heroine 验证 proof path，禁止用 planned 章代替；
+- Vertical Intelligence：FemaleSocialSuspenseDesign 聚合社会机制/婚姻模式/职业困境/对抗/主题/乐章/商业形式；check_social_suspense_design / check_character_complexity / check_vertical_story_quality（模型评审 + 结构证据校验）；
+- 基准升级：24 个结构化事件、三章、完整四能力（FSS+婚姻+chase-wife+职业）端到端通过 converged finalize；第二 fixture（遗产执行）验证不过拟合保险；
+- 文档：docs/genre/female-social-suspense-vertical-engine.md、quality-model、mature-marriage-narrative-patterns、chase-wife-non-formulaic-design、collision-beat-design。
+
 ## 当前状态
 
-- 全部能力可用：mystery（frozen）+ mature-marriage + chase-wife（legacy pipeline）+ professional + unified event layer；
-- 正文兑现（realized/finalized）已落地：realization 记录 + finalize 门禁；
-- 差异性评审已落地：distinctiveness + 确定性交叉验证；
-- 基准作品端到端通过。
+- 全部能力可用：mystery（frozen）+ mature-marriage + chase-wife（legacy compatibility）+ professional + unified event layer（authority）+ vertical intelligence；
+- 正文兑现（realized/finalized）已落地：realization 记录 + finalize 门禁 + realized fairness；
+- 差异性评审与垂直质量评审已落地；
+- 垂直基准（24 事件四能力）与第二 fixture（遗产执行）通过。
 
 ## Phase 2（主体 + Round 2.5 硬化完成）
 

@@ -59,3 +59,11 @@ Truth Model、actualRole、privateSecret、actualImplication 是作者秘密。
 - `resources/information-state.md`：信息状态与作者秘密边界。
 - `resources/social-suspense.md`：社会派根基。
 - `resources/prompt.md`：生成约束与工具顺序。
+- `resources/genre-promise.md`：本类型的 genre promise（四层真相）。
+- `resources/social-system-design.md`：社会机制必须进入因果链。
+- `resources/suspense-escalation.md`：悬念升级诊断。
+- `resources/female-agency.md`：女主矛盾与代价。
+- `resources/commercial-pacing.md`：中篇商业节奏。
+- `resources/collision-design.md`：跨引擎碰撞质量。
+- `resources/anti-cliche.md`：本轮类型的模板清单。
+- `resources/voice.md`：语感约束与 AI 痕迹。
