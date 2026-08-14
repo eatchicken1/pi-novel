@@ -62,14 +62,22 @@ Mystery Engine 已落地，见 `docs/genre/female-social-suspense-mystery-engine
 - 官方制度边界：国家金融监督管理总局《反保险欺诈工作办法》（2024-08）结构化摘要 + 来源 + 核验日期；公司 SOP 为可配置故事设定；
 - 本轮为 planning structure：无 professional pipeline、无正文锚点、无法律结论引擎。
 
-## Round 5：Unified Narrative Event Integration
+## Round 5 完成（Unified Narrative Event Integration）
 
-one event → mysteryDelta + marriageDelta + chaseWifeDelta + professionalDelta；planned → prose evidence → finalized realization；双/多引擎门禁组合。
+- Unified Event Layer：一个事件 = action/consequence + mystery/marriage/chaseWife/professional delta + character/resource/risk delta；唯一事件整合层，chase-wife 流水线保留为向后兼容包装；
+- 每事件草稿流水线：save/check_unified_event_map（因果 DAG、capability 门、引擎引用、professional authority gate、MYSTERY_REVEAL_LATE）→ save/check_unified_event_draft（60–1500 字 + 规划标签泄漏）→ save_unified_event_semantic_report（source=model + 正文锚点）→ assemble_unified_chapter（装配清单含每事件 span + contentHash）；
+- Narrative Realization：planned ≠ realized。save/check_narrative_realization 以散文锚点 + contentHash/draftRevision 绑定最终正文；finalize_chapter 追加 realization 门（unified-event / mystery-clue / mystery-reveal / marriage-transition / professional-observation 计划集，capability-aware，无计划项自动通过）；
+- Story Distinctiveness：模型撰写评审（verdict/premises/blend evidence/risks/strongest moves），check_story_distinctiveness 只做确定性统计（碰撞、重复指纹、引擎覆盖）与声称交叉验证，不伪造分数；
+- 上下文预算：unified-event-map / unified-event-draft 优先级 2/3，CURRENT-EVENT-SENTINEL 测试固化小预算下当前章事件优先；reader-sim 硬隔离 unified 作者规划；
+- 基准作品：《离婚前，我替丈夫查最后一份保单》端到端（10 种事件类型、两章 finalize、realization + distinctiveness 全绿）；
+- 文档：docs/architecture/final-story-engine.md、docs/narrative/unified-event-engine.md、docs/narrative/realization-and-finalization.md、docs/quality/story-distinctiveness.md、docs/narrative/benchmark-divorce-policy.md。
 
 ## 当前状态
 
-- female-social-suspense + chase-wife 组合可用：mystery 与关系机制两组工具并行，正文仍走 Chase Wife event-level pipeline；
-- 尚未实现：realized/finalized fairness、Mature Marriage Engine、职业写实库、双引擎事件流水线、多样性检查器、基准作品。
+- 全部能力可用：mystery（frozen）+ mature-marriage + chase-wife（legacy pipeline）+ professional + unified event layer；
+- 正文兑现（realized/finalized）已落地：realization 记录 + finalize 门禁；
+- 差异性评审已落地：distinctiveness + 确定性交叉验证；
+- 基准作品端到端通过。
 
 ## Phase 2（主体 + Round 2.5 硬化完成）
 
