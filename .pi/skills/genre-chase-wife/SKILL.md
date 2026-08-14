@@ -1,17 +1,17 @@
 ---
 name: genre-chase-wife
-description: 追妻文专属创作流程：女主第一人称、关系失衡、主动退出、男方失去现实便利后的错误追逐、可验证修复与女主最终选择。
+description: Chase Wife 关系机制（relationship mechanism）创作流程：女主第一人称、关系失衡、主动退出、男方失去现实便利后的错误追逐、可验证修复与女主最终选择；可与其他 primary genre 组合。
 ---
 
-# 追妻文 Skill
+# 追妻文 Skill（Chase Wife Relationship Mechanism）
 
 ## 加载条件
 
-仅当项目 `genre` 为 `chase-wife` 时加载。本 Skill 不适用于悬疑、普通都市情感或轻幻想项目。
+当项目具有 **chase-wife relationship mechanism** 时加载（legacy `genre = "chase-wife"` 也解析为该机制）。本 Skill 可与任意 primaryGenre 组合（如 female-social-suspense + chase-wife），不适用于不含该机制的项目。
 
 ## 负责与不负责
 
-负责开局冲突、关系伤害、女主留存逻辑、退出阶梯、双轨追妻、主动权变化、修复证据和结局资格。不替作者确认正史，不把模型建议写入正史，不用语言风格判断代替工具校验。
+负责开局冲突、关系伤害、女主留存逻辑、退出阶梯、双轨追妻、主动权变化、修复证据和关系结局资格。不负责 mystery truth、clue validity、red herrings、suspect logic、procedural investigation 或 professional realism（这些由主题材 Skill 负责）。不替作者确认正史，不把模型建议写入正史，不用语言风格判断代替工具校验。
 
 ## 类型不变量
 

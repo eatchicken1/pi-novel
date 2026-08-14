@@ -11,7 +11,7 @@ const ProjectIdSchema = Type.String({
 export const GenreSchema = Type.String({
 	minLength: 1,
 	maxLength: 80,
-	examples: ["suspense", "urban-romance", "light-fantasy", "chase-wife", "追妻文"],
+	examples: ["suspense", "urban-romance", "light-fantasy", "chase-wife", "追妻文", "female-social-suspense", "女性社会派悬疑"],
 	description: "小说类型。内置类型包括 suspense/都市悬疑、urban-romance/都市情感、light-fantasy/轻幻想、chase-wife/追妻文，也允许项目保留自定义类型。",
 });
 
@@ -112,10 +112,25 @@ export const ContinuityIssueSchema = Type.Object({
 	]),
 });
 
+export const RelationshipMechanismSchema = Type.Union([
+	Type.Literal("chase-wife"),
+	Type.Literal("mature-marriage-crisis"),
+	Type.String({ minLength: 1, maxLength: 80 }),
+]);
+
+export const StoryProfileSchema = Type.Object({
+	primaryGenre: Type.String({ minLength: 1, maxLength: 80 }),
+	relationshipMechanisms: Type.Array(RelationshipMechanismSchema, { maxItems: 8 }),
+	professionalDomain: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+	themes: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { maxItems: 12 })),
+	storyForm: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
+});
+
 export const InitializeNovelSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	title: Type.String({ minLength: 1, maxLength: 200 }),
 	genre: GenreSchema,
+	storyProfile: Type.Optional(StoryProfileSchema),
 	targetWordCount: Type.Optional(Type.Integer({ minimum: 1000 })),
 });
 
@@ -840,6 +855,7 @@ export const FinalizeManuscriptSchema = Type.Object({
 });
 
 export type InitializeNovelParams = Static<typeof InitializeNovelSchema>;
+export type StoryProfileParams = Static<typeof StoryProfileSchema>;
 export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
 export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
 export type ReadStoryContextParams = Static<typeof ReadStoryContextSchema>;

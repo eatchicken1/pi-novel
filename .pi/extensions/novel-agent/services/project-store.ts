@@ -33,7 +33,6 @@ import type {
 	ExtractChapterFactsParams,
 	FinalizeChapterParams,
 	FinalizeManuscriptParams,
-	Genre,
 	GetNovelStatusParams,
 	InitializeNovelParams,
 	LoadWorkflowCheckpointParams,
@@ -62,6 +61,7 @@ import type {
 	ScoreChaseWifeChapterParams,
 	SemanticEvidenceAnchor,
 } from "../schemas.ts";
+import { hasChaseWifeCapability, normalizePrimaryGenre, normalizeRelationshipMechanism } from "./story-profile.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -657,15 +657,7 @@ function isOrderedUniqueArc(value: unknown, order: Map<string, number>): value i
 	return value.every((phase, index) => index === 0 || (order.get(phase) ?? -1) > (order.get(value[index - 1]) ?? -1));
 }
 
-function normalizeGenre(genre: Genre): string {
-	const aliases: Record<string, string> = {
-		都市悬疑: "suspense",
-		都市情感: "urban-romance",
-		轻幻想: "light-fantasy",
-		追妻文: "chase-wife",
-	};
-	return aliases[genre] ?? genre;
-}
+
 
 export class NovelProjectStore {
 	private readonly novelsRoot: string;
@@ -829,12 +821,20 @@ export class NovelProjectStore {
 			throw new Error(`Novel project "${params.projectId}" already exists. Initialization never overwrites an existing project.`);
 		}
 		const now = new Date().toISOString();
-		const genre = normalizeGenre(params.genre);
+		const genre = normalizePrimaryGenre(params.genre);
+		const storyProfile = params.storyProfile === undefined ? undefined : {
+			primaryGenre: normalizePrimaryGenre(params.storyProfile.primaryGenre),
+			relationshipMechanisms: params.storyProfile.relationshipMechanisms.map(normalizeRelationshipMechanism),
+			...(params.storyProfile.professionalDomain !== undefined ? { professionalDomain: params.storyProfile.professionalDomain } : {}),
+			...(params.storyProfile.themes !== undefined && params.storyProfile.themes.length > 0 ? { themes: params.storyProfile.themes } : {}),
+			...(params.storyProfile.storyForm !== undefined ? { storyForm: params.storyProfile.storyForm } : {}),
+		};
 		const project = {
 			version: 1,
 			projectId: params.projectId,
 			title: params.title,
 			genre,
+			...(storyProfile === undefined ? {} : { storyProfile }),
 			targetWordCount: params.targetWordCount ?? defaultTargetWordCount(genre),
 			status: "planning",
 			nextChapter: 1,
@@ -989,7 +989,7 @@ export class NovelProjectStore {
 			await addFile(`outline/chapter-outline.json`, "chapter-outline");
 			await addFile(`work/chapter-plans/${current}.md`, "chapter-plan");
 			await addSceneContract(`work/scene-contracts/${current}.json`);
-			if (isJsonRecord(project) && project.genre === "chase-wife") {
+			if (isJsonRecord(project) && hasChaseWifeCapability(project)) {
 				await addFile("outline/genre/chase-wife-beat-sheet.json", "chase-wife-beat-sheet");
 				await addFile(`work/chase-wife-events/${current}.json`, "chase-wife-event-map");
 				const eventMap = await this.readJsonIfExists(this.projectFile(params.projectId, `work/chase-wife-events/${current}.json`), signal);
@@ -1095,7 +1095,7 @@ export class NovelProjectStore {
 	async saveChapterDraft(params: SaveChapterDraftParams, signal?: AbortSignal): Promise<SavedChapterDraftResult> {
 		await this.ensureProject(params.projectId, signal);
 		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
-		if (isJsonRecord(project) && project.genre === "chase-wife") {
+		if (isJsonRecord(project) && hasChaseWifeCapability(project)) {
 			throw new Error("Chase-wife chapter drafts must be created by assemble_chase_wife_chapter after event-level checks.");
 		}
 		return this.saveChapterDraftInternal(params, signal);
@@ -1211,7 +1211,7 @@ export class NovelProjectStore {
 	async saveQualityReport(params: SaveQualityReportParams, kind: "reader" | "review", signal?: AbortSignal): Promise<{ projectId: string; kind: "reader" | "review"; path: string; draftRevision?: number }> {
 		await this.ensureProject(params.projectId, signal);
 		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
-		const isChaseWifeChapterReport = isJsonRecord(project) && project.genre === "chase-wife" && params.chapter !== undefined;
+		const isChaseWifeChapterReport = isJsonRecord(project) && hasChaseWifeCapability(project) && params.chapter !== undefined;
 		if (isChaseWifeChapterReport) {
 			if (params.structuredReport === undefined) throw new Error(`Chase-wife ${kind} reports must include a structuredReport.`);
 			if (kind === "reader" && !isReaderReport(params.structuredReport)) throw new Error("Reader reports must include structured evidence and at least one strongest moment.");
@@ -1342,7 +1342,7 @@ export class NovelProjectStore {
 		const paths = await this.listFiles(this.projectFile(params.projectId, "chapters"), signal);
 		const chapterPaths = paths.filter((candidate) => candidate.endsWith(".md"));
 		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
-		if (isJsonRecord(project) && project.genre === "chase-wife") {
+		if (isJsonRecord(project) && hasChaseWifeCapability(project)) {
 			const seal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/chase-wife-finalized.json"), signal);
 			const pacing = await this.readJsonIfExists(this.projectFile(params.projectId, "continuity/reports/chase-wife-story-pacing.json"), signal);
 			const beatSheet = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/genre/chase-wife-beat-sheet.json"), signal);
@@ -1481,7 +1481,7 @@ export class NovelProjectStore {
 	private async ensureChaseWifeProject(projectId: string, signal?: AbortSignal): Promise<void> {
 		await this.ensureProject(projectId, signal);
 		const project = await this.readJsonIfExists(this.projectFile(projectId, "project.json"), signal);
-		if (!isJsonRecord(project) || project.genre !== "chase-wife") throw new Error("This tool is only available for the chase-wife genre branch.");
+		if (!isJsonRecord(project) || !hasChaseWifeCapability(project)) throw new Error("This tool is only available for projects with the chase-wife relationship mechanism.");
 	}
 
 	private async validateChaseWifeLedgerEvidence(
@@ -2978,7 +2978,7 @@ export class NovelProjectStore {
 				if (label === "semantic" && (report.source !== "model" || report.status !== "ok")) throw new Error(`Chapter ${params.chapter} requires a current model semantic report with status=ok.`);
 				if (report.draftRevision !== params.draftRevision) throw new Error(`The ${label} report does not match draft revision ${params.draftRevision}.`);
 			}
-			if (existingProject.genre === "chase-wife") {
+			if (hasChaseWifeCapability(existingProject)) {
 				const eventMap = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
 				const eventMapReport = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${name}-chase-wife-events.json`), signal);
 				if (!isJsonRecord(eventMapReport) || eventMapReport.status !== "ok" || eventMapReport.eventMapHash !== eventMap.eventMapHash) throw new Error(`Chapter ${params.chapter} requires a current passing chase-wife event map report.`);
