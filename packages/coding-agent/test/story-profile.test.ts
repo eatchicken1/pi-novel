@@ -340,4 +340,73 @@ describe("story profile project integration (CASE A-F)", () => {
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
+
+	it("CASE M13: initialize_novel rejects genre and storyProfile.primaryGenre conflicts", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-profile-case-m13-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await expect(
+				store.initializeNovel({
+					projectId: "case-m13",
+					title: "conflict",
+					genre: "female-social-suspense",
+					storyProfile: { primaryGenre: "suspense", relationshipMechanisms: [] },
+				}),
+			).rejects.toThrow("agree after normalization");
+			// 中文别名与英文值归一化后一致，必须允许
+			await expect(
+				store.initializeNovel({
+					projectId: "case-m13-alias",
+					title: "alias ok",
+					genre: "追妻文",
+					storyProfile: { primaryGenre: "chase-wife", relationshipMechanisms: ["chase-wife"] },
+				}),
+			).resolves.toBeTruthy();
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("CASE M14: legacy disk projects with genre/profile inconsistency stay readable", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-profile-case-m14-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			const projectRoot = join(cwd, "novels", "case-m14");
+			await writeProjectFile(
+				projectRoot,
+				"project.json",
+				JSON.stringify({
+					version: 1,
+					projectId: "case-m14",
+					title: "legacy mismatch",
+					genre: "chase-wife",
+					storyProfile: { primaryGenre: "suspense", relationshipMechanisms: [] },
+					status: "planning",
+					nextChapter: 1,
+					finalizedChapters: [],
+				}),
+			);
+			await writeProjectFile(
+				projectRoot,
+				"status.json",
+				JSON.stringify({
+					projectId: "case-m14",
+					status: "planning",
+					nextChapter: 1,
+					finalizedChapters: [],
+				}),
+			);
+			const status = await store.getNovelStatus({ projectId: "case-m14" });
+			expect(status.nextChapter).toBe(1);
+			const project = JSON.parse(await readFile(join(projectRoot, "project.json"), "utf8")) as Record<
+				string,
+				unknown
+			>;
+			const profile = resolveStoryProfile(project);
+			expect(profile.primaryGenre).toBe("suspense");
+			expect(hasChaseWifeCapability(project)).toBe(false);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
 });

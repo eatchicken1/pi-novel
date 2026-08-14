@@ -87,3 +87,8 @@ export function hasRelationshipMechanism(project: Record<string, unknown>, mecha
 export function hasChaseWifeCapability(project: Record<string, unknown>): boolean {
 	return hasRelationshipMechanism(project, "chase-wife");
 }
+
+// primaryGenre 判断：主题材专属能力（如 mystery engine）统一通过本函数，不散落 primaryGenre 字符串比较。
+export function hasPrimaryGenre(project: Record<string, unknown>, genre: string): boolean {
+	return resolveStoryProfile(project).primaryGenre === normalizePrimaryGenre(genre);
+}

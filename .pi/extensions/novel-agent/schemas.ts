@@ -126,6 +126,9 @@ export const StoryProfileSchema = Type.Object({
 	storyForm: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
 });
 
+const ConfirmationSchema = Type.Optional(Type.Literal("USER_CONFIRMED"));
+const UpdateStatusSchema = Type.Union([Type.Literal("proposed"), Type.Literal("confirmed")]);
+
 export const InitializeNovelSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	title: Type.String({ minLength: 1, maxLength: 200 }),
@@ -133,6 +136,175 @@ export const InitializeNovelSchema = Type.Object({
 	storyProfile: Type.Optional(StoryProfileSchema),
 	targetWordCount: Type.Optional(Type.Integer({ minimum: 1000 })),
 });
+
+// ==== Mystery Engine（female-social-suspense）====
+
+export const MysteryTruthCategorySchema = Type.Union([
+	Type.Literal("identity"),
+	Type.Literal("event"),
+	Type.Literal("timeline"),
+	Type.Literal("motive"),
+	Type.Literal("method"),
+	Type.Literal("access"),
+	Type.Literal("concealment"),
+	Type.Literal("institutional"),
+	Type.Literal("relationship"),
+	Type.Literal("other"),
+]);
+
+const MysteryClaimIdSchema = Type.String({ minLength: 1, maxLength: 80 });
+
+export const TruthClaimSchema = Type.Object({
+	id: MysteryClaimIdSchema,
+	statement: Type.String({ minLength: 1 }),
+	category: MysteryTruthCategorySchema,
+	dependsOnClaimIds: Type.Array(MysteryClaimIdSchema),
+	proofRequirement: Type.String({ minLength: 1 }),
+	supportingClueIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	plannedRevealChapter: Type.Optional(Type.Integer({ minimum: 1 })),
+	importance: Type.Integer({ minimum: 1, maximum: 5 }),
+});
+
+export const MysterySocialCoreSchema = Type.Object({
+	socialQuestion: Type.String({ minLength: 1 }),
+	institutionalContext: Type.String({ minLength: 1 }),
+	powerAsymmetry: Type.String({ minLength: 1 }),
+	beneficiaries: Type.Array(Type.String({ minLength: 1 })),
+	costBearers: Type.Array(Type.String({ minLength: 1 })),
+	stakesBeyondRelationship: Type.Array(Type.String({ minLength: 1 })),
+});
+
+export const MysteryCaseSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	centralQuestion: Type.String({ minLength: 1 }),
+	truthSummary: Type.String({ minLength: 1 }),
+	truthClaims: Type.Array(TruthClaimSchema, { minItems: 1 }),
+	finalAnswerClaimIds: Type.Array(MysteryClaimIdSchema, { minItems: 1 }),
+	socialCore: MysterySocialCoreSchema,
+});
+
+export const MysteryClueSourceTypeSchema = Type.Union([
+	Type.Literal("document"),
+	Type.Literal("physical"),
+	Type.Literal("digital"),
+	Type.Literal("testimony"),
+	Type.Literal("behavior"),
+	Type.Literal("financial"),
+	Type.Literal("medical"),
+	Type.Literal("timeline"),
+	Type.Literal("institutional-record"),
+	Type.Literal("professional-observation"),
+	Type.Literal("other"),
+]);
+
+export const MysteryClueRoleSchema = Type.Union([
+	Type.Literal("fair"),
+	Type.Literal("corroborating"),
+	Type.Literal("ambiguous"),
+	Type.Literal("red-herring"),
+	Type.Literal("payoff"),
+	Type.Literal("exculpatory"),
+]);
+
+export const MysteryReliabilitySchema = Type.Union([
+	Type.Literal("low"),
+	Type.Literal("medium"),
+	Type.Literal("high"),
+]);
+
+export const MysteryClueSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	observableFact: Type.String({ minLength: 1 }),
+	sourceType: MysteryClueSourceTypeSchema,
+	sourceDescription: Type.String({ minLength: 1 }),
+	firstAvailableChapter: Type.Integer({ minimum: 1 }),
+	intendedDiscoveryChapter: Type.Integer({ minimum: 1 }),
+	truthClaimIds: Type.Array(MysteryClaimIdSchema),
+	reliability: MysteryReliabilitySchema,
+	// interpretationOptions 只对 red-herring 强制（checker 校验）；普通线索允许为空。
+	interpretationOptions: Type.Array(Type.String({ minLength: 1 }), { maxItems: 8 }),
+	actualImplication: Type.String({ minLength: 1 }),
+	clueRole: MysteryClueRoleSchema,
+	// realizedChapter：线索真正在正文落地的章节。本轮只做 planned 公平性；realized 证据生命周期为 Round 3 TODO。
+	realizedChapter: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
+export const MysterySuspectActualRoleSchema = Type.Union([
+	Type.Literal("culprit"),
+	Type.Literal("accomplice"),
+	Type.Literal("beneficiary"),
+	Type.Literal("witness"),
+	Type.Literal("concealer"),
+	Type.Literal("red-herring"),
+	Type.Literal("innocent"),
+	Type.Literal("unknown"),
+]);
+
+export const MysterySuspectSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	characterId: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+	publicRole: Type.String({ minLength: 1 }),
+	relationshipToCase: Type.String({ minLength: 1 }),
+	motive: Type.Optional(Type.String({ minLength: 1 })),
+	means: Type.Optional(Type.String({ minLength: 1 })),
+	opportunity: Type.Optional(Type.String({ minLength: 1 })),
+	access: Type.Optional(Type.String({ minLength: 1 })),
+	publicStory: Type.String({ minLength: 1 }),
+	privateSecret: Type.Optional(Type.String({ minLength: 1 })),
+	actualRole: MysterySuspectActualRoleSchema,
+	knowledgeClaimIds: Type.Array(MysteryClaimIdSchema),
+	supportingClueIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	exculpatoryClueIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+});
+
+export const MysteryKnowledgeStateSchema = Type.Object({
+	knowsClaimIds: Type.Array(MysteryClaimIdSchema),
+	suspectsClaimIds: Type.Array(MysteryClaimIdSchema),
+	believesClaimIds: Type.Array(MysteryClaimIdSchema),
+});
+
+export const MysteryCharacterKnowledgeSchema = Type.Object({
+	characterId: Type.String({ minLength: 1, maxLength: 80 }),
+	knowsClaimIds: Type.Array(MysteryClaimIdSchema),
+	suspectsClaimIds: Type.Array(MysteryClaimIdSchema),
+	believesClaimIds: Type.Array(MysteryClaimIdSchema),
+});
+
+export const MysteryInformationCheckpointSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	afterChapter: Type.Integer({ minimum: 1 }),
+	heroine: MysteryKnowledgeStateSchema,
+	reader: MysteryKnowledgeStateSchema,
+	characterKnowledge: Type.Array(MysteryCharacterKnowledgeSchema),
+	newlyAvailableClueIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+});
+
+export const SaveMysteryCaseSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	status: UpdateStatusSchema,
+	case: MysteryCaseSchema,
+	confirmation: ConfirmationSchema,
+});
+
+export const SaveMysteryClueLedgerSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	clues: Type.Array(MysteryClueSchema, { minItems: 1 }),
+});
+
+export const SaveMysterySuspectModelSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	status: UpdateStatusSchema,
+	suspects: Type.Array(MysterySuspectSchema, { minItems: 1 }),
+	confirmation: ConfirmationSchema,
+});
+
+export const SaveMysteryInformationStateSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	checkpoints: Type.Array(MysteryInformationCheckpointSchema, { minItems: 1 }),
+});
+
+export const CheckMysteryDesignSchema = Type.Object({ projectId: ProjectIdSchema });
+export const CheckMysteryFairnessSchema = Type.Object({ projectId: ProjectIdSchema });
 
 export const RepairNovelProjectSchema = Type.Object({ projectId: ProjectIdSchema });
 export const GetNovelStatusSchema = Type.Object({ projectId: ProjectIdSchema });
@@ -276,9 +448,6 @@ export const RecordWritingIssueSchema = Type.Object({
 	status: Type.Union([Type.Literal("open"), Type.Literal("accepted"), Type.Literal("fixed"), Type.Literal("ignored")]),
 	occurrences: Type.Optional(Type.Integer({ minimum: 1 })),
 });
-
-const ConfirmationSchema = Type.Optional(Type.Literal("USER_CONFIRMED"));
-const UpdateStatusSchema = Type.Union([Type.Literal("proposed"), Type.Literal("confirmed")]);
 
 export const UpdateCharacterStateSchema = Type.Object({
 	projectId: ProjectIdSchema,
@@ -856,6 +1025,19 @@ export const FinalizeManuscriptSchema = Type.Object({
 
 export type InitializeNovelParams = Static<typeof InitializeNovelSchema>;
 export type StoryProfileParams = Static<typeof StoryProfileSchema>;
+export type TruthClaim = Static<typeof TruthClaimSchema>;
+export type MysteryCase = Static<typeof MysteryCaseSchema>;
+export type MysterySocialCore = Static<typeof MysterySocialCoreSchema>;
+export type MysteryClue = Static<typeof MysteryClueSchema>;
+export type MysterySuspect = Static<typeof MysterySuspectSchema>;
+export type MysteryKnowledgeState = Static<typeof MysteryKnowledgeStateSchema>;
+export type MysteryInformationCheckpoint = Static<typeof MysteryInformationCheckpointSchema>;
+export type SaveMysteryCaseParams = Static<typeof SaveMysteryCaseSchema>;
+export type SaveMysteryClueLedgerParams = Static<typeof SaveMysteryClueLedgerSchema>;
+export type SaveMysterySuspectModelParams = Static<typeof SaveMysterySuspectModelSchema>;
+export type SaveMysteryInformationStateParams = Static<typeof SaveMysteryInformationStateSchema>;
+export type CheckMysteryDesignParams = Static<typeof CheckMysteryDesignSchema>;
+export type CheckMysteryFairnessParams = Static<typeof CheckMysteryFairnessSchema>;
 export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
 export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
 export type ReadStoryContextParams = Static<typeof ReadStoryContextSchema>;

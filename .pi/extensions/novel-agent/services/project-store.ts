@@ -9,6 +9,16 @@ import type {
 	CheckChaseWifeEventDraftParams,
 	CheckChaseWifeEventSemanticsParams,
 	CheckChaseWifeHarmRepairProgressParams,
+	CheckMysteryDesignParams,
+	CheckMysteryFairnessParams,
+	SaveMysteryCaseParams,
+	SaveMysteryClueLedgerParams,
+	SaveMysteryInformationStateParams,
+	SaveMysterySuspectModelParams,
+	MysteryCase,
+	MysteryClue,
+	MysteryInformationCheckpoint,
+	MysterySuspect,
 	SaveChaseWifeEventSemanticReportParams,
 	SaveChaseWifeHarmLedgerParams,
 	SaveChaseWifeRepairLedgerParams,
@@ -61,7 +71,8 @@ import type {
 	ScoreChaseWifeChapterParams,
 	SemanticEvidenceAnchor,
 } from "../schemas.ts";
-import { hasChaseWifeCapability, normalizePrimaryGenre, normalizeRelationshipMechanism } from "./story-profile.ts";
+import { hasChaseWifeCapability, hasPrimaryGenre, normalizePrimaryGenre, normalizeRelationshipMechanism } from "./story-profile.ts";
+import { checkMysteryDesign, checkMysteryFairness, type MysteryIssue } from "./mystery-checker.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -300,6 +311,7 @@ function hashStableReport(value: unknown): string {
 function defaultTargetWordCount(genre: string): number {
 	return {
 		"chase-wife": 10_000,
+		"female-social-suspense": 12_000,
 		"suspense": 12_000,
 		"urban-romance": 10_000,
 		"light-fantasy": 15_000,
@@ -822,8 +834,13 @@ export class NovelProjectStore {
 		}
 		const now = new Date().toISOString();
 		const genre = normalizePrimaryGenre(params.genre);
+		// 新项目不允许 genre 与 storyProfile.primaryGenre 制造两个冲突真相；历史磁盘项目仍由 resolveStoryProfile 宽容读取。
+		if (params.storyProfile !== undefined && normalizePrimaryGenre(params.storyProfile.primaryGenre) !== genre) {
+			throw new Error(`initialize_novel requires genre and storyProfile.primaryGenre to agree after normalization: "${params.genre}" resolves to "${genre}" but storyProfile.primaryGenre "${params.storyProfile.primaryGenre}" resolves to "${normalizePrimaryGenre(params.storyProfile.primaryGenre)}".`);
+		}
+		const resolvedPrimaryGenre = params.storyProfile === undefined ? genre : normalizePrimaryGenre(params.storyProfile.primaryGenre);
 		const storyProfile = params.storyProfile === undefined ? undefined : {
-			primaryGenre: normalizePrimaryGenre(params.storyProfile.primaryGenre),
+			primaryGenre: resolvedPrimaryGenre,
 			relationshipMechanisms: params.storyProfile.relationshipMechanisms.map(normalizeRelationshipMechanism),
 			...(params.storyProfile.professionalDomain !== undefined ? { professionalDomain: params.storyProfile.professionalDomain } : {}),
 			...(params.storyProfile.themes !== undefined && params.storyProfile.themes.length > 0 ? { themes: params.storyProfile.themes } : {}),
@@ -835,7 +852,7 @@ export class NovelProjectStore {
 			title: params.title,
 			genre,
 			...(storyProfile === undefined ? {} : { storyProfile }),
-			targetWordCount: params.targetWordCount ?? defaultTargetWordCount(genre),
+			targetWordCount: params.targetWordCount ?? defaultTargetWordCount(resolvedPrimaryGenre),
 			status: "planning",
 			nextChapter: 1,
 			finalizedChapters: [],
@@ -960,6 +977,7 @@ export class NovelProjectStore {
 			}
 		};
 		const task = params.task ?? "chapter-writing";
+		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
 		const sections = params.sections ?? (task === "reader-sim" ? ["project", "summaries"] : ["project", "story-bible", "style-guide", "characters", "outline", "timeline", "summaries", "continuity"]);
 		for (const section of sections) {
 			if (section === "project" || section === "story-bible" || section === "style-guide") await addFile(section === "project" ? "project.json" : `${section}.md`, section);
@@ -985,7 +1003,6 @@ export class NovelProjectStore {
 		}
 		if (params.chapter !== undefined) {
 			const current = chapterName(params.chapter);
-			const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
 			await addFile(`outline/chapter-outline.json`, "chapter-outline");
 			await addFile(`work/chapter-plans/${current}.md`, "chapter-plan");
 			await addSceneContract(`work/scene-contracts/${current}.json`);
@@ -1027,13 +1044,29 @@ export class NovelProjectStore {
 			}
 			if (params.includePreviousChapterEnding && params.chapter > 1) await addFile(`chapters/${chapterName(params.chapter - 1)}.md`, "previous-chapter");
 		}
+		// Mystery Engine 上下文：planning / chapter-writing / continuity-review 读取真相、线索、嫌疑与信息状态；
+		// reader-sim 不读取（作者秘密隔离）；不含 female-social-suspense primaryGenre 的项目不读取。
+		if (isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense") && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
+			await addFile("outline/mystery/clue-ledger.json", "mystery-clues");
+			await addFile("outline/mystery/information-state.json", "mystery-information-state");
+			const truthModelPath = (await this.readTextIfExists(this.projectFile(params.projectId, "canon/mystery/truth-model.json"), signal)) !== undefined
+				? "canon/mystery/truth-model.json"
+				: "work/mystery/truth-model-proposed.json";
+			await addFile(truthModelPath, "mystery-truth-model");
+			const suspectModelPath = (await this.readTextIfExists(this.projectFile(params.projectId, "canon/mystery/suspect-model.json"), signal)) !== undefined
+				? "canon/mystery/suspect-model.json"
+				: "work/mystery/suspect-model-proposed.json";
+			await addFile(suspectModelPath, "mystery-suspect-model");
+		}
 		const priority = (part: string): number => {
 			if (part.startsWith("chase-wife-beat-sheet")) return 0;
 			if (part.startsWith("chase-wife-event-map")) return 1;
-			if (part.startsWith("chapter-draft")) return 2;
-			if (part.startsWith("chase-wife-event-draft")) return 3;
-			if (part.startsWith("chapter-plan") || part.startsWith("scene-contract")) return 4;
-			if (part.startsWith("previous-chapter")) return 5;
+			if (part.startsWith("mystery-truth-model")) return 2;
+			if (part.startsWith("mystery-clues") || part.startsWith("mystery-suspect-model") || part.startsWith("mystery-information-state")) return 3;
+			if (part.startsWith("chapter-draft")) return 4;
+			if (part.startsWith("chase-wife-event-draft")) return 5;
+			if (part.startsWith("chapter-plan") || part.startsWith("scene-contract")) return 6;
+			if (part.startsWith("previous-chapter")) return 7;
 			return 10;
 		};
 		parts.sort((left, right) => priority(left) - priority(right));
@@ -2869,6 +2902,126 @@ export class NovelProjectStore {
 		return { ...result, path: relativePath };
 	}
 
+	// ==== Mystery Engine（female-social-suspense）====
+
+	private async ensureMysteryProject(projectId: string, signal?: AbortSignal): Promise<void> {
+		await this.ensureProject(projectId, signal);
+		const project = await this.readJsonIfExists(this.projectFile(projectId, "project.json"), signal);
+		if (!isJsonRecord(project) || !hasPrimaryGenre(project, "female-social-suspense")) throw new Error("This tool is only available for projects with the female-social-suspense primary genre.");
+	}
+
+	private async readMysteryCase(projectId: string, signal?: AbortSignal): Promise<MysteryCase | undefined> {
+		const confirmed = await this.readJsonIfExists(this.projectFile(projectId, "canon/mystery/truth-model.json"), signal);
+		const value = confirmed ?? await this.readJsonIfExists(this.projectFile(projectId, "work/mystery/truth-model-proposed.json"), signal);
+		return isJsonRecord(value) && isJsonRecord(value.case) ? value.case as unknown as MysteryCase : undefined;
+	}
+
+	private async readMysteryClues(projectId: string, signal?: AbortSignal): Promise<MysteryClue[]> {
+		const value = await this.readJsonIfExists(this.projectFile(projectId, "outline/mystery/clue-ledger.json"), signal);
+		if (!isJsonRecord(value) || !Array.isArray(value.clues)) return [];
+		return value.clues.filter((item): item is MysteryClue => isJsonRecord(item) && typeof item.id === "string" && typeof item.observableFact === "string" && typeof item.firstAvailableChapter === "number").map((item) => item as unknown as MysteryClue);
+	}
+
+	private async readMysterySuspects(projectId: string, signal?: AbortSignal): Promise<MysterySuspect[]> {
+		const confirmed = await this.readJsonIfExists(this.projectFile(projectId, "canon/mystery/suspect-model.json"), signal);
+		const value = confirmed ?? await this.readJsonIfExists(this.projectFile(projectId, "work/mystery/suspect-model-proposed.json"), signal);
+		if (!isJsonRecord(value) || !Array.isArray(value.suspects)) return [];
+		return value.suspects.filter((item): item is MysterySuspect => isJsonRecord(item) && typeof item.id === "string" && typeof item.actualRole === "string").map((item) => item as unknown as MysterySuspect);
+	}
+
+	private async readMysteryCheckpoints(projectId: string, signal?: AbortSignal): Promise<MysteryInformationCheckpoint[]> {
+		const value = await this.readJsonIfExists(this.projectFile(projectId, "outline/mystery/information-state.json"), signal);
+		if (!isJsonRecord(value) || !Array.isArray(value.checkpoints)) return [];
+		return value.checkpoints.filter((item): item is MysteryInformationCheckpoint => isJsonRecord(item) && typeof item.id === "string" && typeof item.afterChapter === "number").map((item) => item as unknown as MysteryInformationCheckpoint);
+	}
+
+	async saveMysteryCase(params: SaveMysteryCaseParams, signal?: AbortSignal): Promise<{ projectId: string; status: "proposed" | "confirmed"; path: string }> {
+		await this.ensureMysteryProject(params.projectId, signal);
+		requireConfirmation(params.status, params.confirmation);
+		const claimIds = new Set(params.case.truthClaims.map((claim) => claim.id));
+		if (claimIds.size !== params.case.truthClaims.length) throw new Error("Mystery truth claim IDs must be unique.");
+		const relativePath = params.status === "confirmed" ? "canon/mystery/truth-model.json" : "work/mystery/truth-model-proposed.json";
+		const document = { version: 1, projectId: params.projectId, genre: "mystery", status: params.status, case: params.case, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, status: params.status, path: relativePath };
+	}
+
+	async saveMysteryClueLedger(params: SaveMysteryClueLedgerParams, signal?: AbortSignal): Promise<{ projectId: string; path: string; count: number }> {
+		await this.ensureMysteryProject(params.projectId, signal);
+		if (new Set(params.clues.map((clue) => clue.id)).size !== params.clues.length) throw new Error("Mystery clue IDs must be unique.");
+		const relativePath = "outline/mystery/clue-ledger.json";
+		const existing = await this.readJsonIfExists(this.projectFile(params.projectId, relativePath), signal);
+		const prior = isJsonRecord(existing) && Array.isArray(existing.clues) ? existing.clues.filter(isJsonRecord) : [];
+		const merged = [...prior.filter((item) => !params.clues.some((clue) => clue.id === item.id)), ...params.clues];
+		const document = { version: 1, projectId: params.projectId, genre: "mystery", clues: merged, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, path: relativePath, count: params.clues.length };
+	}
+
+	async saveMysterySuspectModel(params: SaveMysterySuspectModelParams, signal?: AbortSignal): Promise<{ projectId: string; status: "proposed" | "confirmed"; path: string; count: number }> {
+		await this.ensureMysteryProject(params.projectId, signal);
+		requireConfirmation(params.status, params.confirmation);
+		if (new Set(params.suspects.map((suspect) => suspect.id)).size !== params.suspects.length) throw new Error("Mystery suspect IDs must be unique.");
+		const relativePath = params.status === "confirmed" ? "canon/mystery/suspect-model.json" : "work/mystery/suspect-model-proposed.json";
+		const document = { version: 1, projectId: params.projectId, genre: "mystery", status: params.status, suspects: params.suspects, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, status: params.status, path: relativePath, count: params.suspects.length };
+	}
+
+	async saveMysteryInformationState(params: SaveMysteryInformationStateParams, signal?: AbortSignal): Promise<{ projectId: string; path: string; count: number }> {
+		await this.ensureMysteryProject(params.projectId, signal);
+		if (new Set(params.checkpoints.map((checkpoint) => checkpoint.id)).size !== params.checkpoints.length) throw new Error("Mystery information checkpoint IDs must be unique.");
+		const relativePath = "outline/mystery/information-state.json";
+		const document = { version: 1, projectId: params.projectId, genre: "mystery", checkpoints: params.checkpoints, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, path: relativePath, count: params.checkpoints.length };
+	}
+
+	async checkMysteryDesign(params: CheckMysteryDesignParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: MysteryIssue[]; counts: Record<string, number>; path: string }> {
+		await this.ensureMysteryProject(params.projectId, signal);
+		const caseData = await this.readMysteryCase(params.projectId, signal);
+		const clues = await this.readMysteryClues(params.projectId, signal);
+		const suspects = await this.readMysterySuspects(params.projectId, signal);
+		const checkpoints = await this.readMysteryCheckpoints(params.projectId, signal);
+		const issues = checkMysteryDesign(caseData, clues, suspects, checkpoints);
+		const status = (issues.some((item) => item.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const report = {
+			version: 1,
+			projectId: params.projectId,
+			status,
+			issues,
+			counts: { claims: caseData?.truthClaims.length ?? 0, clues: clues.length, suspects: suspects.length, checkpoints: checkpoints.length },
+			sourceHashes: [caseData, clues, suspects, checkpoints].map(hashJson),
+			generatedAt: new Date().toISOString(),
+		};
+		const relativePath = "continuity/reports/mystery-design.json";
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { ...report, path: relativePath };
+	}
+
+	async checkMysteryFairness(params: CheckMysteryFairnessParams, signal?: AbortSignal): Promise<{ projectId: string; verdict: "fair" | "needs-work" | "unfair"; status: "ok" | "warning" | "error"; issues: MysteryIssue[]; supportedFinalClaims: string[]; unsupportedFinalClaims: Array<{ claimId: string; reason: string }>; clueCoverage: Record<string, { available: number; total: number }>; path: string }> {
+		await this.ensureMysteryProject(params.projectId, signal);
+		const caseData = await this.readMysteryCase(params.projectId, signal);
+		const clues = await this.readMysteryClues(params.projectId, signal);
+		const checkpoints = await this.readMysteryCheckpoints(params.projectId, signal);
+		const fairness = checkMysteryFairness(caseData, clues, checkpoints);
+		const status: "ok" | "warning" | "error" = fairness.verdict === "fair" ? "ok" : fairness.verdict === "needs-work" ? "warning" : "error";
+		const report = {
+			version: 1,
+			projectId: params.projectId,
+			verdict: fairness.verdict,
+			status,
+			issues: fairness.issues,
+			supportedFinalClaims: fairness.supportedFinalClaims,
+			unsupportedFinalClaims: fairness.unsupportedFinalClaims,
+			clueCoverage: fairness.clueCoverage,
+			sourceHashes: [caseData, clues, checkpoints].map(hashJson),
+			generatedAt: new Date().toISOString(),
+		};
+		const relativePath = "continuity/reports/mystery-fairness.json";
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { ...report, path: relativePath };
+	}
 	private async writeTransaction(projectId: string, chapter: number, entries: Array<{ relativePath: string; content: string }>, signal?: AbortSignal): Promise<string> {
 		const transactionId = randomUUID();
 		const transactionPath = this.projectFile(projectId, `transactions/${transactionId}.json`);

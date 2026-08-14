@@ -23,7 +23,11 @@
 
 项目使用 Story Profile（`storyProfile`）表达创作 DNA：`primaryGenre`（主题材）、`relationshipMechanisms`（关系机制，如 chase-wife、mature-marriage-crisis）、`professionalDomain`（职业领域）、`themes`（主题）、`storyForm`（故事形态）。旧项目只有 `genre` 字段，按兼容规则解析：`genre = "chase-wife"` 等价于 `primaryGenre = "chase-wife"` 且 `relationshipMechanisms` 含 `chase-wife`。能力解析集中在 `.pi/extensions/novel-agent/services/story-profile.ts`，其余代码一律通过 `hasChaseWifeCapability` 等解析函数判断，不允许散落 genre 字符串判断。
 
-当项目具有 **chase-wife relationship mechanism** 时（无论 primaryGenre 是什么），必须加载 `genre-chase-wife` Skill，并遵守其事件级生成、关系账本、正文锚点和结局契约。追妻文机制只负责关系伤害、女主退出、男方追逐、认知、修复与关系结局资格；它的节奏、开场、主动权、伤害机制和修复规则不得套用于不含该机制的项目。mystery / clue / investigation / 职业写实等由主题材 Skill（如未来的 `genre-female-social-suspense`）负责，两者互不替代。
+当项目 primaryGenre 为 **female-social-suspense** 时，加载 `genre-female-social-suspense` Skill：负责 Mystery Truth（真相声明 DAG）、可观察线索、红鲱鱼公平性、嫌疑模型、信息状态（know/suspect/believe）与社会派根基，并通过 `save_mystery_*` / `check_mystery_design` / `check_mystery_fairness` 工具落地。
+
+当项目具有 **chase-wife relationship mechanism** 时（无论 primaryGenre 是什么），额外加载 `genre-chase-wife` Skill，并遵守其事件级生成、关系账本、正文锚点和结局契约。追妻文机制只负责关系伤害、女主退出、男方追逐、认知、修复与关系结局资格；它的节奏、开场、主动权、伤害机制和修复规则不得套用于不含该机制的项目。
+
+组合项目（female-social-suspense + chase-wife）同时加载两个 Skill，职责互不重叠：mystery 不建立第二套事件流水线，正文仍由 Chase Wife event-level pipeline 管理。Mystery 作者秘密（truthSummary、actualRole、privateSecret、actualImplication）只允许 planning / chapter-writing / continuity-review 读取；reader-sim 一律不得读取。
 
 含 chase-wife mechanism 的项目不得直接调用 `save_chapter_draft` 写整章。固定路径是：
 
@@ -33,4 +37,4 @@
 
 追妻文章节定稿前使用 `check_harm_repair_progress` 检查当前章节的伤害、错误追回、现实后果和修复进度；只有全篇章节定稿后，才运行 `check_chase_wife_ending_eligibility` 验证结局契约。导出前必须执行 `finalize_manuscript`。
 
-其他类型使用各自的 Skill、资源和工具。公共工具可以复用，但类型专属规则、提示词和质量门不得混用；不含 chase-wife mechanism 的项目不得加载 chase-wife 私有台账、报告或门禁。
+其他类型使用各自的 Skill、资源和工具。公共工具可以复用，但类型专属规则、提示词和质量门不得混用；不含 chase-wife mechanism 的项目不得加载 chase-wife 私有台账、报告或门禁；不含 female-social-suspense primaryGenre 的项目不得加载 mystery 私有内容。

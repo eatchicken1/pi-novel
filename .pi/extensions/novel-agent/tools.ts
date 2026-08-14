@@ -6,6 +6,12 @@ import type {
 	CheckChaseWifeEventDraftParams,
 	CheckChaseWifeEventSemanticsParams,
 	CheckChaseWifeHarmRepairProgressParams,
+	CheckMysteryDesignParams,
+	CheckMysteryFairnessParams,
+	SaveMysteryCaseParams,
+	SaveMysteryClueLedgerParams,
+	SaveMysteryInformationStateParams,
+	SaveMysterySuspectModelParams,
 	SaveChaseWifeEventSemanticReportParams,
 	SaveChaseWifeHarmLedgerParams,
 	SaveChaseWifeRepairLedgerParams,
@@ -50,6 +56,12 @@ import {
 	CheckChaseWifeArcSchema,
 	CheckChaseWifeEventDraftSchema,
 	CheckChaseWifeEventSemanticsSchema,
+	CheckMysteryDesignSchema,
+	CheckMysteryFairnessSchema,
+	SaveMysteryCaseSchema,
+	SaveMysteryClueLedgerSchema,
+	SaveMysteryInformationStateSchema,
+	SaveMysterySuspectModelSchema,
 	SaveChaseWifeEventSemanticReportSchema,
 	SaveChaseWifeHarmLedgerSchema,
 	SaveChaseWifeRepairLedgerSchema,
@@ -360,6 +372,89 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		}),
 	);
 
+	pi.registerTool(
+		defineTool({
+			name: "save_mystery_case",
+			label: "Save Mystery Case",
+			description: "Save the mystery truth model (truth claim DAG + social core) as a proposed candidate or user-confirmed canon artifact. Only available for female-social-suspense projects; reader-sim never reads it.",
+			parameters: SaveMysteryCaseSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveMysteryCaseParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveMysteryCase(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_mystery_clue_ledger",
+			label: "Save Mystery Clue Ledger",
+			description: "Save the planned mystery clue ledger: observable facts in the story world with interpretations, reliability, and the truth claims they support. Planned artifacts live under outline/mystery; realized prose evidence binding is a later round.",
+			parameters: SaveMysteryClueLedgerSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveMysteryClueLedgerParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveMysteryClueLedger(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_mystery_suspect_model",
+			label: "Save Mystery Suspect Model",
+			description: "Save suspect author models (motive/means/opportunity/access, public story vs private secret, actual role) as proposed or user-confirmed canon. Only available for female-social-suspense projects.",
+			parameters: SaveMysterySuspectModelSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveMysterySuspectModelParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveMysterySuspectModel(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_mystery_information_state",
+			label: "Save Mystery Information State",
+			description: "Save information checkpoints: what the heroine, reader, and characters know/suspect/believe after each chapter, and which clues newly become available.",
+			parameters: SaveMysteryInformationStateSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveMysteryInformationStateParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveMysteryInformationState(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_mystery_design",
+			label: "Check Mystery Design",
+			description: "Run the deterministic mystery design checker over the truth claim DAG, clue ledger, suspect model, and information checkpoints: references, cycles, reveal timing, red-herring factual basis, information chronology, and social core.",
+			parameters: CheckMysteryDesignSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckMysteryDesignParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkMysteryDesign(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_mystery_fairness",
+			label: "Check Mystery Fairness",
+			description: "Check whether the reader could theoretically reach the core truth before the reveal: supported vs unsupported final claims, clue coverage, deus-ex-machina evidence, and reveal-before-proof problems.",
+			parameters: CheckMysteryFairnessSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckMysteryFairnessParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkMysteryFairness(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
 	const confirmedUpdateTool = (
 		name: string,
 		label: string,

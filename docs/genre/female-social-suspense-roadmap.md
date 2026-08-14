@@ -1,21 +1,34 @@
-# Female Social Suspense 路线图（Round 1 为架构阶段）
+# Female Social Suspense 路线图
 
-本轮（Round 1）只完成 Story DNA / Capability 解耦，不实现神秘引擎。以下阶段为后续轮次规划，本文只写架构路线，不写小说正文。
+## Round 1 完成（架构阶段）
+
+Story DNA / Capability 解耦：primaryGenre = female-social-suspense 可保存并与 chase-wife mechanism 组合；capability resolution 集中实现；legacy genre 兼容。
+
+## Round 2 完成（Mystery Truth & Information Engine）
+
+Mystery Engine 已落地，见 `docs/genre/female-social-suspense-mystery-engine.md`：
+
+- Truth Claim DAG（truth model，proposed/confirmed 生命周期，canon/mystery/truth-model.json）；
+- Observable Evidence / Clue ledger（outline/mystery/clue-ledger.json，observableFact ≠ interpretation，red-herring 公平性硬门）；
+- Suspect model（motive/means/opportunity/access 与 actualRole/privateSecret 分离）；
+- Information state（按章 checkpoint：knows/suspects/believes，KNOW ≠ SUSPECT）；
+- Social Core（socialQuestion / institutionalContext / beneficiaries / costBearers / stakesBeyondRelationship）；
+- 确定性 checker：`check_mystery_design`（引用/环/时序/红鲱鱼/信息边界/社会派根基）与 `check_mystery_fairness`（supported/unsupported final claims、clue coverage、DEUS_EX_MACHINA_CLUE、REVEAL_BEFORE_PROOF）；
+- author-secret 隔离：reader-sim 不读取 canon/mystery（测试固化）；
+- 本轮为 planned 公平性；realized（正文锚点）证据生命周期留待 Round 3。
 
 ## 当前状态
 
-- primaryGenre = female-social-suspense 已可保存并与 chase-wife mechanism 组合；
-- `.pi/skills/genre-female-social-suspense/SKILL.md` 为最小占位 skeleton；
-- 线索、真相、嫌疑、信息状态与调查因果尚未实现（属于 Phase 2+）。
+- female-social-suspense + chase-wife 组合可用：mystery 与关系机制两组工具并行，正文仍走 Chase Wife event-level pipeline；
+- 尚未实现：realized/finalized fairness、Mature Marriage Engine、职业写实库、双引擎事件流水线、多样性检查器、基准作品。
 
-## Phase 2：Mystery Engine
+## Phase 2（主体完成，剩余 realized 证据）
 
-目标：mystery truth 与信息状态的确定性建模。
+Mystery Engine 主体已实现（见上）。剩余：
 
-- schemas：truth model（唯一真相的事实集合与揭示顺序）、suspect model（动机/机会/信息权限）、information state（读者/视角人物/作者三方信息差）；
-- clue ledger：公平线索、误导（red herring）、铺垫回收，替代当前通用的 `continuity/unresolved-clues.json` 演进为按真相绑定；
-- 调查因果：调查动作必须改变信息或风险，避免“线索堆积但剧情不动”；
-- 测试：线索公平性、误导有据、真相可回溯。
+- realized 证据生命周期：clue 正文锚点绑定、`realizedChapter` 落地检查、finalized fairness（正文是否真正兑现 planned 线索）；
+- 调查因果工具：调查动作 → 信息/风险变化（可并入 Phase 5 双引擎事件）；
+- 模型语义层：解释合理性、动机可信度的语义报告。
 
 ## Phase 3：Mature Marriage Engine
 
