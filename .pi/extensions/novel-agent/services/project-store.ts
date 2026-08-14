@@ -1679,7 +1679,18 @@ export class NovelProjectStore {
 			return this.readTextIfExists(this.projectFile(projectId, `chapters/${chapterName(chapter)}.md`), signal);
 		}
 		const assembly = await this.latestChaseWifeAssembly(projectId, chapter, signal);
-		return assembly?.content;
+		if (assembly !== undefined) return assembly.content;
+		// Converged 模式：证据正文来自 unified 装配草稿。
+		const projection = await this.projectChaseWifeChapter(projectId, chapter, signal);
+		if (projection === undefined) return undefined;
+		const assemblyPaths = (await this.listFiles(this.projectFile(projectId, "work/unified-assemblies"), signal)).filter((path) => new RegExp(`${chapterName(chapter)}-r\\d+\\.json$`, "u").test(path)).sort();
+		for (const path of assemblyPaths.reverse()) {
+			const manifest = await this.readJsonIfExists(path, signal);
+			if (!isJsonRecord(manifest) || !isPositiveInteger(manifest.draftRevision) || typeof manifest.assembledHash !== "string") continue;
+			const content = await this.readTextIfExists(this.draftPath(projectId, chapter, manifest.draftRevision), signal);
+			if (content !== undefined && sha256(normalizeText(content)) === manifest.assembledHash) return content;
+		}
+		return undefined;
 	}
 
 	private async validateChaseWifeConfirmedLedgerWrite(
@@ -2486,6 +2497,41 @@ export class NovelProjectStore {
 				for (const repairId of event.repairRefs ?? []) repairRefs.set(repairId, [...(repairRefs.get(repairId) ?? []), reference]);
 			}
 		}
+		// Converged 模式回退：legacy 事件文件不存在时，从 unified 投影 + unified 装配清单构建引用（eventId = unified 事件 id）。
+		if (scopedEventMapCount === 0) {
+			const unifiedMap = await this.readUnifiedEventMap(projectId, signal);
+			if (unifiedMap !== undefined) {
+				for (const chapter of new Set(unifiedMap.events.map((event) => event.chapter))) {
+					const projection = await this.projectChaseWifeChapter(projectId, chapter, signal);
+					if (projection === undefined) continue;
+					if (scope !== "planned" && !await this.isChaseWifeChapterAssembled(projectId, chapter, signal)) continue;
+					scopedEventMapCount += 1;
+					const assemblyPaths = (await this.listFiles(this.projectFile(projectId, "work/unified-assemblies"), signal)).filter((candidate) => new RegExp(`${chapterName(chapter)}-r\d+\.json$`, "u").test(candidate)).sort();
+					let manifestEvents: Array<JsonRecord> = [];
+					for (const candidate of assemblyPaths.reverse()) {
+						const candidateManifest = await this.readJsonIfExists(candidate, signal);
+						if (isJsonRecord(candidateManifest) && Array.isArray(candidateManifest.eventDrafts)) {
+							manifestEvents = candidateManifest.eventDrafts.filter(isJsonRecord);
+							break;
+						}
+					}
+					for (const event of projection.events) {
+						const unifiedId = projection.unifiedEventIds[event.eventId - 1];
+						if (unifiedId === undefined) continue;
+						const manifestEvent = manifestEvents.find((candidate) => candidate.eventId === unifiedId);
+						const reference: ChaseWifeEventReference = { chapter, eventId: unifiedId };
+						if (manifestEvent !== undefined && typeof manifestEvent.startChar === "number" && typeof manifestEvent.endChar === "number" && manifestEvent.endChar > manifestEvent.startChar) {
+							reference.startChar = manifestEvent.startChar;
+							reference.endChar = manifestEvent.endChar;
+							eventRanges.set(`${chapter}:${unifiedId}`, { startChar: manifestEvent.startChar, endChar: manifestEvent.endChar });
+						}
+						eventKeys.add(`${chapter}:${unifiedId}`);
+						for (const harmId of event.harmRefs ?? []) harmRefs.set(harmId, [...(harmRefs.get(harmId) ?? []), reference]);
+						for (const repairId of event.repairRefs ?? []) repairRefs.set(repairId, [...(repairRefs.get(repairId) ?? []), reference]);
+					}
+				}
+			}
+		}
 		return { hasEventMaps: scopedEventMapCount > 0, eventKeys, harmRefs, repairRefs, eventRanges };
 	}
 
@@ -2590,7 +2636,8 @@ export class NovelProjectStore {
 		if (chaseEvents.length === 0) return undefined;
 		const beatSheet = await this.readJsonIfExists(this.projectFile(projectId, "outline/genre/chase-wife-beat-sheet.json"), signal);
 		const beats = isJsonRecord(beatSheet) && Array.isArray(beatSheet.beats) ? beatSheet.beats.filter(isChaseWifeBeat) : [];
-		const inChapterIds = new Map(chapterEvents.map((event, index) => [event.eventId, index + 1]));
+		// causes 只映射 chase 事件的投影序列（非 chase 事件的因果无法在 chase 序列中表示，直接丢弃）。
+		const inChapterIds = new Map(chaseEvents.map((event, index) => [event.eventId, index + 1]));
 		const projectedEvents: ChaseWifeEvent[] = [];
 		const unifiedEventIds: number[] = [];
 		for (const event of chaseEvents) {
@@ -3808,7 +3855,9 @@ export class NovelProjectStore {
 		await this.ensureProject(params.projectId, signal);
 		const design = await this.readSocialSuspenseDesign(params.projectId, signal);
 		const map = await this.readUnifiedEventMap(params.projectId, signal);
-		const issues = design === undefined ? [{ code: "SOCIAL_DESIGN_MISSING", severity: "error" as const, message: "no female social suspense design exists; save_social_suspense_design first" }] : checkSocialSuspenseDesign(design, map);
+		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		const capabilities = { hasProfessional: isJsonRecord(project) && hasProfessionalDomain(project, "insurance-fraud-investigation") };
+		const issues = design === undefined ? [{ code: "SOCIAL_DESIGN_MISSING", severity: "error" as const, message: "no female social suspense design exists; save_social_suspense_design first" }] : checkSocialSuspenseDesign(design, map, capabilities);
 		const status = (issues.some((item) => item.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
 		const report = { version: 1, projectId: params.projectId, status, issues, counts: { mechanisms: design?.socialArchitecture.systemMechanisms.length ?? 0, patterns: design?.marriagePatterns.length ?? 0, dilemmas: design?.professionalDilemmas.length ?? 0, movements: design?.storyMovements.length ?? 0, supportingCharacters: design?.supportingCharacters.length ?? 0 }, sourceHashes: [design, map].map(hashJson), generatedAt: new Date().toISOString() };
 		const relativePath = "continuity/reports/female-social-suspense-design.json";
@@ -4000,7 +4049,8 @@ export class NovelProjectStore {
 				const manifest = await this.readJsonIfExists(manifestPath, signal);
 				if (!isJsonRecord(manifest) || manifest.draftRevision !== params.draftRevision || manifest.assembledHash !== sha256(draft.content) || (!converged && manifest.eventMapHash !== eventMap.eventMapHash)) throw new Error(`Chapter ${params.chapter} requires a current ${converged ? "unified" : "chase-wife"} assembly manifest.`);
 				const manifestEvents = Array.isArray(manifest.eventDrafts) ? manifest.eventDrafts.filter(isJsonRecord) : [];
-				let manifestEventsValid = manifestEvents.length === eventMap.events.length;
+				// Converged 模式：unified 清单覆盖整章事件（多于 chase 投影数），逐事件按 unified id 校验。
+				let manifestEventsValid = converged ? true : manifestEvents.length === eventMap.events.length;
 				for (const [index, event] of eventMap.events.entries()) {
 					if (converged) {
 						const unifiedId = (eventMap.unifiedEventIds ?? [])[index];

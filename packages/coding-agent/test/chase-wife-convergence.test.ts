@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type {
 	ChaseWifeBeat,
+	ChaseWifeEvent,
 	UnifiedChaseWifeDelta,
 	UnifiedEvent,
 } from "../../../.pi/extensions/novel-agent/schemas.ts";
@@ -113,6 +114,49 @@ function beat(
 	};
 }
 
+function chaseEventRecord(eventId: number, role: ChaseWifeEvent["role"]): ChaseWifeEvent {
+	return {
+		eventId,
+		role,
+		beatRefs: undefined,
+		harmRefs: [],
+		repairRefs: [],
+		chronology: "present",
+		scene: eventId,
+		pov: "heroine-first-person",
+		targetTrack: "heroine",
+		paywallHook: false,
+		causes: eventId === 1 ? [] : [eventId - 1],
+		informationDelta: ["新信息"],
+		relationshipDelta: ["关系变化"],
+		resourceDelta: [],
+		riskDelta: [],
+		heroineAgencyBefore: 20,
+		heroineAgencyAfter: 40,
+		heroineAgencyStateBefore: { epistemic: 1, relational: 1, material: 1, social: 1, future: 1 },
+		heroineAgencyStateAfter: { epistemic: 2, relational: 2, material: 2, social: 2, future: 2 },
+		irreversible: false,
+		cannotRemoveBecause: "下一次选择不能回到原地",
+		lengthMode: "standard",
+		minChars: 220,
+		maxChars: 450,
+		eventDescription: "a concrete change",
+		function: "advance the conflict",
+		goal: "protect the choice",
+		conflict: "the old relationship resists",
+		actionOrConsequence: "the choice changes the condition",
+		protagonistReaction: "she responds",
+		oppositionReaction: "he escalates",
+		informationChange: "one new fact",
+		emotionBefore: "expectation",
+		emotionAfter: "resolve",
+		physicalReaction: "she pauses",
+		setupOrPayoff: "prepares a consequence",
+		readerRelease: "the preference becomes visible",
+		entryHook: "the previous choice remains",
+		exitHook: "the next decision approaches",
+	};
+}
 describe("chase wife unified convergence", () => {
 	it("C1: legacy chase-wife event tools reject unified-covered chapters", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-converge-c1-"));
@@ -354,6 +398,59 @@ describe("chase wife unified convergence", () => {
 			expect(pacing.status, JSON.stringify(pacing)).toBe("ok");
 			expect(pacing.eventMapHash).toBeTruthy();
 			expect(pacing.manifestHash).toBeTruthy();
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+	it("FULL2: the legacy chase-wife pipeline keeps running on projects without a unified map", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-converge-full2-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initProject(store, "full2");
+			await store.saveChaseWifeEventMap({
+				projectId: "full2",
+				chapter: 1,
+				povMode: "heroine-first-person",
+				openingIntro: "我把钥匙放在玄关，转身走出家门，夜风把门带上。".repeat(3),
+				openingConflict: "conflict",
+				openingConflictMarker: "钥匙",
+				events: [
+					chaseEventRecord(1, "opening-injury"),
+					chaseEventRecord(2, "micro-withdrawal"),
+					chaseEventRecord(3, "boundary-test"),
+				],
+			});
+			const report = await store.checkChaseWifeEventMap({ projectId: "full2", chapter: 1 });
+			expect(report.status, JSON.stringify(report)).toBe("ok");
+			expect(report.checkedEvents).toBe(3);
+			for (const eventId of [1, 2, 3]) {
+				const content = `legacy draft ${eventId} 内容足够长，重复若干次以保证长度预算。`.repeat(10);
+				await store.saveChaseWifeEventDraft({ projectId: "full2", chapter: 1, eventId, content });
+				await store.checkChaseWifeEventDraft({ projectId: "full2", chapter: 1, eventId });
+				await store.saveChaseWifeEventSemanticReport({
+					projectId: "full2",
+					chapter: 1,
+					eventId,
+					roleSatisfied: true,
+					conflictShown: true,
+					stateDeltasShown: [
+						{ deltaId: "information-1", dimension: "information", delta: "新信息", evidence: anchor(content, 0) },
+						{
+							deltaId: "relationship-1",
+							dimension: "relationship",
+							delta: "关系变化",
+							evidence: anchor(content, 20),
+						},
+					],
+					roleEvidence: anchor(content, 0),
+					conflictEvidence: anchor(content, 20),
+					agencyActionEvidence: anchor(content, 40),
+					entryHookEvidence: anchor(content, 60),
+					exitHookEvidence: anchor(content, 80),
+				});
+			}
+			const assembled = await store.assembleChaseWifeChapter({ projectId: "full2", chapter: 1 });
+			expect(assembled.draftRevision).toBe(1);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

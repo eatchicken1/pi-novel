@@ -36,7 +36,7 @@ function hasExternalDelta(event: { mysteryDelta?: unknown; professionalDelta?: u
 	return "none";
 }
 
-export function checkSocialSuspenseDesign(design: FemaleSocialSuspenseDesign, map: UnifiedEventMap | undefined): VerticalIssue[] {
+export function checkSocialSuspenseDesign(design: FemaleSocialSuspenseDesign, map: UnifiedEventMap | undefined, capabilities: { hasProfessional: boolean } = { hasProfessional: true }): VerticalIssue[] {
 	const issues: VerticalIssue[] = [];
 	const events = map?.events ?? [];
 	const byId = new Map(events.map((event) => [event.eventId, event]));
@@ -104,11 +104,13 @@ export function checkSocialSuspenseDesign(design: FemaleSocialSuspenseDesign, ma
 		if (!design.chaseArcReview.regretWithBeliefChange) issues.push(issue("REGRET_WITHOUT_BELIEF_CHANGE", "warning", "male regret is declared without an old-belief → contradiction → recognition → behavior change chain"));
 	}
 
-	// ==== Professional Plot Dependency ====
+	// ==== Professional Plot Dependency（仅当项目具备职业能力时检查）====
 	const professionalEvents = events.filter((event) => event.professionalDelta !== undefined);
-	const professionalRatio = events.length === 0 ? 0 : professionalEvents.length / events.length;
-	if (professionalRatio < 0.25) issues.push(issue("PROFESSION_REPLACEABLE", "warning", `the profession is replaceable: only ${Math.round(professionalRatio * 100)}% of events reference professional action, observation, authority, workflow, or consequence`));
-	if (design.professionalPlotDependency.dependencyChannels.length === 0) issues.push(issue("PROFESSION_REPLACEABLE", "warning", "professional plot dependency declares no channel through which the profession generates plot"));
+	if (capabilities.hasProfessional) {
+		const professionalRatio = events.length === 0 ? 0 : professionalEvents.length / events.length;
+		if (professionalRatio < 0.25) issues.push(issue("PROFESSION_REPLACEABLE", "warning", `the profession is replaceable: only ${Math.round(professionalRatio * 100)}% of events reference professional action, observation, authority, workflow, or consequence`));
+		if (design.professionalPlotDependency.dependencyChannels.length === 0) issues.push(issue("PROFESSION_REPLACEABLE", "warning", "professional plot dependency declares no channel through which the profession generates plot"));
+	}
 
 	// ==== Collision Quality ====
 	const collisionEvents = events.filter((event) => [event.mysteryDelta, event.marriageDelta, event.chaseWifeDelta, event.professionalDelta].filter((delta) => delta !== undefined).length >= 2);
