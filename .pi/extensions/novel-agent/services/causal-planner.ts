@@ -93,6 +93,9 @@ export function checkCausalLinks(params: {
 }): DesignCheckFinding[] {
 	const findings: DesignCheckFinding[] = [];
 	const { events, causalLinks, anchors, bridgeEvents, promiseTrace } = params;
+	// Round 9（原 Round 8 risk B）：因果分析本身不完整时，先报 CAUSAL_ANALYSIS_INCOMPLETE，
+	// 不再大量误报 filler/info-only/causally-weak。
+	const analysisComplete = causalLinks.length > 0;
 	const eventIds = new Set(events.map((event) => event.eventId));
 	const anchorEventIds = new Set(anchors.filter((anchor) => anchor.eventId !== undefined).map((anchor) => anchor.eventId));
 	const bridgeEventIds = new Set(bridgeEvents.map((bridge) => bridge.eventId));
@@ -113,6 +116,10 @@ export function checkCausalLinks(params: {
 	}
 	for (const bridge of bridgeEvents) {
 		if (!eventIds.has(bridge.eventId)) findings.push({ code: "BRIDGE_REFERENCE_INVALID", severity: "error", message: `bridge event ${bridge.eventId} 不存在`, targetRefs: [String(bridge.eventId)] });
+	}
+	if (!analysisComplete) {
+		findings.push({ code: "CAUSAL_ANALYSIS_INCOMPLETE", severity: "warning", message: "未提供 causalLinks：因果分析不完整，filler/info-only/causally-weak 检查跳过；先声明 StoryCausalLink 再下结论" });
+		return findings;
 	}
 	const sorted = [...events].sort((left, right) => left.chapter - right.chapter || left.eventId - right.eventId);
 	for (const [index, event] of sorted.entries()) {
