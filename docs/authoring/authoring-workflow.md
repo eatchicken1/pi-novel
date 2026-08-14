@@ -33,3 +33,13 @@ Authoring Workflow State 从实际 artifact + reports + project state 动态计�
 ## 确认安全
 
 develop_story_bible 只写 proposed，返回 confirmationRequired + awaitingConfirmation；workflow 自动化不得内部传 USER_CONFIRMED；canon foundation / ending contract / 重大结构重写 / finalization 继续显式确认。
+
+## Round 10：Long-Form Authoring（Narrative Memory）
+
+- 新默认工具：continue_novel（一次一步，遇确认点/P0/重大设计决策/权威变更停下；finalize/export 前内存不 current 先要求 repair）、repair_narrative_memory（recovery）、analyze_revision_impact（advanced）。
+- finalize_chapter 现在提交章节内存（delta → snapshot → 重派生台账），失败只置 memoryOutOfDate，不回滚定稿。
+- get_novel_status 健康摘要：memoryStatus（missing/current/stale）+ 连续性诊断（线程/伏笔/事实/时间线）+ downstreamReviewRequired + 当前 movement。
+- 跨章节写作先 compileAuthoringContext（任务感知 MUST/SHOULD/OPTIONAL + 预算 + sourceRefs + CONTEXT_SOURCE_STALE）；reader-sim 硬边界（作者私密工件一律不进）。
+- 修订先 analyze_revision_impact 定 severity（safe-local / downstream-review / structural-revision / authority-change）再决定重跑范围；truth 变更必须 repair_narrative_memory。
+- finalize_manuscript（finalize_manuscript_unified）Seal V2 绑定内存哈希 + 悬空审计（MANUSCRIPT_DANGLING_MAJOR_THREAD / MANUSCRIPT_DANGLING_SETUP）+ FINALIZATION_DERIVED_STATE_STALE；export 前统一验证封缄。
+- 详见 long-form-memory.md / knowledge-tracking.md / thread-and-payoff-management.md / long-form-context.md / revision-impact.md / long-form-continuity.md / manuscript-finalization.md。

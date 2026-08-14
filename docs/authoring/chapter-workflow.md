@@ -21,3 +21,9 @@ chapter-planning / chapter-drafting / chapter-diagnosis / chapter-revision 任�
 ## Round 9：Scene Design 展开层
 
 plan_chapter 内部：Chapter Plan → Scene Designs（`work/scene-designs/chapter-NNN.json`）→ Scene Contracts。场景有 mode（full/compressed/summary）、beat plan、turn/state change/exit pressure；draft_chapter 接受 scene semantic reports（`work/scene-semantics/`），diagnose_chapter 聚合 scene+prose 检查。详见 scene-intelligence.md / dialogue-and-subtext.md / emotional-rendering.md / information-delivery.md / prose-intelligence.md / prose-revision.md。
+
+## Round 10：Memory Commit 与上下文编译
+
+- finalize_chapter 尾段：定稿 → 章节机械检查 → commitChapterMemory（派生 chapter delta → 写 continuity/memory/chapter-NNN-delta.json → 聚合 current-snapshot → 重派生 continuity/ledgers/* → 清除 memoryOutOfDate）→ 返回 memoryCommitted。任一内存步骤失败只置 memoryOutOfDate:true，定稿不回滚；后续 repair_narrative_memory 全量重建。
+- ChapterSummary V2 是台账派生的声明源：heroineLearned/readerLearned/spouseLearned → 知识三隔离区；threadsOpened/Advanced/Closed → 线程；setups/payoffs → 伏笔；criticalFacts（label/value/unit）→ 事实索引；professionalChange/mysteryProgress/nextPressure → 专业/谜题/出口。
+- 写作上下文改由 compileAuthoringContext 编译（任务感知 MUST/SHOULD/OPTIONAL + 预算裁剪 + sourceRefs）；CONTEXT_SOURCE_STALE 出现时先 repair 再写。见 long-form-context.md。

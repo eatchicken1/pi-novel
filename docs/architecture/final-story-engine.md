@@ -4,6 +4,8 @@
 >
 > 工具体系分为三层：Author Workflow Layer（默认创作流程，见 docs/authoring/ 与 docs/architecture/tool-surface.md）→ Capability Layer（各引擎专家工具，全部保留）→ Artifact / Runtime Layer（读写/修订/哈希/装配/上下文/canon/事务）。SYSTEM.md 已按作者工作流重构。
 >
+> Round 10 新增 Long-Form Narrative Memory 层：跨章节状态全部改为派生视图（delta/snapshot + 11 类台账），finalize_chapter 一章一提交、内存过期可 repair 重建；任务感知上下文编译（MUST/SHOULD/OPTIONAL + 预算 + CONTEXT_SOURCE_STALE + reader-sim 硬边界）；修订先 analyze_revision_impact 定 severity（safe-local / downstream-review / structural-revision / authority-change）；finalize_manuscript_unified 出 Seal V2（章节 + 内存哈希 + 悬空/事实/内存门禁），export 前统一验证。详见 docs/authoring/{long-form-memory,knowledge-tracking,thread-and-payoff-management,long-form-context,revision-impact,long-form-continuity,manuscript-finalization}.md。
+>
 > Round 9 新增 Scene & Prose Intelligence 层：从“故事设计得好”升级为“写出来也好看”。Event ≠ Scene；Scene Design 是 planning 展开层（目标/阻力/策略/turn/状态变化/出口），正文由 Scene Semantic Report（带证据锚点）与 prose 诊断（对话/情绪/信息投放/职业细节/声音/POV）把关；prose 修订默认 Beat → Scene → Event → Chapter 且不得改变 story facts。详见 docs/authoring/{scene-intelligence,dialogue-and-subtext,emotional-rendering,information-delivery,prose-intelligence,prose-revision}.md。
 >
 > Round 8 新增 Story Design Intelligence 层：从“会编排创作流程”升级为“真正会设计故事”。premise → 方向探索 → 概念 → Foundation 合成（交叉因果）→ Ending 反向设计 → 角色决策 → Anchor Spine → 架构候选与评审 → 因果事件图。详见 docs/authoring/story-design-intelligence.md 及 docs/authoring/{story-direction-exploration,ending-backward-design,causal-story-architecture,story-design-review}.md。设计层产物全部为 proposal/analysis（work/authoring/，作者私有），不构成新的 story authority。
@@ -64,3 +66,26 @@ Unified Narrative Event Layer（唯一事件整合层）
 - 无静默同步：professional observation 不自动建线索、marriage change 不自动建 harm；统一层只引用 + 验证；
 - 作者秘密隔离：canon/work/outline 下的 mystery/marriage/professional/unified 路径对 reader-sim 硬隔离（Windows 路径安全）；
 - 确定性 checker 不输出伪造分数：distinctiveness 评审由模型撰写，checker 只算统计并交叉验证模型声称。
+
+## 章节生产管线（Round 10）
+
+```
+Story Design -> Unified Event -> Scene Design -> Prose -> Realization
+        -> Chapter Finalization（正文 + ChapterSummary V2 定稿）
+        -> State Delta（continuity/memory/chapter-NNN-delta.json）
+        -> Narrative Memory（current-snapshot + 11 类 ledger 重派生；memoryOutOfDate / repair）
+        -> Context Compiler（任务感知 MUST/SHOULD/OPTIONAL -> 下一章写作）
+
+修订路径：
+Revision（revise_chapter / 结构手术）
+        -> Revision Impact Analysis（safe-local / downstream-review / structural-revision / authority-change）
+        -> Derived Invalidation（源哈希 -> 台账 stale）
+        -> Rebuild（repair_narrative_memory 全量重派生）
+        -> Downstream Review（affectedChapters 重审）-> 重跑连续性门禁 -> Seal V2
+```
+
+## 测试（Round 10）
+
+| 组 | 文件 | 覆盖 |
+| --- | --- | --- |
+| J | long-form-memory.test.ts | LM1-LM20 派生台账、CTX-L1-L6 上下文编译与隐私、MR1-MR10 修订影响、FIN-L1-L7 封缄、场景 A-J、冷启动重建（新 store 实例只读磁盘） |

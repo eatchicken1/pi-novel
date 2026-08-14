@@ -8,8 +8,8 @@ DEVELOP: develop_story_concept, develop_story_bible
 ARCHITECT: design_story_architecture, review_story_design, revise_story_architecture, build_narrative_event_graph
 WRITE: plan_chapter, draft_chapter
 REVISE: diagnose_chapter, revise_chapter, review_manuscript
-FINALIZE: finalize_chapter, finalize_manuscript, export_manuscript
-UTILITY: read_story_context
+FINALIZE: finalize_chapter（提交章节内存）, finalize_manuscript（Seal V2 + 悬空/内存门禁）, export_manuscript（导出前统一封缄验证）
+UTILITY: read_story_context, compileAuthoringContext, continue_novel, get_novel_status（健康摘要）
 
 Round 8 新增三个 Author Tool：explore_story_directions（premise → 多个真正不同的方向）、review_story_design（PRE-DRAFT 设计评审 P0-P4）、revise_story_architecture（局部架构修订 + 版本 lineage + foundation 保护）。其余为升级：develop_story_concept 支持 direction selection（作者确认与系统推荐严格区分）、develop_story_bible 支持 Foundation Link Map / Promise Ledger / Ending Architecture / Character Decisions / Mystery candidates、design_story_architecture 支持 2-3 个 architecture candidates、build_narrative_event_graph 走 Anchor Spine 管道、plan_chapter 消除占位、draft_chapter 输出 repairability 分类。
 
@@ -19,7 +19,7 @@ save/check_mystery_case|clue_ledger|suspect_model|information_state|design|fairn
 
 ## LOW-LEVEL / RECOVERY TOOLS
 
-save_story_document / save_canon_document / save_chapter_plan / save_scene_contract / save_chapter_draft / save_continuity_report / update_character_state / update_clue_ledger / update_timeline / save_workflow_checkpoint / repair_novel_project 等。
+save_story_document / save_canon_document / save_chapter_plan / save_scene_contract / save_chapter_draft / save_continuity_report / update_character_state / update_clue_ledger / update_timeline / save_workflow_checkpoint / repair_novel_project / repair_narrative_memory（内存全量重建）等。
 
 ## 使用原则
 
@@ -27,3 +27,9 @@ save_story_document / save_canon_document / save_chapter_plan / save_scene_contr
 - 需要调试 / 手动覆盖 / 专家规划 / workflow repair 时才直接调用 capability tools；
 - 上层 tool 是 orchestrator，不是 bypass：不得绕过 Professional authority / Mystery fairness / Unified validation / USER_CONFIRMED；
 - 用户说「帮我把这个创意发展一下」→ develop_story_concept；「规划第 8 章」→ plan_chapter；「这章有问题吗」→ diagnose_chapter；「把这些问题修掉」→ revise_chapter；「全书结构怎么样」→ review_manuscript。
+
+## Round 10：Long-Form 工具
+
+- 新增：continue_novel（默认，一次一步）、repair_narrative_memory（recovery）、analyze_revision_impact（advanced）、compileAuthoringContext（默认编排内部调用）。
+- finalize_chapter / review_manuscript / finalize_manuscript_unified / export_manuscript / get_novel_status 全部接入 Narrative Memory（提交/审计/封缄/健康摘要）。
+- 详见 docs/authoring/{long-form-memory,long-form-context,revision-impact,long-form-continuity,manuscript-finalization}.md。
