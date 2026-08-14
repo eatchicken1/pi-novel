@@ -333,6 +333,316 @@ export const SaveMysteryInformationStateSchema = Type.Object({
 
 export const CheckMysteryDesignSchema = Type.Object({ projectId: ProjectIdSchema });
 export const CheckMysteryFairnessSchema = Type.Object({ projectId: ProjectIdSchema });
+// ==== Mature Marriage Crisis（structural relationship mechanism）====
+
+export const MarriageActorSchema = Type.Union([
+	Type.Literal("protagonist"),
+	Type.Literal("spouse"),
+	Type.Literal("shared"),
+	Type.Literal("third-party"),
+	Type.Literal("external"),
+	Type.Literal("unknown"),
+]);
+
+export const MarriageEconomicItemKindSchema = Type.Union([
+	Type.Literal("housing"),
+	Type.Literal("asset"),
+	Type.Literal("debt"),
+	Type.Literal("income-stream"),
+	Type.Literal("recurring-expense"),
+	Type.Literal("business-interest"),
+	Type.Literal("family-transfer"),
+	Type.Literal("benefit"),
+	Type.Literal("other"),
+]);
+
+export const MarriageAccessSchema = Type.Union([
+	Type.Literal("full"),
+	Type.Literal("limited"),
+	Type.Literal("none"),
+	Type.Literal("unknown"),
+]);
+
+export const MarriageEconomicItemSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	kind: MarriageEconomicItemKindSchema,
+	description: Type.String({ minLength: 1 }),
+	control: MarriageActorSchema,
+	protagonistAccess: MarriageAccessSchema,
+	spouseAccess: MarriageAccessSchema,
+	liquidity: Type.Optional(Type.Union([Type.Literal("liquid"), Type.Literal("illiquid"), Type.Literal("not-applicable"), Type.Literal("unknown")])),
+	exitConsequence: Type.String({ minLength: 1 }),
+	ongoingBurden: Type.Optional(Type.String({ minLength: 1 })),
+	// legalOrOwnershipNarrative 只是作者提供的故事事实，不是系统法律推断。
+	legalOrOwnershipNarrative: Type.Optional(Type.String({ minLength: 1 })),
+	relatedResponsibilityIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+});
+
+export const MarriageResponsibilityDomainSchema = Type.Union([
+	Type.Literal("domestic"),
+	Type.Literal("childcare"),
+	Type.Literal("eldercare"),
+	Type.Literal("financial"),
+	Type.Literal("health-care"),
+	Type.Literal("family-administration"),
+	Type.Literal("career-support"),
+	Type.Literal("social-maintenance"),
+	Type.Literal("emotional-labor"),
+	Type.Literal("other"),
+]);
+
+export const MarriageFrequencySchema = Type.Union([
+	Type.Literal("daily"),
+	Type.Literal("weekly"),
+	Type.Literal("recurring"),
+	Type.Literal("episodic"),
+	Type.Literal("crisis-only"),
+]);
+
+export const MarriageSubstitutabilitySchema = Type.Union([
+	Type.Literal("easy"),
+	Type.Literal("difficult"),
+	Type.Literal("none"),
+	Type.Literal("unknown"),
+]);
+
+export const MarriageResponsibilitySchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	domain: MarriageResponsibilityDomainSchema,
+	description: Type.String({ minLength: 1 }),
+	beneficiaryDescription: Type.String({ minLength: 1 }),
+	expectedAllocation: Type.Optional(MarriageActorSchema),
+	actualPrimaryBearer: Type.Optional(MarriageActorSchema),
+	backupBearer: Type.Optional(MarriageActorSchema),
+	frequency: Type.Optional(MarriageFrequencySchema),
+	substitutability: MarriageSubstitutabilitySchema,
+	failureConsequence: Type.String({ minLength: 1 }),
+	recognizedByBoth: Type.Union([Type.Boolean(), Type.Literal("unknown")]),
+	relatedEconomicItemIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+});
+
+export const MarriageDecisionRightDomainSchema = Type.Union([
+	Type.Literal("housing"),
+	Type.Literal("finance"),
+	Type.Literal("career"),
+	Type.Literal("childcare"),
+	Type.Literal("eldercare"),
+	Type.Literal("family-contact"),
+	Type.Literal("health"),
+	Type.Literal("relocation"),
+	Type.Literal("social"),
+	Type.Literal("business"),
+	Type.Literal("other"),
+]);
+
+export const MarriageDecisionRightSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	domain: MarriageDecisionRightDomainSchema,
+	decisionDescription: Type.String({ minLength: 1 }),
+	formalExpectation: Type.String({ minLength: 1 }),
+	practicalController: MarriageActorSchema,
+	vetoHolder: Type.Optional(MarriageActorSchema),
+	affectedResponsibilityIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	affectedEconomicItemIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	consequenceOfDisagreement: Type.String({ minLength: 1 }),
+});
+
+export const MarriageSocialTieKindSchema = Type.Union([
+	Type.Literal("family"),
+	Type.Literal("friend"),
+	Type.Literal("colleague"),
+	Type.Literal("business"),
+	Type.Literal("client"),
+	Type.Literal("community"),
+	Type.Literal("school-parent-network"),
+	Type.Literal("neighborhood"),
+	Type.Literal("other"),
+]);
+
+export const MarriageSocialTieSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	kind: MarriageSocialTieKindSchema,
+	description: Type.String({ minLength: 1 }),
+	connection: MarriageActorSchema,
+	dependenceOrLeverage: Type.String({ minLength: 1 }),
+	informationExposure: Type.String({ minLength: 1 }),
+	exitConsequence: Type.String({ minLength: 1 }),
+});
+
+export const MarriageInertiaCategorySchema = Type.Union([
+	Type.Literal("shared-history"),
+	Type.Literal("routine"),
+	Type.Literal("identity"),
+	Type.Literal("sunk-cost"),
+	Type.Literal("family-expectation"),
+	Type.Literal("economic-dependence"),
+	Type.Literal("care-dependence"),
+	Type.Literal("social-image"),
+	Type.Literal("parenting-stability"),
+	Type.Literal("career-entanglement"),
+	Type.Literal("hope"),
+	Type.Literal("other"),
+]);
+
+export const MarriageInertiaFactorSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	category: MarriageInertiaCategorySchema,
+	description: Type.String({ minLength: 1 }),
+	sourceRefIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	keepsRelationshipBecause: Type.String({ minLength: 1 }),
+	breakingCondition: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const MarriageExitConstraintCategorySchema = Type.Union([
+	Type.Literal("economic"),
+	Type.Literal("housing"),
+	Type.Literal("debt"),
+	Type.Literal("childcare"),
+	Type.Literal("eldercare"),
+	Type.Literal("care"),
+	Type.Literal("family"),
+	Type.Literal("career"),
+	Type.Literal("social"),
+	Type.Literal("reputation"),
+	Type.Literal("health"),
+	Type.Literal("safety"),
+	Type.Literal("procedural"),
+	Type.Literal("other"),
+]);
+
+export const MarriageSeveritySchema = Type.Union([
+	Type.Literal("low"),
+	Type.Literal("medium"),
+	Type.Literal("high"),
+	Type.Literal("critical"),
+]);
+
+export const MarriageTimeHorizonSchema = Type.Union([
+	Type.Literal("immediate"),
+	Type.Literal("short-term"),
+	Type.Literal("long-term"),
+]);
+
+export const MarriageReducibilitySchema = Type.Union([
+	Type.Literal("removable"),
+	Type.Literal("reducible"),
+	Type.Literal("fixed"),
+	Type.Literal("unknown"),
+]);
+
+export const MarriageExitConstraintSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	category: MarriageExitConstraintCategorySchema,
+	description: Type.String({ minLength: 1 }),
+	sourceRefIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	externalSourceDescription: Type.Optional(Type.String({ minLength: 1 })),
+	affectedParties: Type.Array(Type.String({ minLength: 1 })),
+	severity: MarriageSeveritySchema,
+	timeHorizon: MarriageTimeHorizonSchema,
+	reducibility: MarriageReducibilitySchema,
+	mitigationOptions: Type.Array(Type.String({ minLength: 1 })),
+	unresolvedConsequence: Type.String({ minLength: 1 }),
+});
+
+export const MatureMarriageStructureSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	protagonistCharacterId: Type.String({ minLength: 1, maxLength: 80 }),
+	spouseCharacterId: Type.String({ minLength: 1, maxLength: 80 }),
+	relationshipContext: Type.Optional(Type.String({ minLength: 1 })),
+	economicItems: Type.Array(MarriageEconomicItemSchema),
+	responsibilities: Type.Array(MarriageResponsibilitySchema),
+	decisionRights: Type.Array(MarriageDecisionRightSchema),
+	socialTies: Type.Array(MarriageSocialTieSchema),
+	inertiaFactors: Type.Array(MarriageInertiaFactorSchema),
+	exitConstraints: Type.Array(MarriageExitConstraintSchema),
+});
+
+export const MarriageRestructuringModeSchema = Type.Union([
+	Type.Literal("remain-with-renegotiation"),
+	Type.Literal("trial-separation"),
+	Type.Literal("separate-households"),
+	Type.Literal("divorce-intent"),
+	Type.Literal("independent-exit"),
+	Type.Literal("unresolved"),
+]);
+
+export const MarriageChangeFeasibilitySchema = Type.Union([
+	Type.Literal("ready"),
+	Type.Literal("difficult"),
+	Type.Literal("blocked"),
+	Type.Literal("unresolved"),
+]);
+
+export const MarriageResourceChangeSchema = Type.Object({
+	economicItemId: Type.String({ minLength: 1, maxLength: 80 }),
+	beforeAccess: Type.Optional(MarriageAccessSchema),
+	afterAccess: Type.Optional(MarriageAccessSchema),
+	action: Type.String({ minLength: 1 }),
+	remainingRisk: Type.String({ minLength: 1 }),
+});
+
+export const MarriageResponsibilityChangeSchema = Type.Object({
+	responsibilityId: Type.String({ minLength: 1, maxLength: 80 }),
+	beforeBearer: Type.Optional(MarriageActorSchema),
+	afterBearer: Type.Optional(MarriageActorSchema),
+	transitionAction: Type.String({ minLength: 1 }),
+	feasibility: MarriageChangeFeasibilitySchema,
+	remainingConsequence: Type.String({ minLength: 1 }),
+});
+
+export const MarriageDecisionRightChangeSchema = Type.Object({
+	decisionRightId: Type.String({ minLength: 1, maxLength: 80 }),
+	beforeController: Type.Optional(MarriageActorSchema),
+	afterController: Type.Optional(MarriageActorSchema),
+	action: Type.String({ minLength: 1 }),
+	remainingConflict: Type.String({ minLength: 1 }),
+});
+
+export const MarriageSocialTieChangeSchema = Type.Object({
+	socialTieId: Type.String({ minLength: 1, maxLength: 80 }),
+	plannedChange: Type.String({ minLength: 1 }),
+	informationRisk: Type.String({ minLength: 1 }),
+	relationshipCost: Type.String({ minLength: 1 }),
+	remainingDependency: Type.String({ minLength: 1 }),
+});
+
+export const MarriageConstraintResponseSchema = Type.Object({
+	constraintId: Type.String({ minLength: 1, maxLength: 80 }),
+	strategy: Type.String({ minLength: 1 }),
+	status: Type.Union([Type.Literal("addressed"), Type.Literal("mitigated"), Type.Literal("accepted"), Type.Literal("unresolved")]),
+	remainingConsequence: Type.String({ minLength: 1 }),
+});
+
+export const MatureMarriageRestructuringPlanSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	mode: MarriageRestructuringModeSchema,
+	protagonistGoal: Type.String({ minLength: 1 }),
+	resourceChanges: Type.Array(MarriageResourceChangeSchema),
+	responsibilityChanges: Type.Array(MarriageResponsibilityChangeSchema),
+	decisionRightChanges: Type.Array(MarriageDecisionRightChangeSchema),
+	socialTieChanges: Type.Array(MarriageSocialTieChangeSchema),
+	constraintResponses: Type.Array(MarriageConstraintResponseSchema),
+	nonNegotiableBoundaries: Type.Array(Type.String({ minLength: 1 })),
+	unresolvedDependencies: Type.Array(Type.String({ minLength: 1 })),
+});
+
+export const SaveMatureMarriageStructureSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	status: UpdateStatusSchema,
+	structure: MatureMarriageStructureSchema,
+	confirmation: ConfirmationSchema,
+});
+
+export const SaveMatureMarriageRestructuringSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	status: UpdateStatusSchema,
+	plan: MatureMarriageRestructuringPlanSchema,
+	confirmation: ConfirmationSchema,
+});
+
+export const CheckMatureMarriageStructureSchema = Type.Object({ projectId: ProjectIdSchema });
+export const CheckMatureMarriageRestructuringSchema = Type.Object({ projectId: ProjectIdSchema });
+
 
 export const RepairNovelProjectSchema = Type.Object({ projectId: ProjectIdSchema });
 export const GetNovelStatusSchema = Type.Object({ projectId: ProjectIdSchema });
@@ -1068,6 +1378,19 @@ export type SaveMysterySuspectModelParams = Static<typeof SaveMysterySuspectMode
 export type SaveMysteryInformationStateParams = Static<typeof SaveMysteryInformationStateSchema>;
 export type CheckMysteryDesignParams = Static<typeof CheckMysteryDesignSchema>;
 export type CheckMysteryFairnessParams = Static<typeof CheckMysteryFairnessSchema>;
+export type MarriageEconomicItem = Static<typeof MarriageEconomicItemSchema>;
+export type MarriageResponsibility = Static<typeof MarriageResponsibilitySchema>;
+export type MarriageDecisionRight = Static<typeof MarriageDecisionRightSchema>;
+export type MarriageSocialTie = Static<typeof MarriageSocialTieSchema>;
+export type MarriageInertiaFactor = Static<typeof MarriageInertiaFactorSchema>;
+export type MarriageExitConstraint = Static<typeof MarriageExitConstraintSchema>;
+export type MatureMarriageStructure = Static<typeof MatureMarriageStructureSchema>;
+export type MatureMarriageRestructuringPlan = Static<typeof MatureMarriageRestructuringPlanSchema>;
+export type MarriageConstraintResponse = Static<typeof MarriageConstraintResponseSchema>;
+export type SaveMatureMarriageStructureParams = Static<typeof SaveMatureMarriageStructureSchema>;
+export type SaveMatureMarriageRestructuringParams = Static<typeof SaveMatureMarriageRestructuringSchema>;
+export type CheckMatureMarriageStructureParams = Static<typeof CheckMatureMarriageStructureSchema>;
+export type CheckMatureMarriageRestructuringParams = Static<typeof CheckMatureMarriageRestructuringSchema>;
 export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
 export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
 export type ReadStoryContextParams = Static<typeof ReadStoryContextSchema>;

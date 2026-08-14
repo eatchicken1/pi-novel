@@ -25,9 +25,11 @@
 
 当项目 primaryGenre 为 **female-social-suspense** 时，加载 `genre-female-social-suspense` Skill：负责 Mystery Truth（真相声明 DAG）、可观察线索、红鲱鱼公平性、嫌疑模型、信息状态（know/suspect/believe）与社会派根基，并通过 `save_mystery_*` / `check_mystery_design` / `check_mystery_fairness` 工具落地。
 
+当项目具有 **mature-marriage-crisis relationship mechanism** 时，加载 `mechanism-mature-marriage-crisis` Skill：负责长期婚姻的结构性纠缠（经济单元、照护责任、决策权、社会纠缠、婚姻惯性、退出约束）与 restructuring 责任再分配；它只描述结构事实，不自动创建 Chase Wife harm，不做道德与法律判断。
+
 当项目具有 **chase-wife relationship mechanism** 时（无论 primaryGenre 是什么），额外加载 `genre-chase-wife` Skill，并遵守其事件级生成、关系账本、正文锚点和结局契约。追妻文机制只负责关系伤害、女主退出、男方追逐、认知、修复与关系结局资格；它的节奏、开场、主动权、伤害机制和修复规则不得套用于不含该机制的项目。
 
-组合项目（female-social-suspense + chase-wife）同时加载两个 Skill，职责互不重叠：mystery 不建立第二套事件流水线，正文仍由 Chase Wife event-level pipeline 管理。Mystery 作者秘密（truthSummary、actualRole、privateSecret、actualImplication）只允许 planning / chapter-writing / continuity-review 读取；reader-sim 一律不得读取。
+组合项目（如 female-social-suspense + mature-marriage-crisis + chase-wife）同时加载对应 Skill（主题材 + 每个机制各一个），职责互不重叠：mystery 不建立第二套事件流水线，正文仍由 Chase Wife event-level pipeline 管理；Marriage 结构不自动生成关系伤害。作者秘密（Mystery 的 truthSummary/actualRole/privateSecret/actualImplication/proofPaths，Marriage 的 structure/restructuring）只允许 planning / chapter-writing / continuity-review 读取；reader-sim 一律不得读取。
 
 含 chase-wife mechanism 的项目不得直接调用 `save_chapter_draft` 写整章。固定路径是：
 

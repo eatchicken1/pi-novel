@@ -92,3 +92,8 @@ export function hasChaseWifeCapability(project: Record<string, unknown>): boolea
 export function hasPrimaryGenre(project: Record<string, unknown>, genre: string): boolean {
 	return resolveStoryProfile(project).primaryGenre === normalizePrimaryGenre(genre);
 }
+
+// Mature Marriage Crisis：structural relationship mechanism（不是 genre，不是 Chase Wife alias）。
+export function hasMatureMarriageCapability(project: Record<string, unknown>): boolean {
+	return hasRelationshipMechanism(project, "mature-marriage-crisis");
+}

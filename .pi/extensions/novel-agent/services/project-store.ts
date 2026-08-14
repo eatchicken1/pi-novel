@@ -9,8 +9,14 @@ import type {
 	CheckChaseWifeEventDraftParams,
 	CheckChaseWifeEventSemanticsParams,
 	CheckChaseWifeHarmRepairProgressParams,
+	CheckMatureMarriageRestructuringParams,
+	CheckMatureMarriageStructureParams,
 	CheckMysteryDesignParams,
 	CheckMysteryFairnessParams,
+	SaveMatureMarriageRestructuringParams,
+	SaveMatureMarriageStructureParams,
+	MatureMarriageStructure,
+	MatureMarriageRestructuringPlan,
 	SaveMysteryCaseParams,
 	SaveMysteryClueLedgerParams,
 	SaveMysteryInformationStateParams,
@@ -71,8 +77,9 @@ import type {
 	ScoreChaseWifeChapterParams,
 	SemanticEvidenceAnchor,
 } from "../schemas.ts";
-import { hasChaseWifeCapability, hasPrimaryGenre, normalizePrimaryGenre, normalizeRelationshipMechanism } from "./story-profile.ts";
+import { hasChaseWifeCapability, hasMatureMarriageCapability, hasPrimaryGenre, normalizePrimaryGenre, normalizeRelationshipMechanism } from "./story-profile.ts";
 import { checkMysteryDesign, checkMysteryFairness, isMysteryPrivatePath, type MysteryIssue } from "./mystery-checker.ts";
+import { checkMatureMarriageRestructuring, checkMatureMarriageStructure, isMarriagePrivatePath, type MarriageIssue } from "./marriage-checker.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -922,7 +929,7 @@ export class NovelProjectStore {
 			if (added.has(relativePath)) return;
 			// reader-sim 硬隔离（defense-in-depth）：canon/work/outline 下的 mystery 作者规划路径都不得进入 reader 上下文，
 			// 统一  → / 后按 author-private roots 判定（Windows 路径同样生效），即使未来修改 sections 也不能泄漏作者秘密。
-			if ((params.task ?? "chapter-writing") === "reader-sim" && isMysteryPrivatePath(relativePath)) {
+			if ((params.task ?? "chapter-writing") === "reader-sim" && (isMysteryPrivatePath(relativePath) || isMarriagePrivatePath(relativePath))) {
 				excludedFiles.push(relativePath);
 				return;
 			}
@@ -1050,6 +1057,18 @@ export class NovelProjectStore {
 			}
 			if (params.includePreviousChapterEnding && params.chapter > 1) await addFile(`chapters/${chapterName(params.chapter - 1)}.md`, "previous-chapter");
 		}
+		// Marriage Engine 上下文：planning / chapter-writing / continuity-review 读取结构（confirmed 优先，否则 proposed）；
+		// reader-sim 不读取（作者秘密隔离：restructuring 可能泄露未来分居/离婚安排）。
+		if (isJsonRecord(project) && hasMatureMarriageCapability(project) && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
+			const structurePath = (await this.readTextIfExists(this.projectFile(params.projectId, "canon/marriage/structure.json"), signal)) !== undefined
+				? "canon/marriage/structure.json"
+				: "work/marriage/structure-proposed.json";
+			await addFile(structurePath, "marriage-structure");
+			const restructuringPath = (await this.readTextIfExists(this.projectFile(params.projectId, "canon/marriage/restructuring.json"), signal)) !== undefined
+				? "canon/marriage/restructuring.json"
+				: "work/marriage/restructuring-proposed.json";
+			await addFile(restructuringPath, "marriage-restructuring");
+		}
 		// Mystery Engine 上下文：planning / chapter-writing / continuity-review 读取真相、线索、嫌疑与信息状态；
 		// reader-sim 不读取（作者秘密隔离）；不含 female-social-suspense primaryGenre 的项目不读取。
 		if (isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense") && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
@@ -1069,10 +1088,11 @@ export class NovelProjectStore {
 			if (part.startsWith("chase-wife-event-map")) return 1;
 			if (part.startsWith("mystery-truth-model")) return 2;
 			if (part.startsWith("mystery-clues") || part.startsWith("mystery-suspect-model") || part.startsWith("mystery-information-state")) return 3;
-			if (part.startsWith("chapter-draft")) return 4;
-			if (part.startsWith("chase-wife-event-draft")) return 5;
-			if (part.startsWith("chapter-plan") || part.startsWith("scene-contract")) return 6;
-			if (part.startsWith("previous-chapter")) return 7;
+			if (part.startsWith("marriage-structure") || part.startsWith("marriage-restructuring")) return 4;
+			if (part.startsWith("chapter-draft")) return 5;
+			if (part.startsWith("chase-wife-event-draft")) return 6;
+			if (part.startsWith("chapter-plan") || part.startsWith("scene-contract")) return 7;
+			if (part.startsWith("previous-chapter")) return 8;
 			return 10;
 		};
 		parts.sort((left, right) => priority(left) - priority(right));
@@ -3026,6 +3046,83 @@ export class NovelProjectStore {
 			generatedAt: new Date().toISOString(),
 		};
 		const relativePath = "continuity/reports/mystery-fairness.json";
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { ...report, path: relativePath };
+	}
+	// ==== Mature Marriage Crisis（structural relationship mechanism）====
+
+	private async ensureMatureMarriageProject(projectId: string, signal?: AbortSignal): Promise<void> {
+		await this.ensureProject(projectId, signal);
+		const project = await this.readJsonIfExists(this.projectFile(projectId, "project.json"), signal);
+		if (!isJsonRecord(project) || !hasMatureMarriageCapability(project)) throw new Error("This tool is only available for projects with the mature-marriage-crisis relationship mechanism.");
+	}
+
+	private async readMatureMarriageStructure(projectId: string, signal?: AbortSignal): Promise<MatureMarriageStructure | undefined> {
+		const confirmed = await this.readJsonIfExists(this.projectFile(projectId, "canon/marriage/structure.json"), signal);
+		const value = confirmed ?? await this.readJsonIfExists(this.projectFile(projectId, "work/marriage/structure-proposed.json"), signal);
+		return isJsonRecord(value) && isJsonRecord(value.structure) ? value.structure as unknown as MatureMarriageStructure : undefined;
+	}
+
+	private async readMatureMarriageRestructuring(projectId: string, signal?: AbortSignal): Promise<MatureMarriageRestructuringPlan | undefined> {
+		const confirmed = await this.readJsonIfExists(this.projectFile(projectId, "canon/marriage/restructuring.json"), signal);
+		const value = confirmed ?? await this.readJsonIfExists(this.projectFile(projectId, "work/marriage/restructuring-proposed.json"), signal);
+		return isJsonRecord(value) && isJsonRecord(value.plan) ? value.plan as unknown as MatureMarriageRestructuringPlan : undefined;
+	}
+
+	async saveMatureMarriageStructure(params: SaveMatureMarriageStructureParams, signal?: AbortSignal): Promise<{ projectId: string; status: "proposed" | "confirmed"; path: string }> {
+		await this.ensureMatureMarriageProject(params.projectId, signal);
+		requireConfirmation(params.status, params.confirmation);
+		const relativePath = params.status === "confirmed" ? "canon/marriage/structure.json" : "work/marriage/structure-proposed.json";
+		const document = { version: 1, projectId: params.projectId, genre: "marriage", status: params.status, structure: params.structure, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, status: params.status, path: relativePath };
+	}
+
+	async saveMatureMarriageRestructuring(params: SaveMatureMarriageRestructuringParams, signal?: AbortSignal): Promise<{ projectId: string; status: "proposed" | "confirmed"; path: string }> {
+		await this.ensureMatureMarriageProject(params.projectId, signal);
+		requireConfirmation(params.status, params.confirmation);
+		const relativePath = params.status === "confirmed" ? "canon/marriage/restructuring.json" : "work/marriage/restructuring-proposed.json";
+		const document = { version: 1, projectId: params.projectId, genre: "marriage", status: params.status, plan: params.plan, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, status: params.status, path: relativePath };
+	}
+
+	async checkMatureMarriageStructure(params: CheckMatureMarriageStructureParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: MarriageIssue[]; counts: Record<string, number>; path: string }> {
+		await this.ensureMatureMarriageProject(params.projectId, signal);
+		const structure = await this.readMatureMarriageStructure(params.projectId, signal);
+		const beatSheet = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/genre/chase-wife-beat-sheet.json"), signal);
+		const stayingLogic = isJsonRecord(beatSheet) && isJsonRecord(beatSheet.stayingLogic) ? beatSheet.stayingLogic as unknown as { materialReason?: string; socialReason?: string; familyReason?: string; careerReason?: string } : undefined;
+		const issues = checkMatureMarriageStructure(structure, stayingLogic);
+		const status = (issues.some((item) => item.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const report = {
+			version: 1,
+			projectId: params.projectId,
+			status,
+			issues,
+			counts: { economicItems: structure?.economicItems.length ?? 0, responsibilities: structure?.responsibilities.length ?? 0, decisionRights: structure?.decisionRights.length ?? 0, socialTies: structure?.socialTies.length ?? 0, inertiaFactors: structure?.inertiaFactors.length ?? 0, exitConstraints: structure?.exitConstraints.length ?? 0 },
+			sourceHashes: [structure, beatSheet].map(hashJson),
+			generatedAt: new Date().toISOString(),
+		};
+		const relativePath = "continuity/reports/marriage-structure.json";
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { ...report, path: relativePath };
+	}
+
+	async checkMatureMarriageRestructuring(params: CheckMatureMarriageRestructuringParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: MarriageIssue[]; path: string }> {
+		await this.ensureMatureMarriageProject(params.projectId, signal);
+		const structure = await this.readMatureMarriageStructure(params.projectId, signal);
+		const plan = await this.readMatureMarriageRestructuring(params.projectId, signal);
+		const issues = checkMatureMarriageRestructuring(structure, plan);
+		const status = (issues.some((item) => item.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const report = {
+			version: 1,
+			projectId: params.projectId,
+			status,
+			issues,
+			sourceHashes: [structure, plan].map(hashJson),
+			generatedAt: new Date().toISOString(),
+		};
+		const relativePath = "continuity/reports/marriage-restructuring.json";
 		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
 		return { ...report, path: relativePath };
 	}

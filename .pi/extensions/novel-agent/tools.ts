@@ -6,8 +6,12 @@ import type {
 	CheckChaseWifeEventDraftParams,
 	CheckChaseWifeEventSemanticsParams,
 	CheckChaseWifeHarmRepairProgressParams,
+	CheckMatureMarriageRestructuringParams,
+	CheckMatureMarriageStructureParams,
 	CheckMysteryDesignParams,
 	CheckMysteryFairnessParams,
+	SaveMatureMarriageRestructuringParams,
+	SaveMatureMarriageStructureParams,
 	SaveMysteryCaseParams,
 	SaveMysteryClueLedgerParams,
 	SaveMysteryInformationStateParams,
@@ -56,8 +60,12 @@ import {
 	CheckChaseWifeArcSchema,
 	CheckChaseWifeEventDraftSchema,
 	CheckChaseWifeEventSemanticsSchema,
+	CheckMatureMarriageRestructuringSchema,
+	CheckMatureMarriageStructureSchema,
 	CheckMysteryDesignSchema,
 	CheckMysteryFairnessSchema,
+	SaveMatureMarriageRestructuringSchema,
+	SaveMatureMarriageStructureSchema,
 	SaveMysteryCaseSchema,
 	SaveMysteryClueLedgerSchema,
 	SaveMysteryInformationStateSchema,
@@ -451,6 +459,61 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckMysteryFairnessParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).checkMysteryFairness(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
+			name: "save_mature_marriage_structure",
+			label: "Save Mature Marriage Structure",
+			description: "Save the structural entanglement model of a mature marriage (economic unit, care responsibilities, decision rights, social ties, inertia, exit constraints) as proposed or user-confirmed canon. Only available for projects with the mature-marriage-crisis relationship mechanism; reader-sim never reads it.",
+			parameters: SaveMatureMarriageStructureSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveMatureMarriageStructureParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveMatureMarriageStructure(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_mature_marriage_restructuring",
+			label: "Save Mature Marriage Restructuring",
+			description: "Save the restructuring plan (resource, responsibility, decision-right and social-tie redistribution plus constraint responses) as proposed or user-confirmed canon. Only available for projects with the mature-marriage-crisis relationship mechanism; reader-sim never reads it.",
+			parameters: SaveMatureMarriageRestructuringSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveMatureMarriageRestructuringParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveMatureMarriageRestructuring(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_mature_marriage_structure",
+			label: "Check Mature Marriage Structure",
+			description: "Run the deterministic structure checker: character identity, duplicate ids, references, exit-constraint sources, structural thickness, care-load asymmetry, and chase-wife stayingLogic alignment. Never creates harms or moral judgments.",
+			parameters: CheckMatureMarriageStructureSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckMatureMarriageStructureParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkMatureMarriageStructure(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_mature_marriage_restructuring",
+			label: "Check Mature Marriage Restructuring",
+			description: "Run the deterministic restructuring checker: plan references, unaddressed high/critical constraints, responsibilities vanishing without a new bearer, dependent care surviving separation, and unresolved dependencies.",
+			parameters: CheckMatureMarriageRestructuringSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckMatureMarriageRestructuringParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkMatureMarriageRestructuring(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),

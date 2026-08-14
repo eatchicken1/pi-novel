@@ -39,7 +39,21 @@ Mystery Engine 已落地，见 `docs/genre/female-social-suspense-mystery-engine
 
 ## Mystery planning 冻结
 
-Round 3 正式开始 Mature Marriage Crisis Engine；不再继续扩展 Mystery planning schema，除非后续测试发现 bug。finalized clue realization 属 Phase 5（Unified Narrative Event Integration）。
+不再继续扩展 Mystery planning schema，除非后续测试发现 bug。finalized clue realization 属 Phase 5（Unified Narrative Event Integration）。
+
+## Round 3 完成（Mature Marriage Crisis Structural Entanglement Engine）
+
+- 机制值 mature-marriage-crisis + hasMatureMarriageCapability（hasRelationshipMechanism 统一入口）；
+- Marriage Structure（economicItems/responsibilities/decisionRights/socialTies/inertiaFactors/exitConstraints）+ Restructuring Plan（resource/responsibility/decisionRight/socialTie changes + constraintResponses）；
+- check_mature_marriage_structure / check_mature_marriage_restructuring（结构/引用/来源/厚度/照护不对称/责任不消失/约束响应/stayingLogic 对齐）；
+- Structure ≠ Harm 硬边界：不自动创建 Chase Wife harm；CARE_LOAD_ASYMMETRY 仅 warning；
+- reader-sim 隔离扩展 marriage author-private roots（Windows 路径安全）；
+- Skill：mechanism-mature-marriage-crisis + 4 resources；文档：docs/relationship/mature-marriage-crisis-engine.md；
+- 本轮为 planning structure，无正文 pipeline、无法律引擎。
+
+## Round 4：Professional Domain Engine
+
+首个 domain：insurance-fraud-investigation。规划项：professional role、authority boundary、workflow、evidence source、professional action、professional constraint、conflict of interest、ethics、escalation、professional consequence。
 
 ## 当前状态
 
