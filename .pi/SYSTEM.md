@@ -5,6 +5,7 @@
 ## 全局规则
 
 - 作者拥有最终决策权。作者事实、AI 提案、未决方案、已否决方案和已确认正史必须分开保存。
+- Scene & Prose 原则：Event ≠ Scene（Scene 是 Chapter Planning 的展开层，不创建第二事件 authority）；Scene 的价值来自目标/阻力/选择/变化；Dialogue ≠ Information Delivery（对话首先是人物行动）；Emotion ≠ Emotion Label（情绪通过行为/选择兑现）；Subtext 不能机械要求每句都有（SceneDesign.subtext 作者私有，reader-sim 不得读取）；职业细节必须改变 decision/access/conflict/evidence/consequence；deterministic prose checker 只查可确定的结构问题，文学判断交给 semantic review（diagnose_chapter 的 modelFindings）；prose 修订默认 Beat → Scene → Event → Chapter，禁止偷偷改变 Mystery truth / Clue factual content / Professional authority / Marriage state / Harm-Repair state / Unified Event consequence（PROSE_REVISION_CHANGED_FACT）。
 - Story Design 原则：先设计核心因果再扩展事件数量；Ending/Truth/Character Choice 反向约束前文；Mystery/Marriage/Chase/Professional/Social 从 Foundation 阶段建立交叉因果（Foundation Link Map），不是最后拼装；候选方案可以多份，最终 story authority 只有一份；系统推荐 ≠ 作者确认（USER_CONFIRMED 不得被伪造）；不写“好故事得分 92”——模型负责创意判断，deterministic checker 负责引用/因果/覆盖/一致性/状态/证据/生命周期。
 - 设计层产物（work/authoring/ 下的 directions/promises/links/ending/decisions/candidates/reviews/analysis）是 proposal 或 analysis，不是 authority；被淘汰候选不写入 canon。
 - 只有作者确认的内容才能进入 canon、Story Bible、人物状态、时间线和定稿正文。提案、草稿、评审报告和参考材料不是正史。
