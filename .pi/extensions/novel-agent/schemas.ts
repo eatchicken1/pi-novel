@@ -1199,6 +1199,207 @@ export const CheckStoryDistinctivenessSchema = Type.Object({
 	chapter: Type.Optional(ChapterNumberSchema),
 });
 
+
+// ==== Female Social Suspense Vertical Design（垂直类型智能；模型撰写结构 + 确定性交叉验证）====
+
+export const SocialSystemMechanismSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	institutionOrNorm: Type.String({ minLength: 1 }),
+	powerHolder: Type.String({ minLength: 1 }),
+	mechanism: Type.String({ minLength: 1 }),
+	whoBenefits: Type.String({ minLength: 1 }),
+	whoPays: Type.String({ minLength: 1 }),
+	observableStoryEffects: Type.Array(Type.String({ minLength: 1 })),
+	relatedMysteryClaimIds: Type.Array(Type.String({ minLength: 1 })),
+	relatedProfessionalRefIds: Type.Array(Type.String({ minLength: 1 })),
+	relatedMarriageRefIds: Type.Array(Type.String({ minLength: 1 })),
+	eventIds: Type.Array(Type.Integer({ minimum: 1 })),
+});
+
+export const MarriageInteractionPatternSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	trigger: Type.String({ minLength: 1 }),
+	protagonistDefaultResponse: Type.String({ minLength: 1 }),
+	spouseDefaultResponse: Type.String({ minLength: 1 }),
+	shortTermBenefit: Type.String({ minLength: 1 }),
+	longTermCost: Type.String({ minLength: 1 }),
+	hiddenAssumption: Type.String({ minLength: 1 }),
+	structuralRefs: Type.Array(Type.String({ minLength: 1 })),
+	relationshipRefs: Type.Array(Type.String({ minLength: 1 })),
+	breakingEventIds: Type.Array(Type.Integer({ minimum: 1 })),
+});
+
+export const ProfessionalDilemmaSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	choiceA: Type.String({ minLength: 1 }),
+	choiceBCost: Type.String({ minLength: 1 }),
+	choiceB: Type.String({ minLength: 1 }),
+	choiceACost: Type.String({ minLength: 1 }),
+	valuesInConflict: Type.Array(Type.String({ minLength: 1 }), { minItems: 2 }),
+	relatedActionIds: Type.Array(Type.String({ minLength: 1 })),
+	relatedMarriageRefs: Type.Array(Type.String({ minLength: 1 })),
+	relatedEventIds: Type.Array(Type.Integer({ minimum: 1 })),
+	resolution: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const AntagonisticForceSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	type: Type.Union([Type.Literal("individual"), Type.Literal("institution"), Type.Literal("family-system"), Type.Literal("professional-incentive"), Type.Literal("social-norm"), Type.Literal("self-deception"), Type.Literal("time-resource-constraint")]),
+	source: Type.String({ minLength: 1 }),
+	goal: Type.String({ minLength: 1 }),
+	powerMechanism: Type.String({ minLength: 1 }),
+	costBearsOn: Type.Array(Type.String({ minLength: 1 })),
+});
+
+export const SocialResolutionSchema = Type.Object({
+	personalResolution: Type.String({ minLength: 1 }),
+	caseResolution: Type.String({ minLength: 1 }),
+	institutionalChange: Type.Optional(Type.String({ minLength: 1 })),
+	institutionalResistance: Type.Optional(Type.String({ minLength: 1 })),
+	unresolvedResidue: Type.Array(Type.String({ minLength: 1 })),
+	costDistributionAfterEnding: Type.Array(Type.String({ minLength: 1 })),
+});
+
+export const ThemeArchitectureSchema = Type.Object({
+	theme: Type.String({ minLength: 1 }),
+	statement: Type.String({ minLength: 1 }),
+	actionProof: Type.Array(Type.String({ minLength: 1 })),
+});
+
+export const StoryMovementSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	chapters: Type.Array(Type.Integer({ minimum: 1 }), { minItems: 1 }),
+	dominantQuestion: Type.String({ minLength: 1 }),
+	protagonistGoal: Type.String({ minLength: 1 }),
+	falseModel: Type.Optional(Type.String({ minLength: 1 })),
+	externalPressure: Type.String({ minLength: 1 }),
+	relationshipPressure: Type.String({ minLength: 1 }),
+	professionalPressure: Type.String({ minLength: 1 }),
+	irreversibleChange: Type.String({ minLength: 1 }),
+	exitCondition: Type.String({ minLength: 1 }),
+	eventIds: Type.Array(Type.Integer({ minimum: 1 })),
+});
+
+export const ChapterExitSchema = Type.Object({
+	chapter: Type.Integer({ minimum: 1 }),
+	kind: Type.Union([Type.Literal("unanswered-question"), Type.Literal("decision-pending"), Type.Literal("new-evidence"), Type.Literal("relationship-shift"), Type.Literal("threat"), Type.Literal("cost-arrival"), Type.Literal("contradiction"), Type.Literal("irreversible-action"), Type.Literal("weak")]),
+});
+
+export const CommercialFormSchema = Type.Object({
+	openingAnomalyChapter: Type.Integer({ minimum: 1 }),
+	midpointReframeChapter: Type.Optional(Type.Integer({ minimum: 1 })),
+	lateExpositionChapters: Type.Array(Type.Integer({ minimum: 1 })),
+	endingAftershock: Type.Optional(Type.String({ minLength: 1 })),
+	chapterExits: Type.Array(ChapterExitSchema),
+});
+
+export const SupportingCharacterFunctionSchema = Type.Object({
+	characterId: Type.String({ minLength: 1, maxLength: 80 }),
+	functionKinds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+	ownGoal: Type.Optional(Type.String({ minLength: 1 })),
+	relationshipToSystem: Type.Optional(Type.String({ minLength: 1 })),
+	informationPosition: Type.Optional(Type.String({ minLength: 1 })),
+	loyalty: Type.Optional(Type.String({ minLength: 1 })),
+	leverage: Type.Optional(Type.String({ minLength: 1 })),
+	conflictWithProtagonist: Type.Optional(Type.String({ minLength: 1 })),
+	independentCost: Type.Optional(Type.String({ minLength: 1 })),
+	changeArc: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const CollisionAnalysisSchema = Type.Object({
+	eventId: Type.Integer({ minimum: 1 }),
+	type: Type.Union([Type.Literal("co-occurrence"), Type.Literal("causal"), Type.Literal("dilemma"), Type.Literal("identity")]),
+	engines: Type.Array(Type.String({ minLength: 1 }), { minItems: 2 }),
+	rationale: Type.String({ minLength: 1 }),
+});
+
+export const ChaseArcReviewSchema = Type.Object({
+	wrongPursuitRootedInFlaw: Type.Boolean(),
+	wrongPursuitExplanation: Type.Optional(Type.String({ minLength: 1 })),
+	repairAddressesHarmMechanism: Type.Boolean(),
+	repairExplanation: Type.Optional(Type.String({ minLength: 1 })),
+	regretWithBeliefChange: Type.Boolean(),
+	regretExplanation: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const FemaleSocialSuspenseDesignSchema = Type.Object({
+	socialArchitecture: Type.Object({
+		centralSocialQuestion: Type.String({ minLength: 1 }),
+		institutionalSystem: Type.String({ minLength: 1 }),
+		everydayEntryPoint: Type.String({ minLength: 1 }),
+		hiddenPowerStructure: Type.String({ minLength: 1 }),
+		protagonistPosition: Type.String({ minLength: 1 }),
+		vulnerableGroups: Type.Array(Type.String({ minLength: 1 })),
+		beneficiaries: Type.Array(Type.String({ minLength: 1 })),
+		normalizedHarm: Type.Array(Type.String({ minLength: 1 })),
+		investigationPressure: Type.Array(Type.String({ minLength: 1 })),
+		personalCostChannels: Type.Array(Type.String({ minLength: 1 })),
+		publicPrivateCollision: Type.String({ minLength: 1 }),
+		resolutionScope: Type.String({ minLength: 1 }),
+		unresolvedSocialResidue: Type.Array(Type.String({ minLength: 1 })),
+		systemMechanisms: Type.Array(SocialSystemMechanismSchema),
+	}),
+	truthLayerMap: Type.Array(Type.Object({ claimId: Type.String({ minLength: 1 }), layer: Type.Union([Type.Literal("event"), Type.Literal("actor"), Type.Literal("system"), Type.Literal("personal")]) })),
+	suspense: Type.Object({ falseModel: Type.Optional(Type.Object({ statement: Type.String({ minLength: 1 }), replacedByClaimIds: Type.Array(Type.String({ minLength: 1 })) })) }),
+	marriagePatterns: Type.Array(MarriageInteractionPatternSchema),
+	professionalDilemmas: Type.Array(ProfessionalDilemmaSchema),
+	professionalPlotDependency: Type.Object({ irreplaceabilityStatement: Type.String({ minLength: 1 }), dependencyChannels: Type.Array(Type.String({ minLength: 1 })) }),
+	chaseArcReview: ChaseArcReviewSchema,
+	collisionAnalysis: Type.Array(CollisionAnalysisSchema),
+	antagonisticForces: Type.Array(AntagonisticForceSchema, { minItems: 1 }),
+	socialResolution: SocialResolutionSchema,
+	themeArchitecture: Type.Array(ThemeArchitectureSchema, { minItems: 1 }),
+	storyMovements: Type.Array(StoryMovementSchema, { minItems: 3 }),
+	commercialForm: CommercialFormSchema,
+	supportingCharacters: Type.Array(SupportingCharacterFunctionSchema),
+});
+
+export const SaveSocialSuspenseDesignSchema = Type.Object({ projectId: ProjectIdSchema, design: FemaleSocialSuspenseDesignSchema });
+export const CheckSocialSuspenseDesignSchema = Type.Object({ projectId: ProjectIdSchema });
+
+export const HeroineContradictionProfileSchema = Type.Object({
+	characterId: Type.String({ minLength: 1, maxLength: 80 }),
+	values: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+	strengths: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+	blindSpots: Type.Array(Type.String({ minLength: 1 })),
+	emotionalNeeds: Type.Array(Type.String({ minLength: 1 })),
+	avoidedTruths: Type.Array(Type.String({ minLength: 1 })),
+	selfProtectiveHabits: Type.Array(Type.String({ minLength: 1 })),
+	costlyChoices: Type.Array(Type.String({ minLength: 1 })),
+	wrongOrIncompleteJudgments: Type.Array(Type.String({ minLength: 1 })),
+	contradictions: Type.Array(Type.String({ minLength: 1 })),
+});
+export const SaveCharacterContradictionProfileSchema = Type.Object({ projectId: ProjectIdSchema, profile: HeroineContradictionProfileSchema });
+export const CheckCharacterComplexitySchema = Type.Object({ projectId: ProjectIdSchema });
+
+export const VerticalFindingSchema = Type.Object({
+	finding: Type.String({ minLength: 1 }),
+	evidence: Type.Object({
+		eventIds: Type.Array(Type.Integer({ minimum: 1 })),
+		professionalActionIds: Type.Array(Type.String({ minLength: 1 })),
+		marriageRefs: Type.Array(Type.String({ minLength: 1 })),
+		clueIds: Type.Array(Type.String({ minLength: 1 })),
+		harmIds: Type.Array(Type.String({ minLength: 1 })),
+		patternIds: Type.Array(Type.String({ minLength: 1 })),
+		mechanismIds: Type.Array(Type.String({ minLength: 1 })),
+		dilemmaIds: Type.Array(Type.String({ minLength: 1 })),
+	}),
+});
+
+export const VerticalQualityReviewSchema = Type.Object({
+	verdict: Type.Union([Type.Literal("strong"), Type.Literal("workable"), Type.Literal("weak")]),
+	genrePromise: Type.String({ minLength: 1 }),
+	strongestElements: Type.Array(Type.String({ minLength: 1 })),
+	majorRisks: Type.Array(Type.String({ minLength: 1 })),
+	integrationFindings: Type.Array(VerticalFindingSchema),
+	characterFindings: Type.Array(VerticalFindingSchema),
+	pacingFindings: Type.Array(VerticalFindingSchema),
+	professionalFindings: Type.Array(VerticalFindingSchema),
+	socialRealityFindings: Type.Array(VerticalFindingSchema),
+	revisionPriorities: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+});
+export const CheckVerticalStoryQualitySchema = Type.Object({ projectId: ProjectIdSchema, review: VerticalQualityReviewSchema });
+
 export const RepairNovelProjectSchema = Type.Object({ projectId: ProjectIdSchema });
 export const GetNovelStatusSchema = Type.Object({ projectId: ProjectIdSchema });
 
@@ -1980,6 +2181,14 @@ export type CheckNarrativeRealizationParams = Static<typeof CheckNarrativeRealiz
 export type StoryDistinctivenessProfile = Static<typeof StoryDistinctivenessProfileSchema>;
 export type SaveStoryDistinctivenessParams = Static<typeof SaveStoryDistinctivenessSchema>;
 export type CheckStoryDistinctivenessParams = Static<typeof CheckStoryDistinctivenessSchema>;
+export type FemaleSocialSuspenseDesign = Static<typeof FemaleSocialSuspenseDesignSchema>;
+export type SaveSocialSuspenseDesignParams = Static<typeof SaveSocialSuspenseDesignSchema>;
+export type CheckSocialSuspenseDesignParams = Static<typeof CheckSocialSuspenseDesignSchema>;
+export type HeroineContradictionProfile = Static<typeof HeroineContradictionProfileSchema>;
+export type SaveCharacterContradictionProfileParams = Static<typeof SaveCharacterContradictionProfileSchema>;
+export type CheckCharacterComplexityParams = Static<typeof CheckCharacterComplexitySchema>;
+export type VerticalQualityReview = Static<typeof VerticalQualityReviewSchema>;
+export type CheckVerticalStoryQualityParams = Static<typeof CheckVerticalStoryQualitySchema>;
 export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
 export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
 export type ReadStoryContextParams = Static<typeof ReadStoryContextSchema>;

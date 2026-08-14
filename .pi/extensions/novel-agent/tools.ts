@@ -18,6 +18,11 @@ import type {
 	SaveNarrativeRealizationParams,
 	CheckStoryDistinctivenessParams,
 	SaveStoryDistinctivenessParams,
+	CheckSocialSuspenseDesignParams,
+	SaveSocialSuspenseDesignParams,
+	CheckCharacterComplexityParams,
+	SaveCharacterContradictionProfileParams,
+	CheckVerticalStoryQualityParams,
 	SaveUnifiedEventDraftParams,
 	SaveUnifiedEventMapParams,
 	SaveUnifiedEventSemanticReportParams,
@@ -81,6 +86,11 @@ import {
 	SaveNarrativeRealizationSchema,
 	CheckStoryDistinctivenessSchema,
 	SaveStoryDistinctivenessSchema,
+	CheckSocialSuspenseDesignSchema,
+	SaveSocialSuspenseDesignSchema,
+	CheckCharacterComplexitySchema,
+	SaveCharacterContradictionProfileSchema,
+	CheckVerticalStoryQualitySchema,
 	CheckProfessionalCaseSchema,
 	CheckProfessionalDomainSchema,
 	CheckMysteryDesignSchema,
@@ -747,6 +757,75 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckStoryDistinctivenessParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).checkStoryDistinctiveness(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
+			name: "save_social_suspense_design",
+			label: "Save Female Social Suspense Design",
+			description: "Save the aggregated vertical design for female social suspense: social architecture with concrete system mechanisms, truth layers, false model, marriage interaction patterns, professional dilemmas, chase arc review, collision analysis, antagonistic forces, social resolution, theme architecture, story movements, commercial form, and supporting character functions.",
+			parameters: SaveSocialSuspenseDesignSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveSocialSuspenseDesignParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveSocialSuspenseDesign(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_social_suspense_design",
+			label: "Check Female Social Suspense Design",
+			description: "Cross-check the vertical design against the unified event map: mechanisms without event effects, background-only social problems, relationship-only stakes, missing beneficiaries/cost bearers, suspense escalation runs, marriage patterns without payoff, replaceable professions, shallow collisions, movement stalls, and commercial-form diagnostics. No scores.",
+			parameters: CheckSocialSuspenseDesignSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckSocialSuspenseDesignParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkSocialSuspenseDesign(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_character_contradiction_profile",
+			label: "Save Character Contradiction Profile",
+			description: "Save the heroine contradiction profile (values, strengths, blind spots, emotional needs, avoided truths, self-protective habits, costly choices, wrong or incomplete judgments, contradictions). Author planning; reader-sim never reads it.",
+			parameters: SaveCharacterContradictionProfileSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveCharacterContradictionProfileParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveCharacterContradictionProfile(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_character_complexity",
+			label: "Check Character Complexity",
+			description: "Check heroine complexity (infallibility, emotional flatness, agency without cost, growth only as external exit) and supporting character functions (tool characters, single-function side characters, too-convenient allies).",
+			parameters: CheckCharacterComplexitySchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckCharacterComplexityParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkCharacterComplexity(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_vertical_story_quality",
+			label: "Check Vertical Story Quality",
+			description: "Save a model-written vertical quality review (verdict strong|workable|weak, genre promise, findings with structural evidence). Every finding must cite real event ids, professional actions, marriage refs, clues, harms, patterns, mechanisms, or dilemmas; invalid evidence is rejected. No fake scores.",
+			parameters: CheckVerticalStoryQualitySchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckVerticalStoryQualityParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkVerticalStoryQuality(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),

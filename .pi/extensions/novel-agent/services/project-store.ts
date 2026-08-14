@@ -96,6 +96,13 @@ import type {
 	SaveStoryDistinctivenessParams,
 	CheckStoryDistinctivenessParams,
 	UnifiedChaseWifeDelta,
+	FemaleSocialSuspenseDesign,
+	SaveSocialSuspenseDesignParams,
+	CheckSocialSuspenseDesignParams,
+	HeroineContradictionProfile,
+	SaveCharacterContradictionProfileParams,
+	CheckCharacterComplexityParams,
+	CheckVerticalStoryQualityParams,
 } from "../schemas.ts";
 import { hasChaseWifeCapability, hasMatureMarriageCapability, hasPrimaryGenre, hasProfessionalDomain, normalizePrimaryGenre, normalizeProfessionalDomain, normalizeRelationshipMechanism } from "./story-profile.ts";
 import { checkMysteryDesign, checkMysteryFairness, isMysteryPrivatePath, type MysteryIssue } from "./mystery-checker.ts";
@@ -105,6 +112,7 @@ import { checkUnifiedEventMap, collisionStats, isUnifiedPrivatePath, type Unifie
 import { checkNarrativeRealizations, collectPlannedRealizations, type PlannedRealization, type RealizationIssue } from "./realization-checker.ts";
 import { checkStoryDistinctiveness, distinctivenessStats, type DistinctivenessIssue } from "./distinctiveness-checker.ts";
 import { checkRealizedFairness, type RealizedFairnessIssue } from "./realized-fairness-checker.ts";
+import { checkCharacterComplexity, checkSocialSuspenseDesign, checkVerticalQualityReview, type VerticalIssue } from "./vertical-checker.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -956,7 +964,7 @@ export class NovelProjectStore {
 			if (added.has(relativePath)) return;
 			// reader-sim 硬隔离（defense-in-depth）：canon/work/outline 下的 mystery 作者规划路径都不得进入 reader 上下文，
 			// 统一  → / 后按 author-private roots 判定（Windows 路径同样生效），即使未来修改 sections 也不能泄漏作者秘密。
-			if ((params.task ?? "chapter-writing") === "reader-sim" && (isMysteryPrivatePath(relativePath) || isMarriagePrivatePath(relativePath) || isProfessionalPrivatePath(relativePath) || isUnifiedPrivatePath(relativePath))) {
+			if ((params.task ?? "chapter-writing") === "reader-sim" && (isMysteryPrivatePath(relativePath) || isMarriagePrivatePath(relativePath) || isProfessionalPrivatePath(relativePath) || isUnifiedPrivatePath(relativePath) || relativePath.includes("female-social-suspense-design.json") || relativePath.includes("contradiction-profiles.json"))) {
 				excludedFiles.push(relativePath);
 				return;
 			}
@@ -1124,6 +1132,12 @@ export class NovelProjectStore {
 				}
 			}
 		}
+		// Vertical Design 上下文：作者侧读取垂直设计（社会机制/婚姻模式/职业困境/乐章/对抗/主题）与女主矛盾画像；
+		// reader-sim 不读取（作者秘密隔离）。
+		if (isJsonRecord(project) && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
+			await addFile("outline/genre/female-social-suspense-design.json", "vertical-design");
+			await addFile("outline/characters/contradiction-profiles.json", "vertical-character-profiles");
+		}
 		// Professional 上下文：planning / chapter-writing / continuity-review 读取 domain model 与 case plan（confirmed 优先，否则 proposed）；
 		// reader-sim 不读取（作者秘密隔离）。
 		if (isJsonRecord(project) && hasProfessionalDomain(project, "insurance-fraud-investigation") && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
@@ -1159,11 +1173,12 @@ export class NovelProjectStore {
 			if (part.startsWith("mystery-clues") || part.startsWith("mystery-suspect-model") || part.startsWith("mystery-information-state")) return 6;
 			if (part.startsWith("marriage-structure") || part.startsWith("marriage-restructuring")) return 7;
 			if (part.startsWith("professional-domain-model") || part.startsWith("professional-case-plan")) return 8;
-			if (part.startsWith("chapter-draft")) return 9;
-			if (part.startsWith("chase-wife-event-draft")) return 10;
-			if (part.startsWith("chapter-plan") || part.startsWith("scene-contract")) return 11;
-			if (part.startsWith("previous-chapter")) return 12;
-			return 13;
+			if (part.startsWith("vertical-design") || part.startsWith("vertical-character-profiles")) return 9;
+			if (part.startsWith("chapter-draft")) return 10;
+			if (part.startsWith("chase-wife-event-draft")) return 11;
+			if (part.startsWith("chapter-plan") || part.startsWith("scene-contract")) return 12;
+			if (part.startsWith("previous-chapter")) return 13;
+			return 14;
 		};
 		parts.sort((left, right) => priority(left) - priority(right));
 		const fullText = parts.join("\n\n---\n\n");
@@ -1598,6 +1613,16 @@ export class NovelProjectStore {
 			const averageLength = lengths.reduce((sum, length) => sum + length, 0) / lengths.length;
 			if (averageLength > 0 && Math.max(...lengths) - Math.min(...lengths) <= averageLength * 0.15) addFinding("uniform-paragraph-length", "段落长度过度均匀，可能形成机械节奏", paragraphs.length);
 		}
+		// 垂直类型机械检测（女性社会派悬疑常用 AI 痕迹；一律 warning，不 hard fail）
+		const verticalPatterns = [
+			{ key: "epiphany-cliche", patterns: ["她忽然明白", "她突然明白", "直到这一刻", "原来如此", "他第一次意识到", "她终于明白"], min: 2, label: "顿悟/后知后觉模板（她忽然明白、直到这一刻、原来如此）" },
+			{ key: "calm-heroine", patterns: ["她很平静", "她平静地说", "她冷静地", "她没有哭"], min: 3, label: "女主持续平静模板（她很平静/冷静地说）" },
+			{ key: "body-cliche", patterns: ["沉默", "攥紧手指", "眼眶发红", "红了眼眶", "握紧的拳"], min: 3, label: "身体反应套话反复（沉默/攥紧手指/眼眶发红）" },
+			{ key: "phone-turn", patterns: ["电话响了", "手机震动", "收到一条短信", "来电显示"], min: 2, label: "转折依赖电话/短信推进" },
+		].map(({ key, patterns, min, label }) => ({ key, label, min, count: Math.max(...patterns.map((pattern) => (content.match(new RegExp(pattern, "gu")) ?? []).length)) })).filter((item) => item.count >= item.min);
+		for (const item of verticalPatterns) addFinding(item.key, `${item.label}（${item.count}次）`, item.count);
+		const shortSentences = sentences.filter((sentence) => [...sentence].length <= 6).length;
+		if (sentences.length >= 8 && shortSentences >= 8 && shortSentences / sentences.length >= 0.4) addFinding("short-sentence-parallelism", `短句排比过多：${shortSentences} 句短句占 ${Math.round((shortSentences / sentences.length) * 100)}%`, shortSentences);
 		const findingCount = findings.length;
 		const passed = findingCount <= 1 && !findingRecords.some((finding) => finding.hardFail);
 		const severity = !passed || findingCount >= 2 ? "error" as const : findingCount > 0 ? "warning" as const : "none" as const;
@@ -3763,6 +3788,80 @@ export class NovelProjectStore {
 		const relativePath = "continuity/reports/mystery-realized-fairness.json";
 		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
 		return { projectId: params.projectId, ...result, status, path: relativePath };
+	}
+	// ==== Female Social Suspense Vertical Design（垂直类型智能）====
+
+	private async readSocialSuspenseDesign(projectId: string, signal?: AbortSignal): Promise<FemaleSocialSuspenseDesign | undefined> {
+		const value = await this.readJsonIfExists(this.projectFile(projectId, "outline/genre/female-social-suspense-design.json"), signal);
+		return isJsonRecord(value) && isJsonRecord(value.design) ? value.design as unknown as FemaleSocialSuspenseDesign : undefined;
+	}
+
+	async saveSocialSuspenseDesign(params: SaveSocialSuspenseDesignParams, signal?: AbortSignal): Promise<{ projectId: string; path: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const relativePath = "outline/genre/female-social-suspense-design.json";
+		const document = { version: 1, projectId: params.projectId, design: params.design, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, path: relativePath };
+	}
+
+	async checkSocialSuspenseDesign(params: CheckSocialSuspenseDesignParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: VerticalIssue[]; counts: Record<string, number>; path: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const design = await this.readSocialSuspenseDesign(params.projectId, signal);
+		const map = await this.readUnifiedEventMap(params.projectId, signal);
+		const issues = design === undefined ? [{ code: "SOCIAL_DESIGN_MISSING", severity: "error" as const, message: "no female social suspense design exists; save_social_suspense_design first" }] : checkSocialSuspenseDesign(design, map);
+		const status = (issues.some((item) => item.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const report = { version: 1, projectId: params.projectId, status, issues, counts: { mechanisms: design?.socialArchitecture.systemMechanisms.length ?? 0, patterns: design?.marriagePatterns.length ?? 0, dilemmas: design?.professionalDilemmas.length ?? 0, movements: design?.storyMovements.length ?? 0, supportingCharacters: design?.supportingCharacters.length ?? 0 }, sourceHashes: [design, map].map(hashJson), generatedAt: new Date().toISOString() };
+		const relativePath = "continuity/reports/female-social-suspense-design.json";
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { projectId: params.projectId, status, issues, counts: report.counts, path: relativePath };
+	}
+
+	async saveCharacterContradictionProfile(params: SaveCharacterContradictionProfileParams, signal?: AbortSignal): Promise<{ projectId: string; path: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const relativePath = "outline/characters/contradiction-profiles.json";
+		const existing = await this.readJsonIfExists(this.projectFile(params.projectId, relativePath), signal);
+		const prior = isJsonRecord(existing) && Array.isArray(existing.profiles) ? existing.profiles.filter(isJsonRecord) : [];
+		const merged = [...prior.filter((item) => typeof item.characterId !== "string" || item.characterId !== params.profile.characterId), params.profile];
+		const document = { version: 1, projectId: params.projectId, profiles: merged, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, path: relativePath };
+	}
+
+	async checkCharacterComplexity(params: CheckCharacterComplexityParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: VerticalIssue[]; path: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const profileDocument = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/characters/contradiction-profiles.json"), signal);
+		const profile = isJsonRecord(profileDocument) && Array.isArray(profileDocument.profiles) ? profileDocument.profiles.find((item): item is HeroineContradictionProfile => isJsonRecord(item) && typeof item.characterId === "string") as HeroineContradictionProfile | undefined : undefined;
+		const design = await this.readSocialSuspenseDesign(params.projectId, signal);
+		const issues = checkCharacterComplexity(profile, design);
+		const status = (issues.some((item) => item.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const report = { version: 1, projectId: params.projectId, status, issues, sourceHashes: [profileDocument, design].map(hashJson), generatedAt: new Date().toISOString() };
+		const relativePath = "continuity/reports/character-complexity.json";
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { projectId: params.projectId, status, issues, path: relativePath };
+	}
+
+	async checkVerticalStoryQuality(params: CheckVerticalStoryQualityParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: VerticalIssue[]; verdict: string; path: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const map = await this.readUnifiedEventMap(params.projectId, signal);
+		const design = await this.readSocialSuspenseDesign(params.projectId, signal);
+		const professionalPlan = await this.readProfessionalCasePlan(params.projectId, signal);
+		const marriageStructure = await this.readMatureMarriageStructure(params.projectId, signal);
+		const clues = await this.readMysteryClues(params.projectId, signal);
+		const harmDocument = await this.readJsonIfExists(this.projectFile(params.projectId, "continuity/chase-wife-harm-ledger.json"), signal);
+		const refs = {
+			map,
+			design,
+			professionalActions: professionalPlan === undefined ? undefined : new Set(professionalPlan.actions.map((action) => action.id)),
+			marriageRefs: marriageStructure === undefined ? undefined : new Set([...marriageStructure.economicItems, ...marriageStructure.responsibilities, ...marriageStructure.decisionRights, ...marriageStructure.socialTies, ...marriageStructure.exitConstraints].map((item) => item.id)),
+			clueIds: new Set(clues.map((clue) => clue.id)),
+			harmIds: isJsonRecord(harmDocument) && Array.isArray(harmDocument.harms) ? new Set(harmDocument.harms.filter(isJsonRecord).map((item) => String(item.id))) : undefined,
+		};
+		const issues = checkVerticalQualityReview(params.review, refs);
+		const status = (issues.length > 0 ? "error" : "ok") as "ok" | "error";
+		const report = { version: 1, projectId: params.projectId, status, issues, review: params.review, sourceHashes: [map, design, professionalPlan, marriageStructure].map(hashJson), generatedAt: new Date().toISOString() };
+		const relativePath = "evaluations/vertical-quality/story.json";
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(report, null, 2)}\n`, signal);
+		return { projectId: params.projectId, status, issues, verdict: params.review.verdict, path: relativePath };
 	}
 	private async writeTransaction(projectId: string, chapter: number, entries: Array<{ relativePath: string; content: string }>, signal?: AbortSignal): Promise<string> {
 		const transactionId = randomUUID();
