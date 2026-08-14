@@ -89,12 +89,16 @@ import type {
 	ExportManuscriptParams,
 	ScoreChaseWifeChapterParams,
 	SemanticEvidenceAnchor,
+	NarrativeRealizationRecord,
+	SaveNarrativeRealizationParams,
+	CheckNarrativeRealizationParams,
 } from "../schemas.ts";
 import { hasChaseWifeCapability, hasMatureMarriageCapability, hasPrimaryGenre, hasProfessionalDomain, normalizePrimaryGenre, normalizeProfessionalDomain, normalizeRelationshipMechanism } from "./story-profile.ts";
 import { checkMysteryDesign, checkMysteryFairness, isMysteryPrivatePath, type MysteryIssue } from "./mystery-checker.ts";
 import { checkMatureMarriageRestructuring, checkMatureMarriageStructure, isMarriagePrivatePath, type MarriageIssue } from "./marriage-checker.ts";
 import { checkProfessionalCase, checkProfessionalDomain, isProfessionalPrivatePath, type ProfessionalIssue } from "./professional-checker.ts";
 import { checkUnifiedEventMap, collisionStats, isUnifiedPrivatePath, type UnifiedCapabilities, type UnifiedIssue, type UnifiedReferenceSets } from "./unified-event-checker.ts";
+import { checkNarrativeRealizations, collectPlannedRealizations, type PlannedRealization, type RealizationIssue } from "./realization-checker.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -3455,6 +3459,89 @@ export class NovelProjectStore {
 		await this.writeAtomically(this.projectFile(params.projectId, manifestPath), `${JSON.stringify(manifest, null, 2)}\n`, signal);
 		return { projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft.revision, eventCount: events.length, path: chapterDraft.path, manifestPath };
 	}
+	async saveNarrativeRealizations(params: SaveNarrativeRealizationParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision: number; contentHash: string; path: string; records: number }> {
+		await this.ensureProject(params.projectId, signal);
+		const draft = await this.latestDraft(params.projectId, params.chapter, signal);
+		if (!draft || draft.revision !== params.draftRevision) throw new Error("Narrative realization records must match the latest saved draft revision.");
+		const contentHash = sha256(draft.content);
+		// 保存时只校验锚点与重复；计划完整性（planned vs realized）由 check/finalize 门决定。
+		const issues = checkNarrativeRealizations({
+			content: draft.content,
+			records: params.records,
+			planned: params.records.map((record) => ({ contentType: record.contentType, engineRef: record.engineRef })),
+			draftRevision: params.draftRevision,
+			contentHash,
+			latestDraftRevision: draft.revision,
+			latestContentHash: contentHash,
+		});
+		const blockers = issues.filter((item) => item.severity === "error");
+		if (blockers.length > 0) throw new Error(`Invalid narrative realization records: ${blockers.map((item) => item.message).join("; ")}`);
+		const relativePath = `continuity/realizations/${chapterName(params.chapter)}.json`;
+		const document = { version: 1, projectId: params.projectId, chapter: params.chapter, draftRevision: params.draftRevision, contentHash, records: params.records, generatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, chapter: params.chapter, draftRevision: params.draftRevision, contentHash, path: relativePath, records: params.records.length };
+	}
+
+	async checkNarrativeRealizations(params: CheckNarrativeRealizationParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; status: "ok" | "warning" | "error"; issues: RealizationIssue[]; plannedCount: number; realizedCount: number; draftRevision?: number; path: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const draft = await this.latestDraft(params.projectId, params.chapter, signal);
+		const relativePath = `continuity/realizations/${chapterName(params.chapter)}.json`;
+		const stored = await this.readJsonIfExists(this.projectFile(params.projectId, relativePath), signal);
+		const planned = await this.collectPlannedRealizations(params.projectId, params.chapter, signal);
+		let issues: RealizationIssue[] = [];
+		let realizedCount = 0;
+		let draftRevision: number | undefined;
+		if (!isJsonRecord(stored) || !Array.isArray(stored.records)) {
+			if (planned.length > 0) issues.push({ code: "REALIZATION_MISSING", severity: "error", message: `no narrative realization records for chapter ${params.chapter} while ${planned.length} planned items require prose evidence` });
+		} else {
+			const records = stored.records.filter(isJsonRecord) as unknown as NarrativeRealizationRecord[];
+			draftRevision = typeof stored.draftRevision === "number" ? stored.draftRevision : undefined;
+			realizedCount = records.length;
+			issues = checkNarrativeRealizations({
+				content: draft?.content ?? "",
+				records,
+				planned,
+				draftRevision,
+				contentHash: typeof stored.contentHash === "string" ? stored.contentHash : undefined,
+				latestDraftRevision: draft?.revision ?? -1,
+				latestContentHash: draft === undefined ? "" : sha256(draft.content),
+			});
+		}
+		const status = (issues.some((item) => item.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const report = { version: 1, projectId: params.projectId, chapter: params.chapter, status, issues, plannedCount: planned.length, realizedCount, draftRevision, sourceHashes: [stored].map(hashJson), generatedAt: new Date().toISOString() };
+		const reportPath = `continuity/reports/${chapterName(params.chapter)}-realization.json`;
+		await this.writeVersionedJsonReport(params.projectId, reportPath, report, signal);
+		return { ...report, path: reportPath };
+	}
+
+	private async collectPlannedRealizations(projectId: string, chapter: number, signal?: AbortSignal): Promise<PlannedRealization[]> {
+		const unifiedMap = await this.readUnifiedEventMap(projectId, signal);
+		const mysteryCase = await this.readMysteryCase(projectId, signal);
+		const clues = await this.readMysteryClues(projectId, signal);
+		const professionalPlan = await this.readProfessionalCasePlan(projectId, signal);
+		return collectPlannedRealizations(chapter, { unifiedMap, mysteryCase, clues, professionalPlan });
+	}
+
+	private async enforceNarrativeRealizationGates(projectId: string, chapter: number, draftRevision: number, content: string, signal?: AbortSignal): Promise<void> {
+		const planned = await this.collectPlannedRealizations(projectId, chapter, signal);
+		if (planned.length === 0) return;
+		const relativePath = `continuity/realizations/${chapterName(chapter)}.json`;
+		const stored = await this.readJsonIfExists(this.projectFile(projectId, relativePath), signal);
+		if (!isJsonRecord(stored) || !Array.isArray(stored.records)) throw new Error(`Chapter ${chapter} requires narrative realization records: ${planned.length} planned items must appear in the finalized prose.`);
+		const records = stored.records.filter(isJsonRecord) as unknown as NarrativeRealizationRecord[];
+		const issues = checkNarrativeRealizations({
+			content,
+			records,
+			planned,
+			draftRevision: typeof stored.draftRevision === "number" ? stored.draftRevision : undefined,
+			contentHash: typeof stored.contentHash === "string" ? stored.contentHash : undefined,
+			latestDraftRevision: draftRevision,
+			latestContentHash: sha256(normalizeText(content)),
+		});
+		const blockers = issues.filter((item) => item.severity === "error");
+		if (blockers.length > 0) throw new Error(`Chapter ${chapter} narrative realization gate failed: ${blockers.map((item) => item.message).join("; ")}`);
+	}
+
 	private async writeTransaction(projectId: string, chapter: number, entries: Array<{ relativePath: string; content: string }>, signal?: AbortSignal): Promise<string> {
 		const transactionId = randomUUID();
 		const transactionPath = this.projectFile(projectId, `transactions/${transactionId}.json`);
@@ -3603,6 +3690,8 @@ export class NovelProjectStore {
 				const progress = await this.checkChaseWifeHarmRepairProgress({ projectId: params.projectId, chapter: params.chapter }, signal);
 				if (progress.status === "stalled") throw new Error(`Chapter ${params.chapter} cannot be finalized while harm-repair progress is stalled: ${progress.issues.join("; ")}`);
 			}
+			// Narrative realization gates（planned ≠ realized）：仅当本章存在计划项时要求正文兑现证据；无计划项自动通过。
+			await this.enforceNarrativeRealizationGates(params.projectId, params.chapter, params.draftRevision, params.content, signal);
 			const timelinePath = this.projectFile(params.projectId, "timeline/events.json");
 			const existingTimeline = await this.readJsonIfExists(timelinePath, signal);
 			const timeline = Array.isArray(existingTimeline) ? existingTimeline.filter((event) => !isJsonRecord(event) || event.chapter !== params.chapter) : [];

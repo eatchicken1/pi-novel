@@ -637,4 +637,46 @@ describe("unified narrative event layer", () => {
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
+
+	it("U11: context budget keeps the current chapter unified map and event draft (CURRENT-EVENT-SENTINEL)", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-unified-u11-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initFullProject(store, "u11");
+			await store.saveUnifiedEventMap({ projectId: "u11", chapter: 1, events: [unifiedEvent(1, 1)] });
+			const draftSentinel = "当前事件哨兵：她对照门禁与死亡时间，决定继续查下去。";
+			await store.saveUnifiedEventDraft({
+				projectId: "u11",
+				chapter: 1,
+				eventId: 1,
+				content: draftSentinel.repeat(18),
+			});
+			await store.saveChapterPlan({
+				projectId: "u11",
+				chapter: 1,
+				content: "低优先级计划哨兵：这段内容不应挤占当前事件的预算。",
+			});
+			const context = await store.readStoryContext({
+				projectId: "u11",
+				chapter: 1,
+				task: "chapter-writing",
+				maxChars: 1000,
+			});
+			expect(context.truncated).toBe(true);
+			expect(context.text.includes("unified-event-map / outline/unified/event-map.json")).toBe(true);
+			expect(context.text.includes(draftSentinel)).toBe(true);
+			expect(context.text.includes("低优先级计划哨兵")).toBe(false);
+			// 其他章节的事件草稿不会混入当前章
+			await store.saveUnifiedEventMap({ projectId: "u11", chapter: 2, events: [unifiedEvent(2, 2)] });
+			const chapter2 = await store.readStoryContext({
+				projectId: "u11",
+				chapter: 1,
+				task: "chapter-writing",
+				maxChars: 1000,
+			});
+			expect(chapter2.includedFiles.filter((file) => file.includes("unified-event-drafts")).length).toBe(1);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
 });

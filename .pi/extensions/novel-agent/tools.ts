@@ -14,6 +14,8 @@ import type {
 	CheckMysteryDesignParams,
 	CheckUnifiedEventDraftParams,
 	CheckUnifiedEventMapParams,
+	CheckNarrativeRealizationParams,
+	SaveNarrativeRealizationParams,
 	SaveUnifiedEventDraftParams,
 	SaveUnifiedEventMapParams,
 	SaveUnifiedEventSemanticReportParams,
@@ -73,6 +75,8 @@ import {
 	CheckMatureMarriageRestructuringSchema,
 	CheckMatureMarriageStructureSchema,
 	AssembleUnifiedChapterSchema,
+	CheckNarrativeRealizationSchema,
+	SaveNarrativeRealizationSchema,
 	CheckProfessionalCaseSchema,
 	CheckProfessionalDomainSchema,
 	CheckMysteryDesignSchema,
@@ -672,6 +676,33 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			executionMode: "sequential",
 			async execute(_toolCallId, params: AssembleUnifiedChapterParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).assembleUnifiedChapter(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
+			name: "save_narrative_realization",
+			label: "Save Narrative Realization",
+			description: "Save prose realization records for one chapter: every planned item (unified event, mystery clue/reveal, marriage transition, professional observation) must be anchored in the finalized chapter prose. Records bind to the latest draft revision and its content hash; stale records must be saved again.",
+			parameters: SaveNarrativeRealizationSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveNarrativeRealizationParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveNarrativeRealizations(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_narrative_realization",
+			label: "Check Narrative Realization",
+			description: "Run the deterministic realization gate for one chapter: stale content-hash bindings, invalid prose anchors, duplicate records, planned items missing from the finalized prose, and unplanned records.",
+			parameters: CheckNarrativeRealizationSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckNarrativeRealizationParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkNarrativeRealizations(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),

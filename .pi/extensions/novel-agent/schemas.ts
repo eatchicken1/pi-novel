@@ -1111,6 +1111,41 @@ export const AssembleUnifiedChapterSchema = Type.Object({
 
 
 
+
+// ==== Narrative Realization（planned ≠ realized：计划项必须在最终正文中有散文锚点证据）====
+
+export const NarrativeRealizationContentTypeSchema = Type.Union([
+	Type.Literal("unified-event"),
+	Type.Literal("mystery-clue"),
+	Type.Literal("mystery-reveal"),
+	Type.Literal("marriage-transition"),
+	Type.Literal("professional-observation"),
+]);
+
+export const NarrativeRealizationRecordSchema = Type.Object({
+	recordId: Type.String({ minLength: 1, maxLength: 80 }),
+	contentType: NarrativeRealizationContentTypeSchema,
+	engineRef: Type.String({ minLength: 1, maxLength: 80 }),
+	// SemanticEvidenceAnchorSchema 声明在文件后部；此处内联以避免使用前声明错误。
+	anchor: Type.Object({
+		startChar: Type.Integer({ minimum: 0 }),
+		endChar: Type.Integer({ minimum: 1 }),
+		excerpt: Type.String({ minLength: 1 }),
+	}),
+});
+
+export const SaveNarrativeRealizationSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	draftRevision: Type.Integer({ minimum: 1 }),
+	records: Type.Array(NarrativeRealizationRecordSchema, { minItems: 1 }),
+});
+
+export const CheckNarrativeRealizationSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+});
+
 export const RepairNovelProjectSchema = Type.Object({ projectId: ProjectIdSchema });
 export const GetNovelStatusSchema = Type.Object({ projectId: ProjectIdSchema });
 
@@ -1886,6 +1921,9 @@ export type SaveUnifiedEventDraftParams = Static<typeof SaveUnifiedEventDraftSch
 export type CheckUnifiedEventDraftParams = Static<typeof CheckUnifiedEventDraftSchema>;
 export type SaveUnifiedEventSemanticReportParams = Static<typeof SaveUnifiedEventSemanticReportSchema>;
 export type AssembleUnifiedChapterParams = Static<typeof AssembleUnifiedChapterSchema>;
+export type NarrativeRealizationRecord = Static<typeof NarrativeRealizationRecordSchema>;
+export type SaveNarrativeRealizationParams = Static<typeof SaveNarrativeRealizationSchema>;
+export type CheckNarrativeRealizationParams = Static<typeof CheckNarrativeRealizationSchema>;
 export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
 export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
 export type ReadStoryContextParams = Static<typeof ReadStoryContextSchema>;
