@@ -120,6 +120,7 @@ import type {
 	ChapterDiagnosis,
 	UnifiedEvent,
 	ManuscriptReview,
+	ChapterSummary,
 	ExploreStoryDirectionsParams,
 	StoryDirectionCandidate,
 	StoryDirectionComparison,
@@ -146,6 +147,9 @@ import type {
 	SceneSemanticReport,
 	VoiceProfile,
 	VoiceFingerprint,
+	RepairNarrativeMemoryParams,
+	AnalyzeRevisionImpactParams,
+	ContinueNovelParams,
 } from "../schemas.ts";
 import { hasChaseWifeCapability, hasMatureMarriageCapability, hasPrimaryGenre, hasProfessionalDomain, normalizePrimaryGenre, normalizeProfessionalDomain, normalizeRelationshipMechanism } from "./story-profile.ts";
 import { checkMysteryDesign, checkMysteryFairness, isMysteryPrivatePath, type MysteryIssue } from "./mystery-checker.ts";
@@ -156,11 +160,15 @@ import { checkNarrativeRealizations, collectPlannedRealizations, type PlannedRea
 import { checkStoryDistinctiveness, distinctivenessStats, type DistinctivenessIssue } from "./distinctiveness-checker.ts";
 import { checkRealizedFairness, type RealizedFairnessIssue } from "./realized-fairness-checker.ts";
 import { checkCharacterComplexity, checkSocialSuspenseDesign, checkVerticalQualityReview, type VerticalIssue } from "./vertical-checker.ts";
-import { aggregateDiagnosis, computeAuthoringPhase, computeFoundationReadiness, computeRecommendedNextActions, workflowResult, type AuthoringPhase, type DiagnosisSourceIssue, type WorkflowBlocker, type WorkflowFacts, type WorkflowResult } from "./authoring-workflow.ts";
+import { aggregateDiagnosis, computeAuthoringPhase, computeFoundationReadiness, computeRecommendedNextActions, workflowResult, type AuthoringPhase, type DiagnosisSourceIssue, type WorkflowBlocker, type WorkflowFacts, type WorkflowNextAction, type WorkflowResult } from "./authoring-workflow.ts";
 import { buildRepairabilityInfo, checkArchitectureCandidatesSimilarity, checkCharacterDecisions, checkEndingDesign, checkFoundationLinks, checkMysteryDesignIntelligence, checkStoryDirectionsSimilarity, checkStoryPromiseLedger, classifyDraftFailure, validateStoryDirectionComparison, type DesignCheckFinding, type DraftFailureClassification, type RepairabilityInfo } from "./story-design.ts";
 import { checkAnchorSpine, checkArcSync, checkCausalLinks, checkInformationDecisionBalance, checkNarrativeQuestions, checkPressureShape, checkPromiseTrace } from "./causal-planner.ts";
 import { mergeDesignFindings, verdictForFindings } from "./story-design-review.ts";
 import { analyzeVoiceFingerprint, checkChapterProse, checkChaseEventProse, checkSceneDesigns, checkVoiceDrift } from "./scene-review.ts";
+import { aggregateSnapshot, deriveChapterDelta, deriveLedgers, MEMORY_DERIVATION_VERSION, MEMORY_SCHEMA_VERSION, type ChapterStateDelta, type MemoryInputs, type MemoryLedgers, type NarrativeMemorySnapshot } from "./narrative-memory.ts";
+import { checkLongFormContinuity, type LongFormCheckContext } from "./continuity-ledgers.ts";
+import { compileAuthoringContext, type CompiledContext, type PreparedContextSection } from "./context-compiler.ts";
+import { analyzeRevisionImpact, type RevisionImpactReport } from "./revision-impact.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -317,6 +325,15 @@ export interface NovelProjectStatus {
 	hasDesignReview?: boolean;
 	designVerdict?: string;
 	hasArchitectureRevision?: boolean;
+	// Long-form health
+	memoryStatus?: "missing" | "current" | "stale";
+	continuityStatus?: "ok" | "warning" | "error";
+	openThreads?: number;
+	overdueThreads?: number;
+	unresolvedSetups?: number;
+	staleDerivedArtifacts?: string[];
+	downstreamReviewRequired?: boolean;
+	currentMovement?: string;
 	recommendedNextActions?: Array<{ tool: string; reason: string; chapter?: number }>;
 }
 
@@ -1000,6 +1017,279 @@ export class NovelProjectStore {
 		return { projectId: params.projectId, createdFiles, existingFiles };
 	}
 
+	// ==== Long-form Narrative Memory（derived views，非第二 authority）====
+	private memoryDir(projectId: string): string {
+		return this.projectFile(projectId, "continuity/memory");
+	}
+
+	private async readStoredDeltas(projectId: string, signal?: AbortSignal): Promise<Map<number, ChapterStateDelta>> {
+		const deltas = new Map<number, ChapterStateDelta>();
+		const files = await this.listFiles(this.memoryDir(projectId), signal);
+		for (const path of files) {
+			const match = path.match(/chapter-(\d+)-delta\.json$/u);
+			if (match === null) continue;
+			const value = await this.readJsonIfExists(path, signal);
+			if (isJsonRecord(value) && isPositiveInteger(value.chapter)) deltas.set(Number(value.chapter), value as unknown as ChapterStateDelta);
+		}
+		return deltas;
+	}
+
+	private async readMemoryLedgers(projectId: string, signal?: AbortSignal): Promise<MemoryLedgers | undefined> {
+		const read = async (name: string): Promise<unknown> => this.readJsonIfExists(this.projectFile(projectId, `continuity/ledgers/${name}.json`), signal);
+		const characters = await read("characters");
+		const knowledge = await read("knowledge");
+		const relationships = await read("relationships");
+		const objects = await read("objects");
+		const criticalFacts = await read("critical-facts");
+		const timeline = await read("timeline");
+		const threads = await read("threads");
+		const setupsPayoffs = await read("setups-payoffs");
+		const professionalState = await read("professional-state");
+		const hypotheses = await read("mystery-hypotheses");
+		const characterArcs = await read("character-arcs");
+		if (![characters, knowledge, relationships, objects, criticalFacts, timeline, threads, setupsPayoffs, hypotheses, characterArcs].every((value) => isJsonRecord(value))) return undefined;
+		return {
+			characters: (characters as { characters?: MemoryLedgers["characters"] }).characters ?? [],
+			knowledge: (knowledge as { knowledge?: MemoryLedgers["knowledge"] }).knowledge ?? [],
+			relationships: (relationships as { relationships?: MemoryLedgers["relationships"] }).relationships ?? [],
+			objects: (objects as { objects?: MemoryLedgers["objects"] }).objects ?? [],
+			criticalFacts: (criticalFacts as { criticalFacts?: MemoryLedgers["criticalFacts"] }).criticalFacts ?? [],
+			timeline: (timeline as { timeline?: MemoryLedgers["timeline"] }).timeline ?? [],
+			threads: (threads as { threads?: MemoryLedgers["threads"] }).threads ?? [],
+			setupsPayoffs: (setupsPayoffs as { setupsPayoffs?: MemoryLedgers["setupsPayoffs"] }).setupsPayoffs ?? [],
+			professionalState: isJsonRecord(professionalState) ? (professionalState as { professionalState?: MemoryLedgers["professionalState"] }).professionalState : undefined,
+			hypotheses: (hypotheses as { hypotheses?: MemoryLedgers["hypotheses"] }).hypotheses ?? [],
+			characterArcs: (characterArcs as { characterArcs?: MemoryLedgers["characterArcs"] }).characterArcs ?? [],
+		};
+	}
+
+	private async readMemorySnapshot(projectId: string, signal?: AbortSignal): Promise<NarrativeMemorySnapshot | undefined> {
+		const value = await this.readJsonIfExists(this.projectFile(projectId, "continuity/memory/current-snapshot.json"), signal);
+		return isJsonRecord(value) ? value as unknown as NarrativeMemorySnapshot : undefined;
+	}
+
+	private async readMemoryInvalidFrom(projectId: string, signal?: AbortSignal): Promise<number | undefined> {
+		const value = await this.readJsonIfExists(this.projectFile(projectId, "continuity/memory/invalid-from.json"), signal);
+		return isJsonRecord(value) && isPositiveInteger(value.invalidFromChapter) ? Number(value.invalidFromChapter) : undefined;
+	}
+
+	private async buildMemoryInputs(projectId: string, throughChapter: number, signal?: AbortSignal): Promise<MemoryInputs> {
+		const map = await this.readUnifiedEventMap(projectId, signal);
+		const allEvents = map?.events ?? [];
+		const chapters: MemoryInputs["chapters"] = [];
+		for (let chapter = 1; chapter <= throughChapter; chapter += 1) {
+			const name = chapterName(chapter);
+			const events = allEvents.filter((event) => event.chapter === chapter);
+			const content = await this.readTextIfExists(this.projectFile(projectId, `chapters/${name}.md`), signal);
+			const summaryValue = await this.readJsonIfExists(this.projectFile(projectId, `summaries/${name}.json`), signal);
+			const summary = isJsonRecord(summaryValue) ? summaryValue as ChapterSummary : undefined;
+			if (content === undefined && events.length === 0 && summary === undefined) continue;
+			chapters.push({ chapter, events, summary, sourceHashes: { prose: content === undefined ? "missing" : sha256(normalizeText(content)), summary: summary === undefined ? "missing" : hashJson(summary), events: hashJson(events) } });
+		}
+		const harmDocument = await this.readJsonIfExists(this.projectFile(projectId, "continuity/chase-wife-harm-ledger.json"), signal);
+		const repairDocument = await this.readJsonIfExists(this.projectFile(projectId, "continuity/chase-wife-repair-ledger.json"), signal);
+		const harmRecords = isJsonRecord(harmDocument) && Array.isArray(harmDocument.harms) ? harmDocument.harms.filter(isJsonRecord).map((harm) => ({ id: String(harm.id), severity: typeof harm.severity === "string" ? harm.severity : "minor", recognizedByMale: harm.recognizedByMale === true })) : [];
+		const repairRecords = isJsonRecord(repairDocument) && Array.isArray(repairDocument.repairs) ? repairDocument.repairs.filter(isJsonRecord).map((repair) => ({ id: String(repair.id), harmId: Array.isArray(repair.addressesHarmIds) ? String(repair.addressesHarmIds[0]) : undefined, credible: repair.effectiveness === "credible" || repair.credible === true })) : [];
+		const promiseValue = await this.readJsonIfExists(this.projectFile(projectId, "work/authoring/story-promises.json"), signal);
+		const architectureValue = await this.readJsonIfExists(this.projectFile(projectId, "outline/story-architecture.json"), signal);
+		const sourceHashes: Record<string, string> = {};
+		const revisionHashParts: string[] = [];
+		for (const chapterInput of chapters) {
+			revisionHashParts.push(`ch${chapterInput.chapter}:${chapterInput.sourceHashes.prose}`);
+			Object.assign(sourceHashes, chapterInput.sourceHashes);
+		}
+		return {
+			chapters,
+			repairHarmMap: Object.fromEntries(repairRecords.map((repair) => [repair.id, repair.harmId ?? repair.id])),
+			throughChapter,
+			mysteryCase: await this.readMysteryCase(projectId, signal),
+			mysteryClues: await this.readMysteryClues(projectId, signal),
+			professionalModel: await this.readProfessionalDomainModel(projectId, signal),
+			professionalPlan: await this.readProfessionalCasePlan(projectId, signal),
+			architecture: isJsonRecord(architectureValue) && isJsonRecord(architectureValue.architecture) ? architectureValue.architecture as StoryArchitecture : undefined,
+			promiseLedger: isJsonRecord(promiseValue) && Array.isArray(promiseValue.promises) ? promiseValue as StoryPromiseLedger : undefined,
+			harmRecords,
+			repairRecords,
+			sourceRevisionHash: sha256(revisionHashParts.join("|")),
+		};
+	}
+
+	private async writeMemoryArtifacts(projectId: string, ledgers: MemoryLedgers, snapshot: NarrativeMemorySnapshot, signal?: AbortSignal): Promise<void> {
+		const write = async (relativePath: string, value: unknown): Promise<void> => {
+			const document = { schemaVersion: MEMORY_SCHEMA_VERSION, derivationVersion: MEMORY_DERIVATION_VERSION, projectId, throughChapter: snapshot.throughChapter, sourceRevisionHash: snapshot.sourceRevisionHash, generatedAt: new Date().toISOString(), ...(value as Record<string, unknown>) };
+			await this.writeAtomically(this.projectFile(projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		};
+		await write("continuity/ledgers/characters.json", { characters: ledgers.characters });
+		await write("continuity/ledgers/knowledge.json", { knowledge: ledgers.knowledge });
+		await write("continuity/ledgers/relationships.json", { relationships: ledgers.relationships });
+		await write("continuity/ledgers/objects.json", { objects: ledgers.objects });
+		await write("continuity/ledgers/critical-facts.json", { criticalFacts: ledgers.criticalFacts });
+		await write("continuity/ledgers/timeline.json", { timeline: ledgers.timeline });
+		await write("continuity/ledgers/threads.json", { threads: ledgers.threads });
+		await write("continuity/ledgers/setups-payoffs.json", { setupsPayoffs: ledgers.setupsPayoffs });
+		await write("continuity/ledgers/professional-state.json", { professionalState: ledgers.professionalState });
+		await write("continuity/ledgers/mystery-hypotheses.json", { hypotheses: ledgers.hypotheses });
+		await write("continuity/ledgers/character-arcs.json", { characterArcs: ledgers.characterArcs });
+		await this.writeAtomically(this.projectFile(projectId, "continuity/memory/current-snapshot.json"), `${JSON.stringify({ schemaVersion: MEMORY_SCHEMA_VERSION, derivationVersion: MEMORY_DERIVATION_VERSION, projectId, generatedAt: new Date().toISOString(), ...snapshot }, null, 2)}\n`, signal);
+	}
+
+	private async clearMemoryInvalidation(projectId: string, signal?: AbortSignal): Promise<void> {
+		await this.writeAtomically(this.projectFile(projectId, "continuity/memory/invalid-from.json"), `${JSON.stringify({ projectId, invalidFromChapter: 0, clearedAt: new Date().toISOString() }, null, 2)}\n`, signal);
+		const project = await this.readJsonIfExists(this.projectFile(projectId, "project.json"), signal);
+		if (isJsonRecord(project) && project.memoryOutOfDate === true) {
+			const { memoryOutOfDate: _removed, ...rest } = project;
+			await this.writeAtomically(this.projectFile(projectId, "project.json"), `${JSON.stringify(rest, null, 2)}\n`, signal);
+		}
+	}
+
+	// finalize_chapter 成功后调用：派生本章 delta + 全量重算 ledgers/snapshot。失败不回滚 finalize authority，只标记 memoryOutOfDate。
+	private async commitChapterMemory(projectId: string, chapter: number, params: { content: string; summary: ChapterSummary; draftRevision: number }, signal?: AbortSignal): Promise<boolean> {
+		try {
+			const project = await this.readJsonIfExists(this.projectFile(projectId, "project.json"), signal);
+			const lastFinalized = isJsonRecord(project) && Array.isArray(project.finalizedChapters) ? Math.max(...project.finalizedChapters.filter(isPositiveInteger), 0) : chapter;
+			const inputs = await this.buildMemoryInputs(projectId, lastFinalized, signal);
+			const chapterInput = inputs.chapters.find((candidate) => candidate.chapter === chapter);
+			if (chapterInput !== undefined) {
+				const delta = deriveChapterDelta(chapterInput);
+				await this.writeAtomically(this.projectFile(projectId, `continuity/memory/chapter-${chapterName(chapter)}-delta.json`), `${JSON.stringify({ schemaVersion: MEMORY_SCHEMA_VERSION, derivationVersion: MEMORY_DERIVATION_VERSION, projectId, ...delta, generatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
+			}
+			const ledgers = deriveLedgers(inputs);
+			const snapshot = aggregateSnapshot(ledgers, lastFinalized, inputs.sourceRevisionHash);
+			await this.writeMemoryArtifacts(projectId, ledgers, snapshot, signal);
+			await this.clearMemoryInvalidation(projectId, signal);
+			return true;
+		} catch (error) {
+			try {
+				const project = await this.readJsonIfExists(this.projectFile(projectId, "project.json"), signal);
+				if (isJsonRecord(project)) await this.writeAtomically(this.projectFile(projectId, "project.json"), `${JSON.stringify({ ...project, memoryOutOfDate: true }, null, 2)}\n`, signal);
+			} catch { /* best effort */ }
+			console.error(`narrative memory commit failed for ${projectId} ch${chapter}: ${error instanceof Error ? error.message : String(error)}`);
+			return false;
+		}
+	}
+
+	// Recovery / Advanced Tool：从 authoritative artifacts 全量重建 derived memory。
+	async repairNarrativeMemory(params: RepairNarrativeMemoryParams, signal?: AbortSignal): Promise<{ projectId: string; status: "rebuilt" | "no-chapters"; throughChapter: number; memoryStatus: "current" | "missing" }> {
+		await this.ensureProject(params.projectId, signal);
+		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		const finalizedChapters = isJsonRecord(project) && Array.isArray(project.finalizedChapters) ? project.finalizedChapters.filter(isPositiveInteger) : [];
+		const throughChapter = finalizedChapters.length === 0 ? 0 : Math.max(...finalizedChapters);
+		if (throughChapter === 0) return { projectId: params.projectId, status: "no-chapters", throughChapter: 0, memoryStatus: "missing" };
+		const inputs = await this.buildMemoryInputs(params.projectId, throughChapter, signal);
+		const ledgers = deriveLedgers(inputs);
+		const snapshot = aggregateSnapshot(ledgers, throughChapter, inputs.sourceRevisionHash);
+		await this.writeMemoryArtifacts(params.projectId, ledgers, snapshot, signal);
+		// 重写全部 deltas（保证与当前 artifacts 一致）
+		for (const chapterInput of inputs.chapters) {
+			const delta = deriveChapterDelta(chapterInput);
+			await this.writeAtomically(this.projectFile(params.projectId, `continuity/memory/chapter-${chapterName(chapterInput.chapter)}-delta.json`), `${JSON.stringify({ schemaVersion: MEMORY_SCHEMA_VERSION, derivationVersion: MEMORY_DERIVATION_VERSION, projectId: params.projectId, ...delta, generatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
+		}
+		await this.clearMemoryInvalidation(params.projectId, signal);
+		return { projectId: params.projectId, status: "rebuilt", throughChapter, memoryStatus: "current" };
+	}
+
+	// 内存状态：missing（无 snapshot）/ stale（invalidFrom 或 snapshot.throughChapter < lastFinalized 或 memoryOutOfDate）/ current。
+	async memoryStatusFor(projectId: string, signal?: AbortSignal): Promise<{ status: "missing" | "current" | "stale"; throughChapter: number; lastFinalized: number }> {
+		const snapshot = await this.readMemorySnapshot(projectId, signal);
+		const project = await this.readJsonIfExists(this.projectFile(projectId, "project.json"), signal);
+		const lastFinalized = isJsonRecord(project) && Array.isArray(project.finalizedChapters) ? Math.max(...project.finalizedChapters.filter(isPositiveInteger), 0) : 0;
+		if (snapshot === undefined) return { status: "missing", throughChapter: 0, lastFinalized };
+		const invalidFrom = await this.readMemoryInvalidFrom(projectId, signal);
+		const outOfDate = isJsonRecord(project) && project.memoryOutOfDate === true;
+		if (invalidFrom !== undefined && invalidFrom > 0 && snapshot.throughChapter >= invalidFrom) return { status: "stale", throughChapter: snapshot.throughChapter, lastFinalized };
+		if (snapshot.throughChapter < lastFinalized || outOfDate) return { status: "stale", throughChapter: snapshot.throughChapter, lastFinalized };
+		return { status: "current", throughChapter: snapshot.throughChapter, lastFinalized };
+	}
+
+	async analyzeRevisionImpact(params: AnalyzeRevisionImpactParams, signal?: AbortSignal): Promise<RevisionImpactReport> {
+		await this.ensureProject(params.projectId, signal);
+		const ledgers = await this.readMemoryLedgers(params.projectId, signal);
+		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		const lastFinalized = isJsonRecord(project) && Array.isArray(project.finalizedChapters) ? Math.max(...project.finalizedChapters.filter(isPositiveInteger), 0) : 0;
+		const manuscriptReview = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/review.json"), signal);
+		const seal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/unified-seal.json"), signal);
+		const report = analyzeRevisionImpact({
+			revisionId: randomUUID(),
+			changedChapter: params.changedChapter,
+			changedEventIds: params.changedEventIds,
+			knowledgeChanges: params.knowledgeChanges,
+			truthChanges: params.truthChanges,
+			proseOnly: params.knowledgeChanges === undefined && params.truthChanges === undefined && params.changedEventIds === undefined,
+			ledgers: ledgers ?? { characters: [], knowledge: [], relationships: [], objects: [], criticalFacts: [], timeline: [], threads: [], setupsPayoffs: [], hypotheses: [], characterArcs: [] },
+			currentChapter: lastFinalized,
+			manuscriptReviewExists: isJsonRecord(manuscriptReview),
+			sealExists: isJsonRecord(seal),
+		});
+		const relativePath = `work/revision-impact/${report.revisionId}.json`;
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify({ version: 1, projectId: params.projectId, ...report, generatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
+		// 当前影响标记：下游复查要求
+		const downstreamRequired = report.severity === "downstream-review" || report.severity === "structural-revision" || report.severity === "authority-change";
+		await this.writeAtomically(this.projectFile(params.projectId, "continuity/revision-impact-current.json"), `${JSON.stringify({ version: 1, projectId: params.projectId, severity: report.severity, affectedChapters: report.affectedChapters, downstreamReviewRequired: downstreamRequired, changedChapter: params.changedChapter, generatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
+		return report;
+	}
+
+	// Default Author Tool：执行一个合理步骤；遇到 confirmation / blocker / major decision 停止。
+	async continueNovel(params: ContinueNovelParams, signal?: AbortSignal): Promise<{ projectId: string; phase: AuthoringPhase; recommendedAction: WorkflowNextAction | undefined; stop: boolean; stopReason?: string; memoryStatus?: "missing" | "current" | "stale" }> {
+		await this.ensureProject(params.projectId, signal);
+		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
+		const memory = await this.memoryStatusFor(params.projectId, signal);
+		const action = computeRecommendedNextActions(facts)[0];
+		let stop = false;
+		let stopReason: string | undefined;
+		if (action !== undefined && (action.tool === "develop_story_bible" || action.tool === "revise_story_architecture")) {
+			if (facts.foundationMissing.length > 0 || facts.hasDesignBlockers) { stop = false; }
+		}
+		if (action !== undefined && (action.tool === "finalize_manuscript" || action.tool === "export_manuscript")) {
+			if (memory.status !== "current") { stop = true; stopReason = `memory 状态 ${memory.status}；先 repair_narrative_memory 再定稿`; }
+		}
+		return { projectId: params.projectId, phase, recommendedAction: stop ? undefined : action, stop, stopReason, memoryStatus: memory.status };
+	}
+
+	// Task-aware Context Compiler（store 侧 I/O + 纯选择器）：所有 task 共用同一基础设施。
+	async compileAuthoringContext(params: { projectId: string; task: string; chapter?: number; budget?: number; sceneIds?: string[] }, signal?: AbortSignal): Promise<CompiledContext> {
+		await this.ensureProject(params.projectId, signal);
+		const { projectId, task, chapter, budget } = params;
+		const ledgers = await this.readMemoryLedgers(projectId, signal);
+		const sections: PreparedContextSection[] = [];
+		const push = (key: string, content: string, sourceRefs: string[], priorityHint: PreparedContextSection["priorityHint"], recency: number, relatedTo?: string[]): void => {
+			sections.push({ key, content, sourceRefs, priorityHint, sourceHash: sha256(content), recency, relatedTo });
+		};
+		if (chapter !== undefined) {
+			const name = chapterName(chapter);
+			const sceneDesigns = await this.readJsonIfExists(this.projectFile(projectId, `work/scene-designs/${name}.json`), signal);
+			if (isJsonRecord(sceneDesigns)) push("scene-design", JSON.stringify(sceneDesigns.scenes, null, 2), [`work/scene-designs/${name}.json`], "MUST", chapter);
+			const map = await this.readUnifiedEventMap(projectId, signal);
+			const chapterEvents = map === undefined ? [] : map.events.filter((event) => event.chapter === chapter);
+			if (chapterEvents.length > 0) push("events", JSON.stringify(chapterEvents.map((event) => ({ eventId: event.eventId, storyGoal: event.storyGoal, conflict: event.conflict, action: event.action, consequence: event.consequence, irreversible: event.irreversible, storyDate: event.storyDate, storyTime: event.storyTime })), null, 2), ["outline/unified/event-map.json"], "MUST", chapter);
+			const plan = await this.readTextIfExists(this.projectFile(projectId, `work/chapter-plans/${name}.md`), signal);
+			if (plan !== undefined) push("chapter-plan", plan, [`work/chapter-plans/${name}.md`], "MUST", chapter);
+			const previousSummary = chapter > 1 ? await this.readJsonIfExists(this.projectFile(projectId, `summaries/${chapterName(chapter - 1)}.json`), signal) : undefined;
+			if (isJsonRecord(previousSummary)) push("previous-exit", JSON.stringify({ chapter: chapter - 1, nextPressure: previousSummary.nextPressure, relationshipChanges: previousSummary.relationshipChanges, openQuestions: previousSummary.openQuestions }, null, 2), [`summaries/${chapterName(chapter - 1)}.json`], "MUST", chapter - 1);
+			const currentSummary = await this.readJsonIfExists(this.projectFile(projectId, `summaries/${name}.json`), signal);
+			if (isJsonRecord(currentSummary)) push("summary", JSON.stringify(currentSummary, null, 2), [`summaries/${name}.json`], "SHOULD", chapter);
+		}
+		if (ledgers !== undefined) {
+			push("character-states", JSON.stringify(ledgers.characters, null, 2), ["continuity/ledgers/characters.json"], "MUST", chapter ?? 0);
+			push("knowledge", JSON.stringify(ledgers.knowledge, null, 2), ["continuity/ledgers/knowledge.json"], "MUST", chapter ?? 0);
+			push("critical-facts", JSON.stringify(ledgers.criticalFacts, null, 2), ["continuity/ledgers/critical-facts.json"], "MUST", chapter ?? 0);
+			push("relationships", JSON.stringify(ledgers.relationships, null, 2), ["continuity/ledgers/relationships.json"], "SHOULD", chapter ?? 0);
+			push("threads", JSON.stringify(ledgers.threads.filter((thread) => thread.status !== "resolved" && thread.status !== "abandoned-intentionally"), null, 2), ["continuity/ledgers/threads.json"], "SHOULD", chapter ?? 0);
+			push("setups", JSON.stringify(ledgers.setupsPayoffs.filter((setup) => setup.payoffStatus === "pending"), null, 2), ["continuity/ledgers/setups-payoffs.json"], "SHOULD", chapter ?? 0);
+			push("objects", JSON.stringify(ledgers.objects, null, 2), ["continuity/ledgers/objects.json"], "OPTIONAL", chapter ?? 0);
+			if (ledgers.professionalState !== undefined) push("professional-history", JSON.stringify(ledgers.professionalState, null, 2), ["continuity/ledgers/professional-state.json"], "SHOULD", chapter ?? 0);
+			push("mystery-state", JSON.stringify(ledgers.hypotheses, null, 2), ["continuity/ledgers/mystery-hypotheses.json"], "SHOULD", chapter ?? 0);
+		}
+		const voiceProfile = await this.readJsonIfExists(this.projectFile(projectId, "work/authoring/voice-profile.json"), signal);
+		if (isJsonRecord(voiceProfile)) push("voice", JSON.stringify(voiceProfile, null, 2), ["work/authoring/voice-profile.json"], "MUST", chapter ?? 0);
+		const concept = await this.readJsonIfExists(this.projectFile(projectId, "work/authoring/story-concept.json"), signal);
+		if (isJsonRecord(concept)) push("concept", JSON.stringify(concept, null, 2), ["work/authoring/story-concept.json"], "MUST", 0);
+		const architecture = await this.readJsonIfExists(this.projectFile(projectId, "outline/story-architecture.json"), signal);
+		if (isJsonRecord(architecture)) push("architecture", JSON.stringify(architecture, null, 2), ["outline/story-architecture.json"], "SHOULD", 0);
+		const diagnosis = chapter === undefined ? undefined : await this.readJsonIfExists(this.projectFile(projectId, `work/diagnosis/${chapterName(chapter)}.json`), signal);
+		if (isJsonRecord(diagnosis)) push("diagnosis", JSON.stringify(diagnosis, null, 2), [`work/diagnosis/${chapterName(chapter ?? 1)}.json`], "MUST", chapter ?? 0);
+		return compileAuthoringContext({ projectId, task: task as never, chapter, sections, budget });
+	}
+
 	async getNovelStatus(params: GetNovelStatusParams, signal?: AbortSignal): Promise<NovelProjectStatus> {
 		await this.ensureProject(params.projectId, signal);
 		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
@@ -1018,6 +1308,29 @@ export class NovelProjectStore {
 		const readiness = computeFoundationReadiness(facts);
 		const recommendedNextActions = computeRecommendedNextActions(facts);
 		const reviewStatus = await this.readJsonIfExists(this.projectFile(params.projectId, "work/authoring/story-design-review.json"), signal);
+		// Long-form health（derived memory / continuity / threads / setups / downstream review）
+		const memory = await this.memoryStatusFor(params.projectId, signal);
+		const ledgers = await this.readMemoryLedgers(params.projectId, signal);
+		const projectHealth = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		const finalizedCount = isJsonRecord(projectHealth) && Array.isArray(projectHealth.finalizedChapters) ? projectHealth.finalizedChapters.filter(isPositiveInteger).length : 0;
+		let continuityStatus: "ok" | "warning" | "error" = "ok";
+		let continuityFindings: DesignCheckFinding[] = [];
+		let openThreadCount = 0;
+		let overdueThreadCount = 0;
+		let unresolvedSetupCount = 0;
+		if (ledgers !== undefined && finalizedCount > 0) {
+			const context: LongFormCheckContext = { currentChapter: memory.throughChapter, totalChapters: memory.throughChapter, chapters: (await this.buildMemoryInputs(params.projectId, memory.throughChapter, signal)).chapters.map((candidate) => ({ chapter: candidate.chapter, events: candidate.events })) };
+			continuityFindings = checkLongFormContinuity(ledgers, context);
+			if (continuityFindings.some((finding) => finding.severity === "error")) continuityStatus = "error";
+			else if (continuityFindings.length > 0) continuityStatus = "warning";
+			openThreadCount = ledgers.threads.filter((thread) => thread.status !== "resolved" && thread.status !== "abandoned-intentionally").length;
+			overdueThreadCount = ledgers.threads.filter((thread) => thread.status !== "resolved" && thread.status !== "abandoned-intentionally" && memory.throughChapter - thread.lastAdvancedChapter >= 8 && thread.importance === "major").length;
+			unresolvedSetupCount = ledgers.setupsPayoffs.filter((setup) => setup.payoffStatus === "pending").length;
+		}
+		const impactMarker = await this.readJsonIfExists(this.projectFile(params.projectId, "continuity/revision-impact-current.json"), signal);
+		const architectureForMovement = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/story-architecture.json"), signal);
+		const movementsForStatus = isJsonRecord(architectureForMovement) && isJsonRecord(architectureForMovement.architecture) && Array.isArray(architectureForMovement.architecture.movements) ? (architectureForMovement.architecture.movements as Array<{ id: string; chapters: number[] }>) : [];
+		const currentMovement = movementsForStatus.find((movement) => movement.chapters.includes(facts.nextChapter - 1))?.id ?? movementsForStatus[0]?.id;
 		return {
 			projectId: params.projectId,
 			status: project.status,
@@ -1045,6 +1358,14 @@ export class NovelProjectStore {
 			hasDesignReview: facts.hasDesignReview,
 			designVerdict: isJsonRecord(reviewStatus) && typeof reviewStatus.verdict === "string" ? reviewStatus.verdict : undefined,
 			hasArchitectureRevision: (await this.readJsonIfExists(this.projectFile(params.projectId, "work/authoring/architecture-lineage.json"), signal)) !== undefined,
+			memoryStatus: memory.status,
+			continuityStatus,
+			openThreads: openThreadCount,
+			overdueThreads: overdueThreadCount,
+			unresolvedSetups: unresolvedSetupCount,
+			staleDerivedArtifacts: memory.status === "stale" ? ["continuity/memory/current-snapshot.json", "continuity/ledgers/*.json"] : [],
+			downstreamReviewRequired: isJsonRecord(impactMarker) && impactMarker.downstreamReviewRequired === true,
+			currentMovement,
 			recommendedNextActions,
 		};
 	}
@@ -1610,6 +1931,34 @@ export class NovelProjectStore {
 		const paths = await this.listFiles(this.projectFile(params.projectId, "chapters"), signal);
 		const chapterPaths = paths.filter((candidate) => candidate.endsWith(".md"));
 		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		// Unified Seal 校验（所有项目）：chapter/summary hash + Seal V2 memory hashes；chase 项目继续走 ending 校验。
+		const genericSeal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/unified-seal.json"), signal);
+		if (isJsonRecord(genericSeal) && genericSeal.status === "finalized") {
+			const sealedSources = Array.isArray(genericSeal.sources) ? genericSeal.sources.filter(isJsonRecord) : [];
+			let staleSeal = sealedSources.length !== chapterPaths.length;
+			for (const source of sealedSources) {
+				if (typeof source.chapter !== "number" || typeof source.chapterHash !== "string" || typeof source.summaryHash !== "string") { staleSeal = true; continue; }
+				const name = chapterName(source.chapter);
+				const chapterContent = await this.readTextIfExists(this.projectFile(params.projectId, `chapters/${name}.md`), signal);
+				const summary = await this.readJsonIfExists(this.projectFile(params.projectId, `summaries/${name}.json`), signal);
+				if (chapterContent === undefined || sha256(chapterContent) !== source.chapterHash || !isJsonRecord(summary) || hashJson(summary) !== source.summaryHash) staleSeal = true;
+			}
+			if (staleSeal) throw new Error("Unified manuscript export is stale because a finalized chapter or summary changed after the manuscript gate.");
+			const snapshotNow = await this.readMemorySnapshot(params.projectId, signal);
+			const ledgersNow = await this.readMemoryLedgers(params.projectId, signal);
+			const memoryChecks: Array<[string, string]> = [
+				["memorySnapshotHash", snapshotNow === undefined ? "missing" : hashJson(snapshotNow)],
+				["criticalFactsHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.criticalFacts)],
+				["timelineHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.timeline)],
+				["threadLedgerHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.threads)],
+				["setupPayoffHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.setupsPayoffs)],
+				["knowledgeLedgerHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.knowledge)],
+				["relationshipStateHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.relationships)],
+			];
+			for (const [key, now] of memoryChecks) {
+				if (typeof genericSeal[key] === "string" && genericSeal[key] !== now) throw new Error(`Unified manuscript seal is stale: ${key} changed after the manuscript gate.`);
+			}
+		}
 		if (isJsonRecord(project) && hasChaseWifeCapability(project)) {
 			// Converged 优先：unified manuscript seal（不要求旧 chase-wife 独立 event map）。
 			const unifiedSeal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/unified-seal.json"), signal);
@@ -1631,6 +1980,21 @@ export class NovelProjectStore {
 				if (typeof unifiedSeal.endingContractHash === "string" && unifiedSeal.endingContractHash !== "n/a" && (!isJsonRecord(endingContractNow) || hashJson(endingContractNow) !== unifiedSeal.endingContractHash)) throw new Error("Unified manuscript seal is stale: the ending contract changed after the manuscript gate.");
 				const endingEligibility = await this.checkChaseWifeEndingEligibility({ projectId: params.projectId }, signal);
 				if (endingEligibility.status !== "ok") throw new Error("Chase-wife ending eligibility no longer passes; re-run finalize_manuscript.");
+				// Seal V2：long-form derived state 哈希校验
+				const snapshotNow = await this.readMemorySnapshot(params.projectId, signal);
+				const ledgersNow = await this.readMemoryLedgers(params.projectId, signal);
+				const memoryChecks: Array<[string, string]> = [
+					["memorySnapshotHash", snapshotNow === undefined ? "missing" : hashJson(snapshotNow)],
+					["criticalFactsHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.criticalFacts)],
+					["timelineHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.timeline)],
+					["threadLedgerHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.threads)],
+					["setupPayoffHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.setupsPayoffs)],
+					["knowledgeLedgerHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.knowledge)],
+					["relationshipStateHash", ledgersNow === undefined ? "missing" : hashJson(ledgersNow.relationships)],
+				];
+				for (const [key, now] of memoryChecks) {
+					if (typeof unifiedSeal[key] === "string" && unifiedSeal[key] !== now) throw new Error(`Unified manuscript seal is stale: ${key} changed after the manuscript gate.`);
+				}
 			} else {
 				const seal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/chase-wife-finalized.json"), signal);
 			const pacing = await this.readJsonIfExists(this.projectFile(params.projectId, "continuity/reports/chase-wife-story-pacing.json"), signal);
@@ -5223,6 +5587,58 @@ export class NovelProjectStore {
 			const lastKinds = kinds(events.filter((event) => lastChapters.includes(event.chapter)));
 			if (earlierKinds.size >= 2 && lastKinds.size === 1) diagnostics.push("高潮只解决一个引擎，而前面故事高度融合（CLIMAX_SINGLE_ENGINE）");
 		}
+		// Long-form Continuity（Round 10）：threads / setups / knowledge / relationship / object / fact / timeline /
+		// professional / hypothesis / character arc；缺失 memory 时先按当前 artifacts 派生（review 是 evaluation，不改 authority）。
+		let memoryStatus: "missing" | "current" | "stale" = "missing";
+		let longFormFindings: DesignCheckFinding[] = [];
+		const memory = await this.memoryStatusFor(params.projectId, signal);
+		memoryStatus = memory.status;
+		let ledgers = await this.readMemoryLedgers(params.projectId, signal);
+		if (ledgers === undefined && memory.lastFinalized > 0) {
+			await this.repairNarrativeMemory({ projectId: params.projectId }, signal);
+			ledgers = await this.readMemoryLedgers(params.projectId, signal);
+		}
+		if (ledgers !== undefined && memory.lastFinalized > 0) {
+			const inputs = await this.buildMemoryInputs(params.projectId, memory.lastFinalized, signal);
+			const longFormContext: LongFormCheckContext = { currentChapter: memory.lastFinalized, totalChapters: memory.lastFinalized, chapters: inputs.chapters.map((candidate) => ({ chapter: candidate.chapter, events: candidate.events })) };
+			longFormFindings = checkLongFormContinuity(ledgers, longFormContext);
+			for (const finding of longFormFindings) diagnostics.push(`${finding.code}: ${finding.message}`);
+			// Repetition（确定性信号）：REPEATED_PURSUIT_PATTERN / REPEATED_DISCOVERY_PATTERN / REPEATED_CHAPTER_ENDING / REPEATED_SCENE_PATTERN
+			let pursuitCount = 0;
+			let discoveryOnlyCount = 0;
+			for (const chapterInput of inputs.chapters) {
+				for (const event of chapterInput.events) {
+					if (event.chaseWifeDelta !== undefined && (event.chaseWifeDelta.role === "pursuit-control" || event.chaseWifeDelta.role === "pursuit-failure")) pursuitCount += 1;
+					if (event.mysteryDelta !== undefined && event.mysteryDelta.discoveredClueIds.length > 0 && event.mysteryDelta.revealClaimIds.length === 0 && event.irreversible !== true) discoveryOnlyCount += 1;
+				}
+			}
+			if (pursuitCount >= 3) diagnostics.push(`REPEATED_PURSUIT_PATTERN: 全书 ${pursuitCount} 次 wrong-pursuit 事件；追妻戏码重复`);
+			if (discoveryOnlyCount >= 6) diagnostics.push(`REPEATED_DISCOVERY_PATTERN: 全书 ${discoveryOnlyCount} 个纯发现型事件；调查流于“发现-发现-发现”`);
+			const exitKinds = new Map<string, number>();
+			for (const entry of inputs.chapters) {
+				const chapterEvents = entry.events;
+				const lastEvent = chapterEvents[chapterEvents.length - 1];
+				if (lastEvent === undefined) continue;
+				const kind = lastEvent.chaseWifeDelta !== undefined ? "relationship" : lastEvent.mysteryDelta !== undefined ? "mystery" : lastEvent.professionalDelta !== undefined ? "professional" : "other";
+				exitKinds.set(kind, (exitKinds.get(kind) ?? 0) + 1);
+			}
+			const maxExitKind = [...exitKinds.entries()].reduce((max, entry) => (entry[1] > max[1] ? entry : max), ["", 0]);
+			if (maxExitKind[1] >= 4) diagnostics.push(`REPEATED_CHAPTER_ENDING: 连续 ${maxExitKind[1]} 章以同类事件收尾（${maxExitKind[0]}）`);
+			// Voice trajectory：多章 fingerprint 平均比较（渐进 drift）
+			const voiceReports: Array<{ chapter: number; fingerprint: VoiceFingerprint }> = [];
+			for (const chapterInput of inputs.chapters) {
+				const report = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${chapterName(chapterInput.chapter)}-voice.json`), signal);
+				if (isJsonRecord(report) && isJsonRecord(report.fingerprint)) voiceReports.push({ chapter: chapterInput.chapter, fingerprint: report.fingerprint as VoiceFingerprint });
+			}
+			if (voiceReports.length >= 3) {
+				const firstHalf = voiceReports.slice(0, Math.ceil(voiceReports.length / 2));
+				const secondHalf = voiceReports.slice(Math.ceil(voiceReports.length / 2));
+				const firstEmotion = firstHalf.filter((entry) => entry.fingerprint.emotionLabeling === "high").length / firstHalf.length;
+				const secondEmotion = secondHalf.filter((entry) => entry.fingerprint.emotionLabeling === "high").length / secondHalf.length;
+				if (secondEmotion - firstEmotion >= 0.4) diagnostics.push("VOICE_DRIFT: 后半程情绪标签密度显著高于前半程（克制现实主义的渐进漂移）");
+			}
+		}
+		if (memoryStatus !== "current" && memory.lastFinalized > 0) diagnostics.push(`MEMORY_STALE_AT_REVIEW: memory 状态 ${memoryStatus}；建议 repair_narrative_memory 后再做最终评审`);
 		// Targeted Prose Injection：summary 扫描发现章节级风险后，第二阶段只读取相关章节正文 ±1 邻近章。
 		// 不需要 Vector DB；实现为 targeted chapter injection（按需读取，不加载全书）。
 		const riskChapters = [...new Set([...externalStallChapters, ...detachedChapters])].sort((left, right) => left - right);
@@ -5238,7 +5654,7 @@ export class NovelProjectStore {
 		const mergedIssues = [...diagnostics];
 		for (const issue of [...review.structuralIssues, ...review.suspenseIssues, ...review.relationshipIssues, ...review.pacingIssues]) mergedIssues.push(`模型评审：${issue}`);
 		const relativePath = "evaluations/manuscript/review.json";
-		const document = { version: 1, projectId: params.projectId, review, deterministicDiagnostics: diagnostics, proseInspection: { mode: inspectedChapters.length > 0 ? "targeted" : "summary-only", inspectedChapters }, generatedAt: new Date().toISOString() };
+		const document = { version: 1, projectId: params.projectId, review, deterministicDiagnostics: diagnostics, longFormFindings, memoryStatus, proseInspection: { mode: inspectedChapters.length > 0 ? "targeted" : "summary-only", inspectedChapters }, generatedAt: new Date().toISOString() };
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
 		const diagnosisPath = "work/diagnosis/manuscript.json";
 		await this.writeAtomically(this.projectFile(params.projectId, diagnosisPath), `${JSON.stringify({ projectId: params.projectId, verdict: review.verdict, issues: mergedIssues, generatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
@@ -5309,6 +5725,43 @@ export class NovelProjectStore {
 		const manuscriptReview = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/review.json"), signal);
 		if (!isJsonRecord(manuscriptReview)) blockers.push("缺少 manuscript review；先 review_manuscript");
 		const endingContract = hasChase ? await this.readJsonIfExists(this.projectFile(params.projectId, "outline/genre/chase-wife-ending-contract.json"), signal) : undefined;
+		// 6. Long-form Finalization Audit（derived memory 必须 fresh；major threads / setups 必须结算或明确 intentional）
+		const memory = await this.memoryStatusFor(params.projectId, signal);
+		let memoryHashes: Record<string, string> = {};
+		if (memory.status !== "current") {
+			blockers.push(`FINALIZATION_DERIVED_STATE_STALE: memory 状态 ${memory.status}（through ${memory.throughChapter} / finalized ${memory.lastFinalized}）；先 repair_narrative_memory`);
+		} else {
+			const ledgers = await this.readMemoryLedgers(params.projectId, signal);
+			const snapshot = await this.readMemorySnapshot(params.projectId, signal);
+			if (ledgers === undefined || snapshot === undefined) {
+				blockers.push("FINALIZATION_DERIVED_STATE_STALE: memory artifacts 缺失；先 repair_narrative_memory");
+			} else {
+				const inputs = await this.buildMemoryInputs(params.projectId, memory.lastFinalized, signal);
+				const longFormContext: LongFormCheckContext = { currentChapter: memory.lastFinalized, totalChapters: memory.lastFinalized, chapters: inputs.chapters.map((candidate) => ({ chapter: candidate.chapter, events: candidate.events })) };
+				for (const finding of checkLongFormContinuity(ledgers, longFormContext)) {
+					if (finding.severity === "error") blockers.push(`${finding.code}: ${finding.message}`);
+				}
+				const allowedOpenRefs = new Set<string>();
+				const architectureRecord = isJsonRecord(architecture) && isJsonRecord(architecture.architecture) ? architecture.architecture as StoryArchitecture : undefined;
+				if (architectureRecord !== undefined && Array.isArray(architectureRecord.endingSettlement.unresolvedResidue)) {
+					for (const residue of architectureRecord.endingSettlement.unresolvedResidue) allowedOpenRefs.add(String(residue));
+				}
+				if (isJsonRecord(endingContract) && (endingContract.mode === "open-ending" || endingContract.mode === "open-ended-ending")) allowedOpenRefs.add("open-ended-ending");
+				const openMajorThreads = ledgers.threads.filter((thread) => thread.importance === "major" && thread.status !== "resolved" && thread.status !== "abandoned-intentionally" && !allowedOpenRefs.has(thread.threadId) && !allowedOpenRefs.has(thread.description) && !thread.sourceRefs.some((ref) => allowedOpenRefs.has(ref)));
+				if (openMajorThreads.length > 0) blockers.push(`MANUSCRIPT_DANGLING_MAJOR_THREAD: 重要 thread 未结算也未标记 intentional：${openMajorThreads.map((thread) => thread.threadId).join("、")}`);
+				const openMajorSetups = ledgers.setupsPayoffs.filter((setup) => setup.importance === "major" && setup.payoffStatus === "pending" && memory.lastFinalized - setup.setupChapter >= 12 && !allowedOpenRefs.has(setup.setupId));
+				if (openMajorSetups.length > 0) blockers.push(`MANUSCRIPT_DANGLING_SETUP: major setup 超过 12 章未 payoff：${openMajorSetups.map((setup) => setup.setupId).join("、")}`);
+				memoryHashes = {
+					memorySnapshotHash: hashJson(snapshot),
+					criticalFactsHash: hashJson(ledgers.criticalFacts),
+					timelineHash: hashJson(ledgers.timeline),
+					threadLedgerHash: hashJson(ledgers.threads),
+					setupPayoffHash: hashJson(ledgers.setupsPayoffs),
+					knowledgeLedgerHash: hashJson(ledgers.knowledge),
+					relationshipStateHash: hashJson(ledgers.relationships),
+				};
+			}
+		}
 		if (blockers.length > 0) throw new Error(`Unified manuscript finalization blocked: ${blockers.join("; ")}`);
 		// Seal：绑定章节、摘要、unified 事件图、realization、fairness、ending eligibility、评审、架构哈希。
 		const sources = await Promise.all(finalizedChapters.map(async (chapter) => {
@@ -5328,6 +5781,8 @@ export class NovelProjectStore {
 			manuscriptReviewHash: isJsonRecord(manuscriptReview) ? hashStableReport(manuscriptReview) : "missing",
 			storyArchitectureHash: isJsonRecord(architecture) ? hashJson(architecture) : "missing",
 			endingContractHash: isJsonRecord(endingContract) ? hashJson(endingContract) : "n/a",
+			// Unified Manuscript Seal V2：绑定 long-form derived state
+			...memoryHashes,
 			sources,
 			finalizedAt: new Date().toISOString(),
 		};
@@ -5413,7 +5868,7 @@ export class NovelProjectStore {
 		}
 	}
 
-	async finalizeChapter(params: FinalizeChapterParams, signal?: AbortSignal): Promise<FinalizedChapterResult> {
+	async finalizeChapter(params: FinalizeChapterParams, signal?: AbortSignal): Promise<FinalizedChapterResult & { memoryCommitted: boolean }> {
 		const projectDir = await this.ensureProject(params.projectId, signal);
 		const lockPath = join(projectDir, ".chapter-finalize.lock");
 		return this.withFileQueue(lockPath, async () => {
@@ -5523,7 +5978,13 @@ export class NovelProjectStore {
 				{ relativePath: "project.json", content: `${JSON.stringify(project, null, 2)}\n` },
 				{ relativePath: "status.json", content: `${JSON.stringify(status, null, 2)}\n` },
 			], signal);
-			return { projectId: params.projectId, chapter: params.chapter, chapterPath: this.relativeProjectPath(params.projectId, chapterPath), summaryPath: this.relativeProjectPath(params.projectId, summaryPath), timelinePath: this.relativeProjectPath(params.projectId, timelinePath), projectPath: this.relativeProjectPath(params.projectId, projectPath), transactionId };
+			// Long-form Narrative Memory commit：finalize authority 已成立；派生失败只标记 memoryOutOfDate，不回滚 finalize。
+			const memoryCommitted = await this.commitChapterMemory(params.projectId, params.chapter, { content: normalizeText(params.content), summary, draftRevision: params.draftRevision }, signal);
+			if (!memoryCommitted) {
+				const memoryProject = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+				if (isJsonRecord(memoryProject)) await this.writeAtomically(this.projectFile(params.projectId, "project.json"), `${JSON.stringify({ ...memoryProject, memoryOutOfDate: true }, null, 2)}\n`, signal);
+			}
+			return { projectId: params.projectId, chapter: params.chapter, chapterPath: this.relativeProjectPath(params.projectId, chapterPath), summaryPath: this.relativeProjectPath(params.projectId, summaryPath), timelinePath: this.relativeProjectPath(params.projectId, timelinePath), projectPath: this.relativeProjectPath(params.projectId, projectPath), transactionId, memoryCommitted };
 		});
 	}
 }

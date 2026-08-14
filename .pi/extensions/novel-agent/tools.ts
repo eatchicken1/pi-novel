@@ -82,6 +82,9 @@ import type {
 	UpdateCharacterStateParams,
 	UpdateClueLedgerParams,
 	UpdateTimelineParams,
+	RepairNarrativeMemoryParams,
+	AnalyzeRevisionImpactParams,
+	ContinueNovelParams,
 	ExploreStoryDirectionsParams,
 	ReviewStoryDesignParams,
 	ReviseStoryArchitectureParams,
@@ -114,6 +117,9 @@ import {
 	ReviseChapterSchema,
 	ReviewManuscriptSchema,
 	ExploreStoryDirectionsSchema,
+	RepairNarrativeMemorySchema,
+	AnalyzeRevisionImpactSchema,
+	ContinueNovelSchema,
 	ReviewStoryDesignSchema,
 	ReviseStoryArchitectureSchema,
 	FinalizeManuscriptUnifiedSchema,
@@ -1237,6 +1243,48 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			executionMode: "sequential",
 			async execute(_toolCallId, params: GetNovelStatusParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).getNovelStatus(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "continue_novel",
+			label: "Continue Novel",
+			description: "Compute the current workflow state and execute one reasonable next step: returns the recommended action and whether to stop (stops on confirmation, P0 blockers, major design decisions, or authority changes; never writes a whole book automatically).",
+			parameters: ContinueNovelSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: ContinueNovelParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).continueNovel(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "repair_narrative_memory",
+			label: "Repair Narrative Memory",
+			description: "[RECOVERY] Fully rebuild the derived long-form memory (chapter deltas, character/knowledge/relationship/object/fact/timeline/thread/setup/professional/hypothesis ledgers, current snapshot) from authoritative artifacts. Safe to repeat; never changes story facts.",
+			parameters: RepairNarrativeMemorySchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: RepairNarrativeMemoryParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).repairNarrativeMemory(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "analyze_revision_impact",
+			label: "Analyze Revision Impact",
+			description: "[ADVANCED] Analyze what downstream chapters, threads, promises, clues, relationship states, professional actions, and payoffs are affected by changing a chapter, events, character knowledge, or truth claims. Severity: safe-local / downstream-review / structural-revision / authority-change. Never edits anything.",
+			parameters: AnalyzeRevisionImpactSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: AnalyzeRevisionImpactParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).analyzeRevisionImpact(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),

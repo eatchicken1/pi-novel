@@ -87,6 +87,24 @@ const ChapterSummarySchema = Type.Object({
 	cluesResolved: Type.Array(Type.String()),
 	itemsChanged: Type.Array(Type.String()),
 	openQuestions: Type.Array(Type.String()),
+	// Chapter Summary V2（Long-form memory 输入；必须引用事件/正文事实，不得自由发挥新事实）
+	whatChanged: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	whatReaderLearned: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	whatHeroineLearned: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	whatSpouseLearned: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	professionalChange: Type.Optional(Type.String({ minLength: 1 })),
+	mysteryProgress: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	threadsOpened: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	threadsAdvanced: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	threadsClosed: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	setups: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	payoffs: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	criticalFacts: Type.Optional(Type.Array(Type.Object({
+		label: Type.String({ minLength: 1 }),
+		value: Type.String({ minLength: 1 }),
+		unit: Type.Optional(Type.String({ minLength: 1 })),
+	}))),
+	nextPressure: Type.Optional(Type.String({ minLength: 1 })),
 });
 
 export const SceneContractSchema = Type.Object({
@@ -1087,6 +1105,10 @@ export const UnifiedEventSchema = Type.Object({
 	professionalDelta: Type.Optional(UnifiedProfessionalDeltaSchema),
 	characterDeltas: Type.Array(UnifiedCharacterDeltaSchema),
 	resourceDeltas: Type.Array(Type.Object({ itemRef: Type.String({ minLength: 1 }), change: Type.String({ minLength: 1 }) })),
+	// Long-form timeline（可选；derived Timeline 优先使用相对顺序，不强制精确时间戳）
+	storyDate: Type.Optional(Type.String({ minLength: 1 })),
+	storyTime: Type.Optional(Type.String({ minLength: 1 })),
+	durationMinutes: Type.Optional(Type.Integer({ minimum: 0 })),
 	riskDeltas: Type.Array(Type.Object({ label: Type.String({ minLength: 1 }), change: Type.String({ minLength: 1 }) })),
 	causes: Type.Array(Type.Integer({ minimum: 1, maximum: 64 })),
 	irreversible: Type.Boolean(),
@@ -2242,6 +2264,20 @@ export const FinalizeManuscriptUnifiedSchema = Type.Object({ projectId: ProjectI
 
 export const RepairNovelProjectSchema = Type.Object({ projectId: ProjectIdSchema });
 export const GetNovelStatusSchema = Type.Object({ projectId: ProjectIdSchema });
+export const RepairNarrativeMemorySchema = Type.Object({ projectId: ProjectIdSchema });
+export const AnalyzeRevisionImpactSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	changedChapter: Type.Optional(ChapterNumberSchema),
+	changedEventIds: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }))),
+	knowledgeChanges: Type.Optional(Type.Array(Type.Object({
+		characterId: Type.String({ minLength: 1 }),
+		factRef: Type.String({ minLength: 1 }),
+		from: Type.String({ minLength: 1 }),
+		to: Type.String({ minLength: 1 }),
+	}))),
+	truthChanges: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+});
+export const ContinueNovelSchema = Type.Object({ projectId: ProjectIdSchema });
 
 export const ReadStoryContextSchema = Type.Object({
 	projectId: ProjectIdSchema,
@@ -3080,6 +3116,9 @@ export type SceneBeat = Static<typeof SceneBeatSchema>;
 export type SceneSemanticReport = Static<typeof SceneSemanticReportSchema>;
 export type VoiceProfile = Static<typeof VoiceProfileSchema>;
 export type VoiceFingerprint = Static<typeof VoiceFingerprintSchema>;
+export type RepairNarrativeMemoryParams = Static<typeof RepairNarrativeMemorySchema>;
+export type AnalyzeRevisionImpactParams = Static<typeof AnalyzeRevisionImpactSchema>;
+export type ContinueNovelParams = Static<typeof ContinueNovelSchema>;
 export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
 export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
 export type ReadStoryContextParams = Static<typeof ReadStoryContextSchema>;
