@@ -142,6 +142,10 @@ import type {
 	MysteryAcquisitionEntry,
 	ReinterpretationLadder,
 	ArchitectureCandidate,
+	SceneDesign,
+	SceneSemanticReport,
+	VoiceProfile,
+	VoiceFingerprint,
 } from "../schemas.ts";
 import { hasChaseWifeCapability, hasMatureMarriageCapability, hasPrimaryGenre, hasProfessionalDomain, normalizePrimaryGenre, normalizeProfessionalDomain, normalizeRelationshipMechanism } from "./story-profile.ts";
 import { checkMysteryDesign, checkMysteryFairness, isMysteryPrivatePath, type MysteryIssue } from "./mystery-checker.ts";
@@ -156,6 +160,7 @@ import { aggregateDiagnosis, computeAuthoringPhase, computeFoundationReadiness, 
 import { buildRepairabilityInfo, checkArchitectureCandidatesSimilarity, checkCharacterDecisions, checkEndingDesign, checkFoundationLinks, checkMysteryDesignIntelligence, checkStoryDirectionsSimilarity, checkStoryPromiseLedger, classifyDraftFailure, validateStoryDirectionComparison, type DesignCheckFinding, type DraftFailureClassification, type RepairabilityInfo } from "./story-design.ts";
 import { checkAnchorSpine, checkArcSync, checkCausalLinks, checkInformationDecisionBalance, checkNarrativeQuestions, checkPressureShape, checkPromiseTrace } from "./causal-planner.ts";
 import { mergeDesignFindings, verdictForFindings } from "./story-design-review.ts";
+import { analyzeVoiceFingerprint, checkChapterProse, checkChaseEventProse, checkSceneDesigns, checkVoiceDrift } from "./scene-review.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -1054,7 +1059,7 @@ export class NovelProjectStore {
 			if (added.has(relativePath)) return;
 			// reader-sim 硬隔离（defense-in-depth）：canon/work/outline 下的 mystery 作者规划路径都不得进入 reader 上下文，
 			// 统一  → / 后按 author-private roots 判定（Windows 路径同样生效），即使未来修改 sections 也不能泄漏作者秘密。
-			if ((params.task ?? "chapter-writing") === "reader-sim" && (isMysteryPrivatePath(relativePath) || isMarriagePrivatePath(relativePath) || isProfessionalPrivatePath(relativePath) || isUnifiedPrivatePath(relativePath) || relativePath.includes("female-social-suspense-design.json") || relativePath.includes("contradiction-profiles.json") || relativePath.includes("story-architecture") || relativePath.includes("work/authoring/") || relativePath.includes("story-bible-index") || relativePath.includes("chapter-diagnosis") || relativePath.includes("manuscript-diagnosis") || relativePath.includes("manuscript/review.json"))) {
+			if ((params.task ?? "chapter-writing") === "reader-sim" && (isMysteryPrivatePath(relativePath) || isMarriagePrivatePath(relativePath) || isProfessionalPrivatePath(relativePath) || isUnifiedPrivatePath(relativePath) || relativePath.includes("female-social-suspense-design.json") || relativePath.includes("contradiction-profiles.json") || relativePath.includes("story-architecture") || relativePath.includes("work/authoring/") || relativePath.includes("story-bible-index") || relativePath.includes("chapter-diagnosis") || relativePath.includes("manuscript-diagnosis") || relativePath.includes("manuscript/review.json") || relativePath.includes("work/scene-designs") || relativePath.includes("work/scene-semantics"))) {
 				excludedFiles.push(relativePath);
 				return;
 			}
@@ -1148,6 +1153,7 @@ export class NovelProjectStore {
 			const current = chapterName(params.chapter);
 			await addFile(`outline/chapter-outline.json`, "chapter-outline");
 			await addFile(`work/chapter-plans/${current}.md`, "chapter-plan");
+			await addFile(`work/scene-designs/${current}.json`, "scene-designs");
 			await addSceneContract(`work/scene-contracts/${current}.json`);
 			if (isJsonRecord(project) && hasChaseWifeCapability(project)) {
 				await addFile("outline/genre/chase-wife-beat-sheet.json", "chase-wife-beat-sheet");
@@ -1241,6 +1247,7 @@ export class NovelProjectStore {
 			await addFile("work/authoring/ending-architecture.json", "ending-architecture");
 			await addFile("work/authoring/character-decisions.json", "character-decisions");
 			if (task === "story-direction-exploration") await addFile("work/authoring/story-directions.json", "story-directions");
+			await addFile("work/authoring/voice-profile.json", "voice-profile");
 			if (designTasks.has(task)) {
 				await addFile("work/authoring/architecture-candidates.json", "architecture-candidates");
 				await addFile("work/authoring/story-design-review.json", "story-design-review");
@@ -4279,7 +4286,11 @@ export class NovelProjectStore {
 			if (arch !== undefined) deterministic.push(...checkArcSync({ events, architecture: arch }));
 		}
 		const findings = mergeDesignFindings(deterministic, params.findings);
-		const verdict = verdictForFindings(findings);
+		// Round 8 risk A 关闭：bare project（无 concept / foundation / architecture / analysis）不得返回误导性 clean。
+		const conceptDoc = await this.readJsonIfExists(this.projectFile(params.projectId, "work/authoring/story-concept.json"), signal);
+		const hasReviewContext = conceptDoc !== undefined || links !== undefined || promiseLedger !== undefined || ending !== undefined || decisions !== undefined || architecture !== undefined || analysis !== undefined || candidatesDoc !== undefined;
+		let verdict: DesignDiagnosis["verdict"] = verdictForFindings(findings);
+		if (!hasReviewContext) verdict = "needs-context";
 		const diagnosis: DesignDiagnosis = { verdict, findings, generatedAt: new Date().toISOString() };
 		const relativePath = "work/authoring/story-design-review.json";
 		const document = { version: 1, projectId: params.projectId, diagnosis, deterministicFindingCount: deterministic.length, modelFindingCount: params.findings.length, generatedAt: new Date().toISOString() };
@@ -4290,9 +4301,9 @@ export class NovelProjectStore {
 		await this.recordWorkflowOperation(params.projectId, "review_story_design", status, [relativePath], signal);
 		const result = workflowResult(params.projectId, phase, status, {
 			createdArtifacts: [relativePath],
-			blockers: verdict === "major-revision" ? [{ code: "DESIGN_REVIEW_MAJOR_REVISION", message: `设计评审 ${findings.filter((finding) => finding.priority === "P0").length} 个 P0 问题：先修订架构再继续` }] : [],
+			blockers: verdict === "major-revision" ? [{ code: "DESIGN_REVIEW_MAJOR_REVISION", message: `设计评审 ${findings.filter((finding) => finding.priority === "P0").length} 个 P0 问题：先修订架构再继续` }] : verdict === "needs-context" ? [{ code: "DESIGN_REVIEW_INSUFFICIENT_CONTEXT", message: "评审上下文不足（无 concept/foundation/architecture/analysis）；先 develop_story_concept 或 develop_story_bible" }] : [],
 			warnings: verdict === "needs-revision" ? [`设计评审发现 ${findings.length} 个问题（P1/P2 为主）；建议 revise_story_architecture 后重评`] : [],
-			nextActions: verdict === "major-revision" ? [{ tool: "revise_story_architecture", reason: "设计评审存在 P0 问题" }] : verdict === "needs-revision" ? [{ tool: "revise_story_architecture", reason: "设计评审存在 P1/P2 问题；可选择修订或接受风险继续" }] : hasEventGraph ? [{ tool: "plan_chapter", reason: "设计评审干净，开始章节规划", chapter: facts.nextChapter }] : [{ tool: "build_narrative_event_graph", reason: "设计评审干净，构建 unified 事件图" }],
+			nextActions: verdict === "major-revision" ? [{ tool: "revise_story_architecture", reason: "设计评审存在 P0 问题" }] : verdict === "needs-context" ? [{ tool: "develop_story_concept", reason: "缺少评审上下文；先建立 concept 与 foundation" }] : verdict === "needs-revision" ? [{ tool: "revise_story_architecture", reason: "设计评审存在 P1/P2 问题；可选择修订或接受风险继续" }] : hasEventGraph ? [{ tool: "plan_chapter", reason: "设计评审干净，开始章节规划", chapter: facts.nextChapter }] : [{ tool: "build_narrative_event_graph", reason: "设计评审干净，构建 unified 事件图" }],
 		});
 		return { ...result, diagnosis };
 	}
@@ -4472,6 +4483,11 @@ export class NovelProjectStore {
 			const laddersPath = "work/authoring/mystery-ladders.json";
 			await this.writeAtomically(this.projectFile(params.projectId, laddersPath), `${JSON.stringify({ version: 1, projectId: params.projectId, ladders: foundation.mysteryLadders, updatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
 			created.push(laddersPath);
+		}
+		if (foundation.voiceProfile !== undefined) {
+			const voicePath = "work/authoring/voice-profile.json";
+			await this.writeAtomically(this.projectFile(params.projectId, voicePath), `${JSON.stringify({ version: 1, projectId: params.projectId, ...foundation.voiceProfile, updatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
+			created.push(voicePath);
 		}
 		for (const finding of designFindings) {
 			if (finding.severity === "error") blockers.push({ code: finding.code, message: finding.message, source: "story-design" });
@@ -4684,39 +4700,87 @@ export class NovelProjectStore {
 			return workflowResult(params.projectId, (await this.workflowFactsFor(params.projectId, signal)).phase, "completed", { warnings: ["该章已有相同 plan；如需修订请传 force 或先 revise"], nextActions: [{ tool: "draft_chapter", reason: "plan 已存在且未变", chapter: params.chapter }] }) as WorkflowResult & { chapterContext?: Record<string, unknown> };
 		}
 		await this.writeAtomically(this.projectFile(params.projectId, planPath), normalizeText(renderedPlan), signal);
-		// Scene Contract：不再默认 day/uncertain 占位。模型必须从 event/movement/前一章推导具体值；
-		// 确实未知的字段用 TBD 并给出 SCENE_CONTRACT_UNRESOLVED_FIELD warning。
+		// Scene Design（Round 9）：Chapter Plan → Scene Designs → Scene Contracts（展开层，不是 story authority）。
+		// 场景设计包含 hidden intention / subtext，属作者私有（reader-sim 按 work/scene-designs 隔离）。
 		const placeholderRe = /^(?:day|uncertain|tbd|待定|未定|不详|none|n\/a|\?+)$/iu;
-		const contracts = params.plan.sceneDesign.map((scene) => {
-			const contract: Record<string, unknown> = {
-				sceneId: scene.sceneId, chapter: params.chapter, order: scene.order, pov: "heroine",
-				time: scene.time ?? "TBD",
-				location: scene.location, goal: scene.goal, opposition: scene.opposition, stakes: scene.stakes,
-				knowledgeBefore: [], informationReveal: scene.informationReveal,
-				emotionalStateBefore: scene.emotionalStateBefore ?? "TBD",
-				emotionalTurn: scene.emotionalTurn,
-				emotionalStateAfter: scene.emotionalStateAfter ?? "TBD",
-				stateChanges: ["knowledge"], setups: [], payoffs: [],
-				exitHook: params.plan.chapterExitPressure,
-			};
-			if (scene.scenePurpose !== undefined) contract.scenePurpose = scene.scenePurpose;
-			if (scene.entryState !== undefined) contract.entryState = scene.entryState;
-			if (scene.decisionOrDiscovery !== undefined) contract.decisionOrDiscovery = scene.decisionOrDiscovery;
-			if (scene.stateChange !== undefined) contract.stateChange = scene.stateChange;
-			if (scene.exitPressure !== undefined) contract.exitPressure = scene.exitPressure;
-			if (scene.eventRefs !== undefined) contract.eventRefs = scene.eventRefs;
-			for (const field of ["time", "emotionalStateBefore", "emotionalStateAfter"] as const) {
-				const value = String(contract[field]);
-				if (placeholderRe.test(value.trim())) warnings.push(`SCENE_CONTRACT_UNRESOLVED_FIELD: scene ${scene.sceneId} 的 ${field}=${value} 是占位符；需从 event/movement/前一章推导具体值`);
+		const createdArtifacts: string[] = [planPath];
+		let sceneContexts: Array<Record<string, unknown>> | undefined;
+		if (params.plan.sceneDesigns !== undefined) {
+			const scenes = params.plan.sceneDesigns as SceneDesign[];
+			const analysis = await this.readJsonIfExists(this.projectFile(params.projectId, "work/authoring/event-graph-analysis.json"), signal);
+			const anchorEventIds = new Set(isJsonRecord(analysis) && Array.isArray(analysis.anchorSpine) ? analysis.anchorSpine.filter(isJsonRecord).map((item) => Number(item.eventId)).filter((value) => Number.isInteger(value)) : []);
+			const irreversibleEventIds = new Set(chapterEvents.filter((event) => event.irreversible === true).map((event) => event.eventId));
+			const revealEventIds = new Set(chapterEvents.filter((event) => event.mysteryDelta !== undefined && event.mysteryDelta.revealClaimIds.length > 0).map((event) => event.eventId));
+			const sceneFindings = checkSceneDesigns(scenes, { anchorEventIds, irreversibleEventIds, revealEventIds, allEventIds: new Set(chapterEvents.map((event) => event.eventId)) });
+			for (const finding of sceneFindings) {
+				if (finding.severity === "error") blockers.push({ code: finding.code, message: finding.message });
+				else warnings.push(`${finding.code}: ${finding.message}`);
 			}
-			return contract;
-		});
-		await this.saveSceneContract({ projectId: params.projectId, chapter: params.chapter, contracts: contracts as Parameters<NovelProjectStore["saveSceneContract"]>[0]["contracts"] }, signal);
+			const sceneDesignPath = `work/scene-designs/${chapterName(params.chapter)}.json`;
+			await this.writeAtomically(this.projectFile(params.projectId, sceneDesignPath), `${JSON.stringify({ version: 1, projectId: params.projectId, chapter: params.chapter, scenes, updatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
+			createdArtifacts.push(sceneDesignPath);
+			const contracts = scenes.map((scene, index) => {
+				const contract: Record<string, unknown> = {
+					sceneId: scene.sceneId, chapter: params.chapter, order: index + 1, pov: scene.povCharacterId,
+					time: scene.time, location: scene.location,
+					goal: scene.scenePurpose.description, opposition: scene.opposingForce, stakes: scene.stakes,
+					knowledgeBefore: [], informationReveal: scene.informationPlan.map((item) => item.informationUnit),
+					emotionalStateBefore: "TBD", emotionalTurn: scene.emotionalMovement, emotionalStateAfter: "TBD",
+					stateChanges: [scene.stateChange], setups: [], payoffs: [],
+					exitHook: scene.exitPressure,
+					scenePurpose: scene.scenePurpose.description, entryState: scene.entryState, characterGoal: scene.focalCharacterGoal,
+					decisionOrDiscovery: scene.decisionOrDiscovery, stateChange: scene.stateChange, exitPressure: scene.exitPressure,
+					eventRefs: scene.eventIds,
+				};
+				if (placeholderRe.test(scene.time.trim())) warnings.push(`SCENE_CONTRACT_UNRESOLVED_FIELD: scene ${scene.sceneId} 的 time=${scene.time} 是占位符；需从 event/movement/前一章推导具体值`);
+				return contract;
+			});
+			await this.saveSceneContract({ projectId: params.projectId, chapter: params.chapter, contracts: contracts as Parameters<NovelProjectStore["saveSceneContract"]>[0]["contracts"] }, signal);
+			sceneContexts = scenes.map((scene) => ({
+				sceneId: scene.sceneId,
+				events: chapterEvents.filter((event) => scene.eventIds.includes(event.eventId)).map((event) => ({ eventId: event.eventId, storyGoal: event.storyGoal, conflict: event.conflict, action: event.action, consequence: event.consequence })),
+				focalCharacterGoal: scene.focalCharacterGoal,
+				opposingForce: scene.opposingForce,
+				tactic: scene.tactic,
+				entryState: scene.entryState,
+				previousSceneExit: undefined,
+				requiredState: scene.stateChange,
+				professionalDetailBeats: scene.professionalDetailBeats,
+				informationPlan: scene.informationPlan,
+			}));
+		} else {
+			// Scene Contract（legacy）：不再默认 day/uncertain 占位；模型必须推导具体值。
+			const contracts = params.plan.sceneDesign.map((scene) => {
+				const contract: Record<string, unknown> = {
+					sceneId: scene.sceneId, chapter: params.chapter, order: scene.order, pov: "heroine",
+					time: scene.time ?? "TBD",
+					location: scene.location, goal: scene.goal, opposition: scene.opposition, stakes: scene.stakes,
+					knowledgeBefore: [], informationReveal: scene.informationReveal,
+					emotionalStateBefore: scene.emotionalStateBefore ?? "TBD",
+					emotionalTurn: scene.emotionalTurn,
+					emotionalStateAfter: scene.emotionalStateAfter ?? "TBD",
+					stateChanges: ["knowledge"], setups: [], payoffs: [],
+					exitHook: params.plan.chapterExitPressure,
+				};
+				if (scene.scenePurpose !== undefined) contract.scenePurpose = scene.scenePurpose;
+				if (scene.entryState !== undefined) contract.entryState = scene.entryState;
+				if (scene.decisionOrDiscovery !== undefined) contract.decisionOrDiscovery = scene.decisionOrDiscovery;
+				if (scene.stateChange !== undefined) contract.stateChange = scene.stateChange;
+				if (scene.exitPressure !== undefined) contract.exitPressure = scene.exitPressure;
+				if (scene.eventRefs !== undefined) contract.eventRefs = scene.eventRefs;
+				for (const field of ["time", "emotionalStateBefore", "emotionalStateAfter"] as const) {
+					const value = String(contract[field]);
+					if (placeholderRe.test(value.trim())) warnings.push(`SCENE_CONTRACT_UNRESOLVED_FIELD: scene ${scene.sceneId} 的 ${field}=${value} 是占位符；需从 event/movement/前一章推导具体值`);
+				}
+				return contract;
+			});
+			await this.saveSceneContract({ projectId: params.projectId, chapter: params.chapter, contracts: contracts as Parameters<NovelProjectStore["saveSceneContract"]>[0]["contracts"] }, signal);
+		}
 		const context = await this.buildChapterContext(params.projectId, params.chapter, chapterEvents, signal);
 		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
-		await this.recordWorkflowOperation(params.projectId, "plan_chapter", blockers.length === 0 ? "completed" : "blocked", [planPath], signal);
-		const result = workflowResult(params.projectId, phase, blockers.length > 0 ? "blocked" : "completed", { createdArtifacts: [planPath], blockers, warnings, nextActions: blockers.length > 0 ? [] : [{ tool: "draft_chapter", reason: "plan 与 scene contracts 已就绪", chapter: params.chapter }] });
-		return { ...result, chapterContext: context };
+		await this.recordWorkflowOperation(params.projectId, "plan_chapter", blockers.length === 0 ? "completed" : "blocked", createdArtifacts, signal);
+		const result = workflowResult(params.projectId, phase, blockers.length > 0 ? "blocked" : "completed", { createdArtifacts, blockers, warnings, nextActions: blockers.length > 0 ? [] : [{ tool: "draft_chapter", reason: "plan 与 scene contracts 已就绪", chapter: params.chapter }] });
+		return { ...result, chapterContext: sceneContexts === undefined ? context : { ...context, sceneContexts } };
 	}
 
 	private async buildChapterContext(projectId: string, chapter: number, chapterEvents: UnifiedEvent[], signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -4766,7 +4830,7 @@ export class NovelProjectStore {
 			chapterConstraints: { cannotRemoveBecause: "本章不可逆内容必须有正文后果" },
 		};
 	}
-	async draftChapter(params: DraftChapterParams, signal?: AbortSignal): Promise<WorkflowResult & { draftRevision?: number }> {
+	async draftChapter(params: DraftChapterParams, signal?: AbortSignal): Promise<WorkflowResult & { draftRevision?: number; sceneReportCount?: number }> {
 		await this.ensureProject(params.projectId, signal);
 		const blockers: WorkflowBlocker[] = [];
 		const warnings: string[] = [];
@@ -4845,11 +4909,35 @@ export class NovelProjectStore {
 			reports.push(`continuity/reports/${chapterName(params.chapter)}-integrity.json`);
 			if (integrity.status === "error") blockers.push({ code: "DRAFT_CONTINUITY_FAIL", message: `连续性检查未通过：${integrity.issues.map((issue) => issue.message).join("; ")}`, source: "check_continuity" });
 		}
+		// 4. Scene Semantic Reports（evaluation artifact）：evidence 必须引用正文锚点。
+		let sceneReportCount = 0;
+		if (blockers.length === 0 && assembled !== undefined && params.sceneSemanticReports !== undefined) {
+			const assembledText = await this.readTextIfExists(this.projectFile(params.projectId, `work/drafts/${chapterName(params.chapter)}-r${String(assembled.draftRevision).padStart(2, "0")}.md`), signal);
+			for (const report of params.sceneSemanticReports) {
+				const anchorIssues: string[] = [];
+				for (const evidence of report.evidence) {
+					if (assembledText !== undefined) {
+						const issue = validateSemanticEvidenceAnchor(assembledText, evidence.anchor, `scene ${report.sceneId} evidence ${evidence.label}`);
+						if (issue !== undefined) anchorIssues.push(issue);
+					} else if (!isSemanticEvidenceAnchor(evidence.anchor)) {
+						anchorIssues.push(`${evidence.label} must be a prose anchor`);
+					}
+				}
+				if (anchorIssues.length > 0) {
+					blockers.push({ code: "DRAFT_SCENE_SEMANTIC_INVALID", message: `scene ${report.sceneId} 的语义报告证据未绑定正文：${anchorIssues.join("; ")}`, source: "scene-semantic-report" });
+				}
+			}
+			if (blockers.length === 0) {
+				const sceneSemanticsPath = `work/scene-semantics/${chapterName(params.chapter)}.json`;
+				await this.writeAtomically(this.projectFile(params.projectId, sceneSemanticsPath), `${JSON.stringify({ version: 1, projectId: params.projectId, chapter: params.chapter, reports: params.sceneSemanticReports, draftRevision: assembled.draftRevision, assembledHash: assembledText === undefined ? "missing" : sha256(assembledText), generatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
+				sceneReportCount = params.sceneSemanticReports.length;
+			}
+		}
 		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
 		const status = blockers.length > 0 ? "blocked" : "completed";
 		await this.recordWorkflowOperation(params.projectId, "draft_chapter", status, [`work/drafts/${chapterName(params.chapter)}-r${String(assembled?.draftRevision ?? 0).padStart(2, "0")}.md`], signal);
 		const result = workflowResult(params.projectId, phase, status, { createdArtifacts: assembled === undefined ? [] : [`work/drafts/${chapterName(params.chapter)}-r${String(assembled.draftRevision).padStart(2, "0")}.md`], reports, blockers, warnings, nextActions: blockers.length > 0 ? [{ tool: "draft_chapter", reason: "修复失败的事件草稿后重新起草（不得用 prose 掩盖 planning bug）", chapter: params.chapter }] : [{ tool: "diagnose_chapter", reason: "草稿可审阅；先诊断再定稿（draft ≠ approved prose，不自动 finalize）", chapter: params.chapter }] });
-		return { ...result, draftRevision: assembled?.draftRevision, repairability };
+		return { ...result, draftRevision: assembled?.draftRevision, repairability, sceneReportCount };
 	}
 	async diagnoseChapter(params: DiagnoseChapterParams, signal?: AbortSignal): Promise<ChapterDiagnosis & { reports: string[]; recommendedNextAction?: { tool: string; reason: string; chapter: number } }> {
 		await this.ensureProject(params.projectId, signal);
@@ -4908,6 +4996,55 @@ export class NovelProjectStore {
 			reports.push(fairness.path);
 			for (const issue of fairness.issues) sourceIssues.push({ code: issue.code, severity: issue.severity, message: issue.message });
 		}
+		// Scene & Prose Intelligence（Round 9）：Scene Design 检查 + 正文确定性检查 + 模型语义发现。
+		const sceneDesigns = await this.readJsonIfExists(this.projectFile(params.projectId, `work/scene-designs/${chapterName(params.chapter)}.json`), signal);
+		if (isJsonRecord(sceneDesigns) && Array.isArray(sceneDesigns.scenes)) {
+			const analysis = await this.readJsonIfExists(this.projectFile(params.projectId, "work/authoring/event-graph-analysis.json"), signal);
+			const anchorEventIds = new Set(isJsonRecord(analysis) && Array.isArray(analysis.anchorSpine) ? analysis.anchorSpine.filter(isJsonRecord).map((item) => Number(item.eventId)).filter((value) => Number.isInteger(value)) : []);
+			const irreversibleEventIds = new Set(chapterEvents.filter((event) => event.irreversible === true).map((event) => event.eventId));
+			const revealEventIds = new Set(chapterEvents.filter((event) => event.mysteryDelta !== undefined && event.mysteryDelta.revealClaimIds.length > 0).map((event) => event.eventId));
+			const sceneList = sceneDesigns.scenes as SceneDesign[];
+			for (const finding of checkSceneDesigns(sceneList, { anchorEventIds, irreversibleEventIds, revealEventIds, allEventIds: new Set(chapterEvents.map((event) => event.eventId)) })) {
+				sourceIssues.push({ code: finding.code, severity: finding.severity, message: finding.message });
+			}
+			// SUBTEXT_WITHOUT_BEHAVIOR：scene 声明了 underlyingIntent，但 scene semantic report 没有任何正文证据。
+			const sceneSemantics = await this.readJsonIfExists(this.projectFile(params.projectId, `work/scene-semantics/${chapterName(params.chapter)}.json`), signal);
+			const semanticsByScene = isJsonRecord(sceneSemantics) && Array.isArray(sceneSemantics.reports) ? new Map((sceneSemantics.reports as SceneSemanticReport[]).map((report) => [report.sceneId, report])) : new Map<string, SceneSemanticReport>();
+			for (const scene of sceneList) {
+				if (scene.subtext === undefined) continue;
+				const report = semanticsByScene.get(scene.sceneId);
+				if (report === undefined || report.evidence.length === 0) sourceIssues.push({ code: "SUBTEXT_WITHOUT_BEHAVIOR", severity: "warning", message: `scene ${scene.sceneId} 声明了潜台词（${scene.subtext.underlyingIntent}）但语义报告没有正文证据；subtext 必须有 action/omission/wording 支撑` });
+			}
+		}
+		const proseDraft = await this.latestDraft(params.projectId, params.chapter, signal);
+		if (proseDraft !== undefined) {
+			const voiceProfile = await this.readJsonIfExists(this.projectFile(params.projectId, "work/authoring/voice-profile.json"), signal);
+			const profile = isJsonRecord(voiceProfile) ? voiceProfile as VoiceProfile : undefined;
+			const pov = chapterEvents[0]?.pov ?? "heroine-first-person";
+			for (const finding of checkChapterProse(proseDraft.content, { voiceProfile: profile, pov })) {
+				sourceIssues.push({ code: finding.code, severity: finding.severity, message: finding.message });
+			}
+			const fingerprint = analyzeVoiceFingerprint(params.chapter, proseDraft.content, profile);
+			const voiceReportPath = `continuity/reports/${chapterName(params.chapter)}-voice.json`;
+			await this.writeAtomically(this.projectFile(params.projectId, voiceReportPath), `${JSON.stringify({ version: 1, projectId: params.projectId, fingerprint, draftRevision: proseDraft.revision, contentHash: sha256(proseDraft.content), generatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
+			reports.push(voiceReportPath);
+			if (profile !== undefined) {
+				for (const finding of checkVoiceDrift(fingerprint, profile)) sourceIssues.push({ code: finding.code, severity: finding.severity, message: finding.message });
+			}
+			// Chase Wife 场景化：按事件角色检查正文。
+			for (const event of chapterEvents) {
+				if (event.chaseWifeDelta === undefined) continue;
+				const eventDraft = await this.latestUnifiedEventDraft(params.projectId, params.chapter, event.eventId, signal);
+				if (eventDraft === undefined) continue;
+				for (const finding of checkChaseEventProse(event.chaseWifeDelta.role, eventDraft.content)) {
+					sourceIssues.push({ code: finding.code, severity: finding.severity, message: finding.message, eventId: event.eventId });
+				}
+			}
+		}
+		// 模型语义发现（subtext / voice convergence / scene spatial 等无法确定性判断的问题）。
+		for (const finding of params.modelFindings ?? []) {
+			sourceIssues.push({ code: finding.code, severity: finding.priority === "P0" || finding.priority === "P1" ? "error" : "warning", message: finding.message, eventId: undefined });
+		}
 		const findings = aggregateDiagnosis(sourceIssues, params.chapter);
 		const hasP0 = findings.some((finding) => finding.priority === "P0");
 		const verdict = hasP0 ? "blocked" : findings.length > 0 ? "revision-recommended" : "clean";
@@ -4936,14 +5073,51 @@ export class NovelProjectStore {
 				}
 			}
 		}
-		// 只改受影响事件（scoped revision），逐事件：新修订草稿 → 检查 → 语义报告
+		// Scoped Prose Revision（Round 9）：默认 Beat → Scene → Event → Chapter；对话问题不得整章重写。
 		const map = await this.readUnifiedEventMap(params.projectId, signal);
 		const chapterEvents = map === undefined ? [] : map.events.filter((event) => event.chapter === params.chapter);
 		const affectedIds = new Set(params.revisionPlan.goals.flatMap((goal) => goal.affectedEventIds));
+		const sceneDesigns = await this.readJsonIfExists(this.projectFile(params.projectId, `work/scene-designs/${chapterName(params.chapter)}.json`), signal);
+		const scenes = isJsonRecord(sceneDesigns) && Array.isArray(sceneDesigns.scenes) ? sceneDesigns.scenes as SceneDesign[] : [];
+		const sceneIds = new Set(scenes.map((scene) => scene.sceneId));
+		const sceneEventIds = new Set(scenes.flatMap((scene) => scene.eventIds));
+		for (const goal of params.revisionPlan.goals) {
+			if (goal.scope === "scene" || goal.proseGoal !== undefined) {
+				if (goal.sceneIds !== undefined) {
+					for (const sceneId of goal.sceneIds) {
+						if (!sceneIds.has(sceneId)) warnings.push(`revision goal ${goal.id} 引用的 scene ${sceneId} 不在本章 scene designs 中`);
+					}
+				}
+				for (const eventId of goal.affectedEventIds) {
+					if (scenes.length > 0 && !sceneEventIds.has(eventId)) warnings.push(`revision goal ${goal.id}（scope=${goal.scope ?? "scene"}）影响的事件 ${eventId} 不在任何 scene 的 eventIds 中；按 event 级处理`);
+				}
+			}
+		}
 		for (const draftEntry of params.eventDrafts) {
 			if (!chapterEvents.some((event) => event.eventId === draftEntry.eventId)) {
 				blockers.push({ code: "REVISE_EVENT_NOT_IN_CHAPTER", message: `事件 ${draftEntry.eventId} 不在本章事件图中` });
 				continue;
+			}
+			// Fact Preservation：prose revision 不得偷偷改变关键事实（PROSE_REVISION_CHANGED_FACT）。
+			const spec = chapterEvents.find((event) => event.eventId === draftEntry.eventId);
+			const prior = await this.latestUnifiedEventDraft(params.projectId, params.chapter, draftEntry.eventId, signal);
+			if (spec !== undefined && prior !== undefined) {
+				const requiredRefs = new Set<string>();
+				if (spec.mysteryDelta !== undefined) {
+					for (const id of [...spec.mysteryDelta.discoveredClueIds, ...spec.mysteryDelta.readerRevealedClueIds, ...spec.mysteryDelta.proofProgressClaimIds, ...spec.mysteryDelta.revealClaimIds]) requiredRefs.add(id);
+					for (const change of spec.mysteryDelta.claimKnowledgeChanges) requiredRefs.add(change.claimId);
+				}
+				if (spec.professionalDelta !== undefined) {
+					for (const id of [...spec.professionalDelta.actionIds, ...spec.professionalDelta.evidenceSourceIds, ...spec.professionalDelta.observationIds, ...spec.professionalDelta.conflictIds, ...spec.professionalDelta.consequenceIds, ...spec.professionalDelta.escalationPathIds]) requiredRefs.add(id);
+				}
+				if (spec.chaseWifeDelta !== undefined) {
+					for (const id of [...spec.chaseWifeDelta.harmRefs, ...spec.chaseWifeDelta.repairRefs]) requiredRefs.add(id);
+				}
+				for (const id of requiredRefs) {
+					if (prior.content.includes(id) && !draftEntry.content.includes(id)) {
+						blockers.push({ code: "PROSE_REVISION_CHANGED_FACT", message: `事件 ${draftEntry.eventId} 修订后删除了关键引用 ${id}；prose revision 不得改变 story facts，如需改事实请升级为 planning revision` });
+					}
+				}
 			}
 			const saved = await this.saveUnifiedEventDraft({ projectId: params.projectId, chapter: params.chapter, eventId: draftEntry.eventId, content: draftEntry.content }, signal);
 			const checked = await this.checkUnifiedEventDraft({ projectId: params.projectId, chapter: params.chapter, eventId: draftEntry.eventId }, signal);

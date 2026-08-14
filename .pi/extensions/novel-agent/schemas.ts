@@ -1864,7 +1864,7 @@ export const DesignFindingSchema = Type.Object({
 });
 
 export const DesignDiagnosisSchema = Type.Object({
-	verdict: Type.Union([Type.Literal("clean"), Type.Literal("needs-revision"), Type.Literal("major-revision")]),
+	verdict: Type.Union([Type.Literal("clean"), Type.Literal("needs-revision"), Type.Literal("major-revision"), Type.Literal("needs-context")]),
 	findings: Type.Array(DesignFindingSchema),
 	generatedAt: Type.String({ minLength: 1 }),
 });
@@ -1916,6 +1916,144 @@ export const StoryBibleIndexSchema = Type.Object({
 	artifactRefs: Type.Record(Type.String(), Type.String()),
 });
 
+// ==== Scene & Prose Intelligence（Round 9：场景构造 / 对话 / 情绪 / 信息投放 / 声音）====
+
+export const ScenePurposeSchema = Type.Object({
+	kind: Type.Optional(Type.String({ minLength: 1 })),
+	description: Type.String({ minLength: 1 }),
+});
+
+export const SceneModeSchema = Type.Union([
+	Type.Literal("full-scene"),
+	Type.Literal("compressed-scene"),
+	Type.Literal("summary-transition"),
+]);
+
+export const SceneBeatSchema = Type.Object({
+	beatId: Type.String({ minLength: 1, maxLength: 80 }),
+	actor: Type.String({ minLength: 1 }),
+	intent: Type.String({ minLength: 1 }),
+	actionType: Type.Optional(Type.String({ minLength: 1 })),
+	action: Type.String({ minLength: 1 }),
+	response: Type.Optional(Type.String({ minLength: 1 })),
+	informationChange: Type.Optional(Type.String({ minLength: 1 })),
+	relationshipChange: Type.Optional(Type.String({ minLength: 1 })),
+	emotionalShift: Type.Optional(Type.String({ minLength: 1 })),
+	tacticChange: Type.Optional(Type.Boolean()),
+	raisesQuestion: Type.Optional(Type.String({ minLength: 1 })),
+	paysOffRef: Type.Optional(Type.String({ minLength: 1 })),
+	// 对话即行动：speaker wants something（问/躲/逼/试探/误导/控制/缓和/切断/交换/挑战/求证）
+	speechIntent: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const InformationDeliveryPlanSchema = Type.Object({
+	informationUnit: Type.String({ minLength: 1 }),
+	readerBefore: Type.String({ minLength: 1 }),
+	heroineBefore: Type.String({ minLength: 1 }),
+	deliveryMode: Type.String({ minLength: 1 }),
+	surfacePurpose: Type.String({ minLength: 1 }),
+	immediateInterpretation: Type.String({ minLength: 1 }),
+	hiddenImplication: Type.String({ minLength: 1 }),
+	strategicEffect: Type.String({ minLength: 1 }),
+});
+
+export const ProfessionalDetailBeatSchema = Type.Object({
+	detail: Type.String({ minLength: 1 }),
+	function: Type.String({ minLength: 1 }),
+	sourceRef: Type.String({ minLength: 1 }),
+	whatItChanges: Type.String({ minLength: 1 }),
+});
+
+export const SceneSubtextSchema = Type.Object({
+	surfaceMeaning: Type.String({ minLength: 1 }),
+	underlyingIntent: Type.String({ minLength: 1 }),
+});
+
+export const SceneDesignSchema = Type.Object({
+	sceneId: Type.String({ minLength: 1, maxLength: 80 }),
+	chapter: ChapterNumberSchema,
+	eventIds: Type.Array(Type.Integer({ minimum: 1 })),
+	scenePurpose: ScenePurposeSchema,
+	povCharacterId: Type.String({ minLength: 1 }),
+	location: Type.String({ minLength: 1 }),
+	time: Type.String({ minLength: 1 }),
+	entryState: Type.String({ minLength: 1 }),
+	focalCharacterGoal: Type.String({ minLength: 1 }),
+	opposingForce: Type.String({ minLength: 1 }),
+	stakes: Type.String({ minLength: 1 }),
+	tactic: Type.String({ minLength: 1 }),
+	beatPlan: Type.Array(SceneBeatSchema),
+	informationPlan: Type.Array(InformationDeliveryPlanSchema),
+	emotionalMovement: Type.String({ minLength: 1 }),
+	professionalContext: Type.Optional(Type.String({ minLength: 1 })),
+	relationshipContext: Type.Optional(Type.String({ minLength: 1 })),
+	mysteryContext: Type.Optional(Type.String({ minLength: 1 })),
+	socialContext: Type.Optional(Type.String({ minLength: 1 })),
+	subtext: Type.Optional(SceneSubtextSchema),
+	turn: Type.String({ minLength: 1 }),
+	decisionOrDiscovery: Type.String({ minLength: 1 }),
+	stateChange: Type.String({ minLength: 1 }),
+	exitPressure: Type.String({ minLength: 1 }),
+	cannotRemoveBecause: Type.String({ minLength: 1 }),
+	mode: SceneModeSchema,
+	tensionSources: Type.Array(Type.String({ minLength: 1 })),
+	professionalDetailBeats: Type.Array(ProfessionalDetailBeatSchema),
+});
+
+export const SceneSemanticEvidenceSchema = Type.Object({
+	label: Type.String({ minLength: 1 }),
+	anchor: Type.Object({ startChar: Type.Integer({ minimum: 0 }), endChar: Type.Integer({ minimum: 1 }), excerpt: Type.String({ minLength: 1 }) }),
+});
+
+export const SceneSemanticReportSchema = Type.Object({
+	sceneId: Type.String({ minLength: 1, maxLength: 80 }),
+	goalRealized: Type.Boolean(),
+	oppositionRealized: Type.Boolean(),
+	turnRealized: Type.Boolean(),
+	stateChangeRealized: Type.Boolean(),
+	exitPressureRealized: Type.Boolean(),
+	dialogueFindings: Type.Array(Type.String({ minLength: 1 })),
+	emotionalFindings: Type.Array(Type.String({ minLength: 1 })),
+	informationFindings: Type.Array(Type.String({ minLength: 1 })),
+	professionalFindings: Type.Array(Type.String({ minLength: 1 })),
+	relationshipFindings: Type.Array(Type.String({ minLength: 1 })),
+	evidence: Type.Array(SceneSemanticEvidenceSchema),
+});
+
+export const CharacterVoiceNotesSchema = Type.Object({
+	characterId: Type.String({ minLength: 1, maxLength: 80 }),
+	speechStyle: Type.String({ minLength: 1 }),
+	avoidancePattern: Type.String({ minLength: 1 }),
+	professionalRegister: Type.String({ minLength: 1 }),
+	emotionalRegister: Type.String({ minLength: 1 }),
+	powerBehavior: Type.String({ minLength: 1 }),
+	signatureTendency: Type.String({ minLength: 1 }),
+	forbiddenCaricature: Type.String({ minLength: 1 }),
+});
+
+export const VoiceProfileSchema = Type.Object({
+	distance: Type.String({ minLength: 1 }),
+	sentenceRhythm: Type.String({ minLength: 1 }),
+	observationBias: Type.String({ minLength: 1 }),
+	emotionalExplicitness: Type.Union([Type.Literal("low"), Type.Literal("moderate"), Type.Literal("high")]),
+	professionalDensity: Type.Union([Type.Literal("low"), Type.Literal("moderate"), Type.Literal("high")]),
+	metaphorDensity: Type.Union([Type.Literal("low"), Type.Literal("moderate"), Type.Literal("high")]),
+	humorLevel: Type.Union([Type.Literal("none"), Type.Literal("dry"), Type.Literal("warm")]),
+	preferredTensionMode: Type.String({ minLength: 1 }),
+	avoidPatterns: Type.Array(Type.String({ minLength: 1 })),
+	characterVoiceNotes: Type.Array(CharacterVoiceNotesSchema),
+});
+
+export const VoiceFingerprintSchema = Type.Object({
+	chapter: ChapterNumberSchema,
+	sentenceRhythm: Type.Union([Type.Literal("short"), Type.Literal("medium"), Type.Literal("long"), Type.Literal("mixed")]),
+	interiority: Type.Union([Type.Literal("low"), Type.Literal("moderate"), Type.Literal("high")]),
+	dialogueCompression: Type.Union([Type.Literal("low"), Type.Literal("moderate"), Type.Literal("high")]),
+	professionalVocabulary: Type.Union([Type.Literal("low"), Type.Literal("moderate"), Type.Literal("high")]),
+	emotionLabeling: Type.Union([Type.Literal("low"), Type.Literal("moderate"), Type.Literal("high")]),
+	detectedAvoidPatterns: Type.Array(Type.String({ minLength: 1 })),
+});
+
 export const StoryFoundationSchema = Type.Object({
 	premise: Type.String({ minLength: 1 }),
 	corePromises: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
@@ -1938,6 +2076,8 @@ export const StoryFoundationSchema = Type.Object({
 	characterProfiles: Type.Array(HeroineContradictionProfileSchema),
 	supportingCharacters: Type.Array(SupportingCharacterFunctionSchema),
 	worldNotes: Type.Optional(Type.String({ minLength: 1 })),
+	// Project Voice Profile（设计目标；Voice Fingerprint 才是从 prose 分析出的表现）
+	voiceProfile: Type.Optional(VoiceProfileSchema),
 	// Story Design Intelligence（均为可选设计产物；不构成新 truth authority）
 	links: Type.Optional(Type.Array(FoundationLinkSchema)),
 	promiseLedger: Type.Optional(StoryPromiseLedgerSchema),
@@ -1999,6 +2139,7 @@ export const ChapterPlanProposalSchema = Type.Object({
 	sceneDesign: Type.Array(Type.Object({ sceneId: Type.String({ minLength: 1 }), order: Type.Integer({ minimum: 1 }), location: Type.String({ minLength: 1 }), goal: Type.String({ minLength: 1 }), opposition: Type.String({ minLength: 1 }), stakes: Type.String({ minLength: 1 }), emotionalTurn: Type.String({ minLength: 1 }), informationReveal: Type.Array(Type.String({ minLength: 1 })), time: Type.Optional(Type.String({ minLength: 1 })), emotionalStateBefore: Type.Optional(Type.String({ minLength: 1 })), emotionalStateAfter: Type.Optional(Type.String({ minLength: 1 })), scenePurpose: Type.Optional(Type.String({ minLength: 1 })), entryState: Type.Optional(Type.String({ minLength: 1 })), decisionOrDiscovery: Type.Optional(Type.String({ minLength: 1 })), stateChange: Type.Optional(Type.String({ minLength: 1 })), exitPressure: Type.Optional(Type.String({ minLength: 1 })), eventRefs: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }))) }), { minItems: 1 }),
 	informationControl: Type.String({ minLength: 1 }),
 	emotionalMovement: Type.String({ minLength: 1 }),
+	sceneDesigns: Type.Optional(Type.Array(SceneDesignSchema)),
 	professionalConstraints: Type.String({ minLength: 1 }),
 	relationshipMovement: Type.String({ minLength: 1 }),
 	chapterExitPressure: Type.String({ minLength: 1 }),
@@ -2017,6 +2158,8 @@ export const DraftChapterSchema = Type.Object({
 	chapter: ChapterNumberSchema,
 	eventDrafts: Type.Array(Type.Object({ eventId: Type.Integer({ minimum: 1 }), content: Type.String({ minLength: 1 }) }), { minItems: 1 }),
 	semanticReports: Type.Array(Type.Object({ eventId: Type.Integer({ minimum: 1 }), actionShown: Type.Boolean(), consequenceShown: Type.Boolean(), deltaEvidence: Type.Array(Type.Object({ dimension: Type.String({ minLength: 1, maxLength: 40 }), evidence: Type.Object({ startChar: Type.Integer({ minimum: 0 }), endChar: Type.Integer({ minimum: 1 }), excerpt: Type.String({ minLength: 1 }) }) }), { minItems: 1 }), chaseEvidence: Type.Optional(UnifiedChaseSemanticEvidenceSchema) }), { minItems: 1 }),
+	// Scene Semantic Reports（evaluation artifact；evidence 必须引用正文锚点）
+	sceneSemanticReports: Type.Optional(Type.Array(SceneSemanticReportSchema)),
 });
 
 
@@ -2034,7 +2177,17 @@ export const ChapterDiagnosisSchema = Type.Object({
 	}), { minItems: 0 }),
 	revisionRecommended: Type.Boolean(),
 });
-export const DiagnoseChapterSchema = Type.Object({ projectId: ProjectIdSchema, chapter: ChapterNumberSchema });
+export const DiagnoseChapterSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	// 模型语义发现（subtext / voice convergence / scene spatial 等无法确定性判断的问题）
+	modelFindings: Type.Optional(Type.Array(Type.Object({
+		code: Type.String({ minLength: 1, maxLength: 80 }),
+		priority: Type.Union([Type.Literal("P0"), Type.Literal("P1"), Type.Literal("P2"), Type.Literal("P3"), Type.Literal("P4")]),
+		message: Type.String({ minLength: 1 }),
+		sceneId: Type.Optional(Type.String({ minLength: 1 })),
+	}))),
+});
 
 export const RevisionPlanSchema = Type.Object({
 	chapter: ChapterNumberSchema,
@@ -2045,6 +2198,20 @@ export const RevisionPlanSchema = Type.Object({
 		problem: Type.String({ minLength: 1 }),
 		strategy: Type.String({ minLength: 1 }),
 		affectedEventIds: Type.Array(Type.Integer({ minimum: 1 }), { minItems: 1 }),
+		// Scoped Prose Revision：默认 Beat → Scene → Event → Chapter；不得对话问题整章重写。
+		scope: Type.Optional(Type.Union([Type.Literal("beat"), Type.Literal("scene"), Type.Literal("event"), Type.Literal("chapter")])),
+		proseGoal: Type.Optional(Type.Union([
+			Type.Literal("tighten-scene"),
+			Type.Literal("increase-subtext"),
+			Type.Literal("reduce-exposition"),
+			Type.Literal("strengthen-opposition"),
+			Type.Literal("restore-voice"),
+			Type.Literal("dramatize-professional-detail"),
+			Type.Literal("strengthen-emotional-action"),
+			Type.Literal("fix-dialogue-specificity"),
+			Type.Literal("improve-scene-turn"),
+		])),
+		sceneIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 	}), { minItems: 1 }),
 });
 export const ReviseChapterSchema = Type.Object({
@@ -2908,6 +3075,11 @@ export type DesignDiagnosis = Static<typeof DesignDiagnosisSchema>;
 export type ReviewStoryDesignParams = Static<typeof ReviewStoryDesignSchema>;
 export type ArchitectureRevisionPlan = Static<typeof ArchitectureRevisionPlanSchema>;
 export type ReviseStoryArchitectureParams = Static<typeof ReviseStoryArchitectureSchema>;
+export type SceneDesign = Static<typeof SceneDesignSchema>;
+export type SceneBeat = Static<typeof SceneBeatSchema>;
+export type SceneSemanticReport = Static<typeof SceneSemanticReportSchema>;
+export type VoiceProfile = Static<typeof VoiceProfileSchema>;
+export type VoiceFingerprint = Static<typeof VoiceFingerprintSchema>;
 export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
 export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
 export type ReadStoryContextParams = Static<typeof ReadStoryContextSchema>;
