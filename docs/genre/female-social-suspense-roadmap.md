@@ -28,6 +28,19 @@ Mystery Engine 已落地，见 `docs/genre/female-social-suspense-mystery-engine
 - reader-sim 硬隔离：addFile 层过滤 canon/work/outline 的 mystery 路径；
 - plannedRealizationChapter 仅表计划；真正正文兑现证据（MysteryClueRealizationEvidence）属 Phase 5。
 
+## Round 2.6 完成（Mystery correctness closure）
+
+- audience 拆分：reveal-before-proof 按 reader/heroine 分别验证，互不替代；
+- 环检测基于 union(dependsOnClaimIds, proof prerequisiteClaimIds)；DUPLICATE_PROOF_PATH_ID；
+- proofPaths 显式 [] 是权威（无证明路径），undefined 才回退 legacy supportingClueIds；
+- READER_EXPOSURE_BEFORE_WORLD_AVAILABILITY（world <= reader 硬约束）；reader < heroine 合法；
+- proofCoverage 报告（completePaths/directClueIds/transitiveClueIds），派生 final claim 不再显示 0/0；
+- reader-sim 私有路径判定统一反斜杠并按 author-private roots 匹配（Windows 路径同样生效）。
+
+## Mystery planning 冻结
+
+Round 3 正式开始 Mature Marriage Crisis Engine；不再继续扩展 Mystery planning schema，除非后续测试发现 bug。finalized clue realization 属 Phase 5（Unified Narrative Event Integration）。
+
 ## 当前状态
 
 - female-social-suspense + chase-wife 组合可用：mystery 与关系机制两组工具并行，正文仍走 Chase Wife event-level pipeline；

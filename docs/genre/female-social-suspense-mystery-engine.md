@@ -133,6 +133,34 @@ final claim 在揭示前公平 ⟺ 至少一条完整 Proof Path 的：
 ### planned 边界
 
 本轮仍只做 planned fairness；finalized（正文锚点兑现）属 Phase 5。
+## 14. Round 2.6：Mystery correctness closure
+
+### audience-specific knowledge validation
+
+reveal-before-proof 检查按受众拆分：checkpoint.reader.knows 只接受 reader 可证明（isClaimProvable(..., "reader")），checkpoint.heroine.knows 只接受 heroine 可证明；reader 的越界不得被 heroine 的证明能力放行，反之亦然。REVEAL_BEFORE_PROOF 的 message 明确写出越界的是 reader 还是 heroine。
+
+### dependency graph union
+
+Truth dependency graph = union(dependsOnClaimIds, 所有 proofPath.prerequisiteClaimIds)。dependsOnClaimIds 是显式元数据，证明前置同样构成依赖边：环检测（TRUTH_CLAIM_CYCLE）基于合并后的图；isClaimProvable 的递归访问保护与之一致。不需要模型手工维护两份完全一致的数组。
+
+### explicit proofPaths semantics
+
+proofPaths !== undefined（包括显式 []）时是唯一权威：[] 表示作者明确配置"无证明路径"，不允许再回退 legacy supportingClueIds（否则 critical/final claim 报 UNSUPPORTED_CRITICAL_TRUTH）。只有 proofPaths === undefined 时才从 supportingClueIds + dependsOnClaimIds 归一化（legacy 兼容）。
+
+### world / heroine / reader temporal constraints
+
+- world <= heroine：firstAvailableChapter 不得晚于发现章（INVALID_REVEAL_TIMING）；
+- world <= reader：readerRevealChapter 不得早于 firstAvailableChapter（READER_EXPOSURE_BEFORE_WORLD_AVAILABILITY，error）；resolveClueVisibility 同时做 max(firstAvailable, declared) 保守计算，但配置错误必须显式报告，不用 silent clamp 掩盖；
+- heroine < reader 与 reader < heroine 都合法（未来允许 split POV / 文档直呈 / 其他角色场景）。
+
+### proof coverage report
+
+check_mystery_fairness 新增 proofCoverage：{ [claimId]: { completePaths, totalPaths, directClueIds, transitiveClueIds } }。transitiveClueIds 递归收集 truth dependency（dependsOn + proof prerequisite）的证明线索；纯派生 final claim 不再显示误导性的 0/0。legacy clueCoverage 保留为兼容字段（仅 direct 覆盖，文档说明局限）。
+
+### planned fairness only
+
+本轮仍只做 planned fairness：MysteryClueRealizationEvidence 只是 Phase 5 contract type，checker 不使用；plannedRealizationChapter 不是正文兑现证据。
+
 ## 12. Phase 3 接口
 
 Phase 3（Mature Marriage Crisis Engine）将新增 mechanism 值 mature-marriage-crisis 及其台账/门禁，复用：

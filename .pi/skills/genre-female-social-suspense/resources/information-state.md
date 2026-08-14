@@ -16,7 +16,7 @@ newlyAvailableClueIds（本章新增可用的线索）
 ## 规则
 
 1. KNOW ≠ SUSPECT ≠ BELIEVE：怀疑一个声明不是知道它；checker 只对 knows 检查可证明性。
-2. 知识必须可证明：heroine/reader knows 一个声明时，必须存在一条完整 Proof Path 对该受众可见（direct clue 不是唯一来源——派生声明经前置声明推导合法）。
+2. 知识必须可证明且按受众分别验证：heroine.knows 只接受 heroine 可证明，reader.knows 只接受 reader 可证明，两者不得互相替代（reader 的越界不能被 heroine 的证明能力放行）；direct clue 不是唯一来源——派生声明经前置声明推导合法。
 3. 读者不因 Truth Model 存在而自动获得作者秘密：reader 的 knows 必须来自已向读者曝光的可观察线索。
 4. 角色私有知识（characterKnowledge）只验证引用与顺序，不套用 heroine/reader 的证据门禁：凶手可以因亲自实施行为而提前知道真相。
 5. heroine 可以比 reader 多知道，也可以反过来，但必须在信息状态里说明设计依据。

@@ -72,7 +72,7 @@ import type {
 	SemanticEvidenceAnchor,
 } from "../schemas.ts";
 import { hasChaseWifeCapability, hasPrimaryGenre, normalizePrimaryGenre, normalizeRelationshipMechanism } from "./story-profile.ts";
-import { checkMysteryDesign, checkMysteryFairness, type MysteryIssue } from "./mystery-checker.ts";
+import { checkMysteryDesign, checkMysteryFairness, isMysteryPrivatePath, type MysteryIssue } from "./mystery-checker.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -920,9 +920,9 @@ export class NovelProjectStore {
 		const added = new Set<string>();
 		const addFile = async (relativePath: string, label: string): Promise<void> => {
 			if (added.has(relativePath)) return;
-			// reader-sim 硬隔离（defense-in-depth）：任何 mystery 作者规划路径都不得进入 reader 上下文，
-			// 即使未来有人修改 sections 或目录扫描逻辑，也不能泄漏 truthSummary/actualRole/privateSecret/actualImplication/proofPaths。
-			if ((params.task ?? "chapter-writing") === "reader-sim" && relativePath.includes("/mystery/")) {
+			// reader-sim 硬隔离（defense-in-depth）：canon/work/outline 下的 mystery 作者规划路径都不得进入 reader 上下文，
+			// 统一  → / 后按 author-private roots 判定（Windows 路径同样生效），即使未来修改 sections 也不能泄漏作者秘密。
+			if ((params.task ?? "chapter-writing") === "reader-sim" && isMysteryPrivatePath(relativePath)) {
 				excludedFiles.push(relativePath);
 				return;
 			}
@@ -3005,7 +3005,7 @@ export class NovelProjectStore {
 		return { ...report, path: relativePath };
 	}
 
-	async checkMysteryFairness(params: CheckMysteryFairnessParams, signal?: AbortSignal): Promise<{ projectId: string; verdict: "fair" | "needs-work" | "unfair"; status: "ok" | "warning" | "error"; issues: MysteryIssue[]; supportedFinalClaims: string[]; unsupportedFinalClaims: Array<{ claimId: string; reason: string }>; clueCoverage: Record<string, { available: number; total: number }>; path: string }> {
+	async checkMysteryFairness(params: CheckMysteryFairnessParams, signal?: AbortSignal): Promise<{ projectId: string; verdict: "fair" | "needs-work" | "unfair"; status: "ok" | "warning" | "error"; issues: MysteryIssue[]; supportedFinalClaims: string[]; unsupportedFinalClaims: Array<{ claimId: string; reason: string }>; clueCoverage: Record<string, { available: number; total: number }>; proofCoverage: Record<string, { completePaths: number; totalPaths: number; directClueIds: string[]; transitiveClueIds: string[] }>; path: string }> {
 		await this.ensureMysteryProject(params.projectId, signal);
 		const caseData = await this.readMysteryCase(params.projectId, signal);
 		const clues = await this.readMysteryClues(params.projectId, signal);
@@ -3021,6 +3021,7 @@ export class NovelProjectStore {
 			supportedFinalClaims: fairness.supportedFinalClaims,
 			unsupportedFinalClaims: fairness.unsupportedFinalClaims,
 			clueCoverage: fairness.clueCoverage,
+			proofCoverage: fairness.proofCoverage,
 			sourceHashes: [caseData, clues, checkpoints].map(hashJson),
 			generatedAt: new Date().toISOString(),
 		};

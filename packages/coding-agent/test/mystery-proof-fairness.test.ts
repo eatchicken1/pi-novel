@@ -8,6 +8,7 @@ import type {
 	MysteryInformationCheckpoint,
 	TruthClaim,
 } from "../../../.pi/extensions/novel-agent/schemas.ts";
+import { isMysteryPrivatePath } from "../../../.pi/extensions/novel-agent/services/mystery-checker.ts";
 import { NovelProjectStore } from "../../../.pi/extensions/novel-agent/services/project-store.ts";
 
 type TruthCategory = MysteryCase["truthClaims"][number]["category"];
@@ -425,6 +426,224 @@ describe("mystery proof and fairness hardening", () => {
 			const fairness = await store.checkMysteryFairness({ projectId: "p12" });
 			expect(fairness.verdict).toBe("fair");
 			expect(fairness.supportedFinalClaims).toContain("T2");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("C1: reader and heroine proof validation are isolated", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-closure-c1-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initFssProject(store, "c1");
+			const caseData = caseWith([claim("T1", "死亡发生在等待期内", { clues: ["C1"], reveal: 5 })]);
+			await store.saveMysteryCase({ projectId: "c1", status: "proposed", case: caseData });
+			await store.saveMysteryClueLedger({
+				projectId: "c1",
+				clues: [clue("C1", { firstAvailable: 1, heroineDiscovery: 2, readerReveal: 4, truthClaimIds: ["T1"] })],
+			});
+			// 同一检查点第 3 章：heroine 可证明（发现章 2），reader 不可（曝光章 4）
+			await store.saveMysteryInformationState({
+				projectId: "c1",
+				checkpoints: [checkpoint("S1", 3, { heroineKnows: ["T1"], readerKnows: ["T1"] })],
+			});
+			const both = await store.checkMysteryFairness({ projectId: "c1" });
+			const readerIssue = both.issues.find(
+				(item) => item.code === "REVEAL_BEFORE_PROOF" && item.message.includes("reader"),
+			);
+			expect(readerIssue).toBeDefined();
+			expect(
+				both.issues.some((item) => item.code === "REVEAL_BEFORE_PROOF" && item.message.includes("heroine")),
+			).toBe(false);
+			// 只有 heroine 知道：通过（heroine provable 不能放行 reader，但 heroine 本身合法）
+			await store.saveMysteryInformationState({
+				projectId: "c1",
+				checkpoints: [checkpoint("S1", 3, { heroineKnows: ["T1"] })],
+			});
+			const heroineOnly = await store.checkMysteryFairness({ projectId: "c1" });
+			expect(heroineOnly.issues.some((item) => item.code === "REVEAL_BEFORE_PROOF")).toBe(false);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("C2: proof-only prerequisite cycles are detected even with empty dependsOnClaimIds", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-closure-c2-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initFssProject(store, "c2");
+			const caseData = caseWith([
+				claim("T1", "A", { proofPaths: [{ id: "P1", clueIds: [], prerequisiteClaimIds: ["T2"] }] }),
+				claim("T2", "B", { proofPaths: [{ id: "P1", clueIds: [], prerequisiteClaimIds: ["T3"] }] }),
+				claim("T3", "C", { proofPaths: [{ id: "P1", clueIds: [], prerequisiteClaimIds: ["T1"] }] }),
+			]);
+			await store.saveMysteryCase({ projectId: "c2", status: "proposed", case: caseData });
+			const design = await store.checkMysteryDesign({ projectId: "c2" });
+			expect(design.issues.some((item) => item.code.includes("CYCLE"))).toBe(true);
+			expect(design.status).toBe("error");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("C3: an explicit empty proofPaths array is authoritative and cannot fall back to legacy clues", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-closure-c3-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initFssProject(store, "c3");
+			const caseData = caseWith([
+				{
+					id: "T1",
+					statement: "死亡发生在等待期内",
+					category: "event",
+					dependsOnClaimIds: [],
+					proofRequirement: "evidence",
+					supportingClueIds: ["C1"],
+					proofPaths: [],
+					plannedRevealChapter: 4,
+					importance: 5,
+				},
+			]);
+			await store.saveMysteryCase({ projectId: "c3", status: "proposed", case: caseData });
+			await store.saveMysteryClueLedger({ projectId: "c3", clues: [clue("C1", { truthClaimIds: ["T1"] })] });
+			const design = await store.checkMysteryDesign({ projectId: "c3" });
+			// proofPaths=[] 是作者明确配置"无证明路径"，C1 不能把它救回
+			expect(design.issues.some((item) => item.code === "UNSUPPORTED_CRITICAL_TRUTH")).toBe(true);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("C4: undefined proofPaths keeps the legacy supportingClueIds path working", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-closure-c4-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initFssProject(store, "c4");
+			const caseData = caseWith([claim("T1", "死亡发生在等待期内", { clues: ["C1"], reveal: 4 })]);
+			await store.saveMysteryCase({ projectId: "c4", status: "proposed", case: caseData });
+			await store.saveMysteryClueLedger({
+				projectId: "c4",
+				clues: [clue("C1", { readerReveal: 2, truthClaimIds: ["T1"] })],
+			});
+			const design = await store.checkMysteryDesign({ projectId: "c4" });
+			expect(design.issues.some((item) => item.code === "UNSUPPORTED_CRITICAL_TRUTH")).toBe(false);
+			const fairness = await store.checkMysteryFairness({ projectId: "c4" });
+			expect(fairness.verdict).toBe("fair");
+			expect(fairness.supportedFinalClaims).toContain("T1");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("C5: reader exposure before world availability is a design error", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-closure-c5-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initFssProject(store, "c5");
+			const caseData = caseWith([claim("T1", "死亡发生在等待期内", { clues: ["C1"], reveal: 5 })]);
+			await store.saveMysteryCase({ projectId: "c5", status: "proposed", case: caseData });
+			await store.saveMysteryClueLedger({
+				projectId: "c5",
+				clues: [clue("C1", { firstAvailable: 4, readerReveal: 2, truthClaimIds: ["T1"] })],
+			});
+			const design = await store.checkMysteryDesign({ projectId: "c5" });
+			expect(design.issues.some((item) => item.code === "READER_EXPOSURE_BEFORE_WORLD_AVAILABILITY")).toBe(true);
+			expect(design.status).toBe("error");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("C6: reader exposure before heroine discovery is legal", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-closure-c6-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initFssProject(store, "c6");
+			const caseData = caseWith([claim("T1", "死亡发生在等待期内", { clues: ["C1"], reveal: 5 })]);
+			await store.saveMysteryCase({ projectId: "c6", status: "proposed", case: caseData });
+			await store.saveMysteryClueLedger({
+				projectId: "c6",
+				clues: [clue("C1", { firstAvailable: 1, readerReveal: 2, heroineDiscovery: 5, truthClaimIds: ["T1"] })],
+			});
+			const design = await store.checkMysteryDesign({ projectId: "c6" });
+			expect(design.issues.some((item) => item.code === "READER_EXPOSURE_BEFORE_WORLD_AVAILABILITY")).toBe(false);
+			expect(design.issues.some((item) => item.code === "INVALID_REVEAL_TIMING")).toBe(false);
+			const fairness = await store.checkMysteryFairness({ projectId: "c6" });
+			expect(fairness.verdict).toBe("fair");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("C7: mystery private path detection handles Windows separators", () => {
+		expect(isMysteryPrivatePath("outline\\mystery\\truth.json")).toBe(true);
+		expect(isMysteryPrivatePath("outline/mystery/clue-ledger.json")).toBe(true);
+		expect(isMysteryPrivatePath("canon/mystery/truth-model.json")).toBe(true);
+		expect(isMysteryPrivatePath("work/mystery/suspect-model-proposed.json")).toBe(true);
+		expect(isMysteryPrivatePath("outline/overview.md")).toBe(false);
+		expect(isMysteryPrivatePath("continuity/reports/mystery-design.json")).toBe(false);
+	});
+
+	it("C8: duplicate proof path ids within one claim fail", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-closure-c8-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initFssProject(store, "c8");
+			const caseData = caseWith([
+				claim("T1", "死亡发生在等待期内", {
+					proofPaths: [
+						{ id: "P1", clueIds: ["C1"], prerequisiteClaimIds: [] },
+						{ id: "P1", clueIds: ["C2"], prerequisiteClaimIds: [] },
+					],
+					reveal: 4,
+				}),
+			]);
+			await store.saveMysteryCase({ projectId: "c8", status: "proposed", case: caseData });
+			await store.saveMysteryClueLedger({
+				projectId: "c8",
+				clues: [clue("C1", { truthClaimIds: ["T1"] }), clue("C2", { truthClaimIds: ["T1"] })],
+			});
+			const design = await store.checkMysteryDesign({ projectId: "c8" });
+			expect(design.issues.some((item) => item.code === "DUPLICATE_PROOF_PATH_ID")).toBe(true);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("C9: derived final claims report transitive clue coverage", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-closure-c9-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initFssProject(store, "c9");
+			const caseData = caseWith(
+				[
+					claim("T1", "死亡发生在等待期内", { clues: ["C1", "C2"] }),
+					claim("T2", "手机被他人携带", { clues: ["C3"] }),
+					claim("T3", "材料被逆向修改", {
+						proofPaths: [{ id: "D", clueIds: [], prerequisiteClaimIds: ["T1", "T2"] }],
+						reveal: 6,
+						importance: 5,
+					}),
+				],
+				{ finalAnswers: ["T3"] },
+			);
+			await store.saveMysteryCase({ projectId: "c9", status: "proposed", case: caseData });
+			await store.saveMysteryClueLedger({
+				projectId: "c9",
+				clues: [
+					clue("C1", { readerReveal: 2, truthClaimIds: ["T1"] }),
+					clue("C2", { readerReveal: 2, truthClaimIds: ["T1"] }),
+					clue("C3", { readerReveal: 3, truthClaimIds: ["T2"] }),
+				],
+			});
+			const fairness = await store.checkMysteryFairness({ projectId: "c9" });
+			expect(fairness.supportedFinalClaims).toContain("T3");
+			const coverage = fairness.proofCoverage["T3"];
+			expect(coverage).toBeDefined();
+			expect(coverage.completePaths).toBe(1);
+			expect(coverage.totalPaths).toBe(1);
+			expect(coverage.directClueIds).toEqual([]);
+			expect(coverage.transitiveClueIds).toEqual(expect.arrayContaining(["C1", "C2", "C3"]));
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

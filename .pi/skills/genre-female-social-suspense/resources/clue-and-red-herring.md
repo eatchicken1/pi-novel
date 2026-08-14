@@ -33,7 +33,9 @@ clueRole：fair（公平线索）、corroborating（佐证）、ambiguous（模�
 
 ## 时序与三态可见性
 
-1. firstAvailableChapter ≤ heroineDiscoveryChapter（legacy：intendedDiscoveryChapter）；
-2. reader 公平性只看 readerRevealChapter（读者曝光），不允许用 firstAvailableChapter 冒充读者时间；线索在揭示章（visible < revealChapter）前必须已向读者展示；
-3. 结局允许出现 confirmation evidence，但核心推断所需的事实不能全部到最后才第一次出现（deus ex machina 是 error）；
-4. 线索的双向引用必须一致：claim 证明引用的线索必须出现在该线索的 truthClaimIds 中（CLAIM_CLUE_LINK_MISMATCH）。
+1. world <= heroine：firstAvailableChapter 不得晚于发现章（INVALID_REVEAL_TIMING）；
+2. world <= reader：readerRevealChapter 不得早于 firstAvailableChapter（READER_EXPOSURE_BEFORE_WORLD_AVAILABILITY，error）；
+3. reader 公平性只看 readerRevealChapter（读者曝光），不允许用 firstAvailableChapter 冒充读者时间；线索在揭示章（visible < revealChapter）前必须已向读者展示；
+4. heroine < reader 与 reader < heroine 都合法（未来允许 split POV / 文档直呈 / 其他角色场景）；
+5. 结局允许出现 confirmation evidence，但核心推断所需的事实不能全部到最后才第一次出现（deus ex machina 是 error）；
+6. 线索的双向引用必须一致：claim 证明引用的线索必须出现在该线索的 truthClaimIds 中（CLAIM_CLUE_LINK_MISMATCH）。
