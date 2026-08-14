@@ -170,6 +170,7 @@ function action(
 		description: `action ${id}`,
 		purpose: "核验矛盾",
 		authorityIds: ["AUTH-1"],
+		authoritySatisfactions: [],
 		evidenceSourceIds: ["EV-1"],
 		guardrailIds: ["GR-1"],
 		expectedInformationGain: "材料时间线是否矛盾",

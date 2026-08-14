@@ -3169,8 +3169,9 @@ export class NovelProjectStore {
 	async saveProfessionalDomainModel(params: SaveProfessionalDomainModelParams, signal?: AbortSignal): Promise<{ projectId: string; status: "proposed" | "confirmed"; path: string }> {
 		await this.ensureProfessionalProject(params.projectId, signal);
 		requireConfirmation(params.status, params.confirmation);
+		const canonicalModel = { ...params.model, domain: normalizeProfessionalDomain(params.model.domain) };
 		const relativePath = params.status === "confirmed" ? "canon/professional/domain-model.json" : "work/professional/domain-model-proposed.json";
-		const document = { version: 1, projectId: params.projectId, genre: "professional", status: params.status, model: params.model, updatedAt: new Date().toISOString() };
+		const document = { version: 1, projectId: params.projectId, genre: "professional", status: params.status, model: canonicalModel, updatedAt: new Date().toISOString() };
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
 		return { projectId: params.projectId, status: params.status, path: relativePath };
 	}
@@ -3178,8 +3179,9 @@ export class NovelProjectStore {
 	async saveProfessionalCasePlan(params: SaveProfessionalCasePlanParams, signal?: AbortSignal): Promise<{ projectId: string; status: "proposed" | "confirmed"; path: string }> {
 		await this.ensureProfessionalProject(params.projectId, signal);
 		requireConfirmation(params.status, params.confirmation);
+		const canonicalPlan = { ...params.plan, domain: normalizeProfessionalDomain(params.plan.domain) };
 		const relativePath = params.status === "confirmed" ? "canon/professional/case-plan.json" : "work/professional/case-plan-proposed.json";
-		const document = { version: 1, projectId: params.projectId, genre: "professional", status: params.status, plan: params.plan, updatedAt: new Date().toISOString() };
+		const document = { version: 1, projectId: params.projectId, genre: "professional", status: params.status, plan: canonicalPlan, updatedAt: new Date().toISOString() };
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
 		return { projectId: params.projectId, status: params.status, path: relativePath };
 	}
@@ -3187,7 +3189,7 @@ export class NovelProjectStore {
 	async checkProfessionalDomain(params: CheckProfessionalDomainParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: ProfessionalIssue[]; counts: Record<string, number>; path: string }> {
 		await this.ensureProfessionalProject(params.projectId, signal);
 		const model = await this.readProfessionalDomainModel(params.projectId, signal);
-		const issues = checkProfessionalDomain(model);
+		const issues = checkProfessionalDomain(model, "insurance-fraud-investigation");
 		const status = (issues.some((item) => item.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
 		const report = {
 			version: 1,

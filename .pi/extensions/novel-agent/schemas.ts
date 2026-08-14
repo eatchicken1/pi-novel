@@ -799,12 +799,21 @@ export const ProfessionalDomainModelSchema = Type.Object({
 	escalationPaths: Type.Array(ProfessionalEscalationPathSchema),
 });
 
+export const ProfessionalAuthoritySatisfactionSchema = Type.Object({
+	authorityId: Type.String({ minLength: 1, maxLength: 80 }),
+	status: Type.Union([Type.Literal("condition-satisfied"), Type.Literal("approval-obtained")]),
+	basis: Type.String({ minLength: 1 }),
+	approvedByRole: Type.Optional(Type.String({ minLength: 1 })),
+});
+
 export const ProfessionalActionSchema = Type.Object({
 	id: Type.String({ minLength: 1, maxLength: 80 }),
 	stageId: Type.String({ minLength: 1, maxLength: 80 }),
 	description: Type.String({ minLength: 1 }),
 	purpose: Type.String({ minLength: 1 }),
 	authorityIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	// conditional 权限需要 condition-satisfied；approval-required 需要 approval-obtained（approvedByRole 与 approvalRole 一致）。
+	authoritySatisfactions: Type.Array(ProfessionalAuthoritySatisfactionSchema),
 	evidenceSourceIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
 	guardrailIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
 	expectedInformationGain: Type.String({ minLength: 1 }),
