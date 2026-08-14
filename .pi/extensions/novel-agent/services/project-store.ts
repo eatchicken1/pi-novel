@@ -17,8 +17,15 @@ import type {
 	SaveMatureMarriageStructureParams,
 	MatureMarriageStructure,
 	MatureMarriageRestructuringPlan,
+	AssembleUnifiedChapterParams,
 	CheckProfessionalCaseParams,
 	CheckProfessionalDomainParams,
+	CheckUnifiedEventMapParams,
+	CheckUnifiedEventDraftParams,
+	UnifiedEventMap,
+	SaveUnifiedEventDraftParams,
+	SaveUnifiedEventMapParams,
+	SaveUnifiedEventSemanticReportParams,
 	ProfessionalCasePlan,
 	ProfessionalDomainModel,
 	SaveProfessionalCasePlanParams,
@@ -87,6 +94,7 @@ import { hasChaseWifeCapability, hasMatureMarriageCapability, hasPrimaryGenre, h
 import { checkMysteryDesign, checkMysteryFairness, isMysteryPrivatePath, type MysteryIssue } from "./mystery-checker.ts";
 import { checkMatureMarriageRestructuring, checkMatureMarriageStructure, isMarriagePrivatePath, type MarriageIssue } from "./marriage-checker.ts";
 import { checkProfessionalCase, checkProfessionalDomain, isProfessionalPrivatePath, type ProfessionalIssue } from "./professional-checker.ts";
+import { checkUnifiedEventMap, collisionStats, isUnifiedPrivatePath, type UnifiedCapabilities, type UnifiedIssue, type UnifiedReferenceSets } from "./unified-event-checker.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -859,6 +867,8 @@ export class NovelProjectStore {
 			...(params.storyProfile.professionalDomain !== undefined ? { professionalDomain: normalizeProfessionalDomain(params.storyProfile.professionalDomain) } : {}),
 			...(params.storyProfile.themes !== undefined && params.storyProfile.themes.length > 0 ? { themes: params.storyProfile.themes } : {}),
 			...(params.storyProfile.storyForm !== undefined ? { storyForm: params.storyProfile.storyForm } : {}),
+			...(params.storyProfile.audience !== undefined ? { audience: params.storyProfile.audience } : {}),
+			...(params.storyProfile.setting !== undefined ? { setting: params.storyProfile.setting } : {}),
 		};
 		const project = {
 			version: 1,
@@ -936,7 +946,7 @@ export class NovelProjectStore {
 			if (added.has(relativePath)) return;
 			// reader-sim 硬隔离（defense-in-depth）：canon/work/outline 下的 mystery 作者规划路径都不得进入 reader 上下文，
 			// 统一  → / 后按 author-private roots 判定（Windows 路径同样生效），即使未来修改 sections 也不能泄漏作者秘密。
-			if ((params.task ?? "chapter-writing") === "reader-sim" && (isMysteryPrivatePath(relativePath) || isMarriagePrivatePath(relativePath) || isProfessionalPrivatePath(relativePath))) {
+			if ((params.task ?? "chapter-writing") === "reader-sim" && (isMysteryPrivatePath(relativePath) || isMarriagePrivatePath(relativePath) || isProfessionalPrivatePath(relativePath) || isUnifiedPrivatePath(relativePath))) {
 				excludedFiles.push(relativePath);
 				return;
 			}
@@ -1076,6 +1086,25 @@ export class NovelProjectStore {
 				: "work/marriage/restructuring-proposed.json";
 			await addFile(restructuringPath, "marriage-restructuring");
 		}
+		// Unified 上下文：作者侧读取全篇统一事件地图与当前章事件草稿（reader-sim 不读取）。
+		if (isJsonRecord(project) && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
+			await addFile("outline/unified/event-map.json", "unified-event-map");
+			if (params.chapter !== undefined) {
+				const draftPaths = await this.listFiles(this.projectFile(params.projectId, "work/unified-event-drafts/" + chapterName(params.chapter)), signal);
+				const latestByEvent = new Map<number, { path: string; revision: number }>();
+				for (const path of draftPaths) {
+					const match = path.match(/event-(\d+)-r(\d+)\.md$/);
+					if (!match) continue;
+					const eventId = Number(match[1]);
+					const revision = Number(match[2]);
+					const previous = latestByEvent.get(eventId);
+					if (previous === undefined || revision > previous.revision) latestByEvent.set(eventId, { path, revision });
+				}
+				for (const { path } of [...latestByEvent.values()].sort((left, right) => left.path.localeCompare(right.path))) {
+					await addFile(this.relativeProjectPath(params.projectId, path), "unified-event-draft");
+				}
+			}
+		}
 		// Professional 上下文：planning / chapter-writing / continuity-review 读取 domain model 与 case plan（confirmed 优先，否则 proposed）；
 		// reader-sim 不读取（作者秘密隔离）。
 		if (isJsonRecord(project) && hasProfessionalDomain(project, "insurance-fraud-investigation") && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
@@ -1103,17 +1132,19 @@ export class NovelProjectStore {
 			await addFile(suspectModelPath, "mystery-suspect-model");
 		}
 		const priority = (part: string): number => {
-			if (part.startsWith("chase-wife-beat-sheet")) return 0;
-			if (part.startsWith("chase-wife-event-map")) return 1;
-			if (part.startsWith("mystery-truth-model")) return 2;
-			if (part.startsWith("mystery-clues") || part.startsWith("mystery-suspect-model") || part.startsWith("mystery-information-state")) return 3;
-			if (part.startsWith("marriage-structure") || part.startsWith("marriage-restructuring")) return 4;
-			if (part.startsWith("professional-domain-model") || part.startsWith("professional-case-plan")) return 5;
-			if (part.startsWith("chapter-draft")) return 6;
-			if (part.startsWith("chase-wife-event-draft")) return 7;
-			if (part.startsWith("chapter-plan") || part.startsWith("scene-contract")) return 8;
-			if (part.startsWith("previous-chapter")) return 9;
-			return 10;
+			if (part.startsWith("chase-wife-beat-sheet")) return 1;
+			if (part.startsWith("unified-event-map")) return 2;
+			if (part.startsWith("unified-event-draft")) return 3;
+			if (part.startsWith("chase-wife-event-map")) return 4;
+			if (part.startsWith("mystery-truth-model")) return 5;
+			if (part.startsWith("mystery-clues") || part.startsWith("mystery-suspect-model") || part.startsWith("mystery-information-state")) return 6;
+			if (part.startsWith("marriage-structure") || part.startsWith("marriage-restructuring")) return 7;
+			if (part.startsWith("professional-domain-model") || part.startsWith("professional-case-plan")) return 8;
+			if (part.startsWith("chapter-draft")) return 9;
+			if (part.startsWith("chase-wife-event-draft")) return 10;
+			if (part.startsWith("chapter-plan") || part.startsWith("scene-contract")) return 11;
+			if (part.startsWith("previous-chapter")) return 12;
+			return 13;
 		};
 		parts.sort((left, right) => priority(left) - priority(right));
 		const fullText = parts.join("\n\n---\n\n");
@@ -3222,6 +3253,207 @@ export class NovelProjectStore {
 		const relativePath = "continuity/reports/professional-case.json";
 		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
 		return { ...report, path: relativePath };
+	}
+	// ==== Unified Narrative Event Layer ====
+
+	private async readUnifiedEventMap(projectId: string, signal?: AbortSignal): Promise<UnifiedEventMap | undefined> {
+		const value = await this.readJsonIfExists(this.projectFile(projectId, "outline/unified/event-map.json"), signal);
+		return isJsonRecord(value) && Array.isArray(value.events) ? value as unknown as UnifiedEventMap : undefined;
+	}
+
+	async saveUnifiedEventMap(params: SaveUnifiedEventMapParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; path: string; events: number }> {
+		await this.ensureProject(params.projectId, signal);
+		const existing = await this.readUnifiedEventMap(params.projectId, signal);
+		const priorEvents = existing?.events ?? [];
+		const submittedIds = new Set(params.events.map((event) => event.eventId));
+		if (submittedIds.size !== params.events.length) throw new Error("Unified event IDs must be unique.");
+		for (const event of params.events) {
+			if (event.chapter !== params.chapter) throw new Error("Unified events must belong to the submitted chapter.");
+			const conflict = priorEvents.find((prior) => prior.eventId === event.eventId && prior.chapter !== params.chapter);
+			if (conflict !== undefined) throw new Error(`Unified event id ${event.eventId} is already used in chapter ${conflict.chapter}.`);
+		}
+		const kept = priorEvents.filter((event) => event.chapter !== params.chapter);
+		const merged = [...kept, ...params.events].sort((left, right) => left.chapter - right.chapter || left.eventId - right.eventId);
+		const relativePath = "outline/unified/event-map.json";
+		const document = { version: 1, projectId: params.projectId, events: merged, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, chapter: params.chapter, path: relativePath, events: params.events.length };
+	}
+
+	async checkUnifiedEventMap(params: CheckUnifiedEventMapParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: UnifiedIssue[]; metrics: Record<string, number>; path: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		const capabilities: UnifiedCapabilities = {
+			hasMystery: isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense"),
+			hasMarriage: isJsonRecord(project) && hasMatureMarriageCapability(project),
+			hasChaseWife: isJsonRecord(project) && hasChaseWifeCapability(project),
+			hasProfessional: isJsonRecord(project) && hasProfessionalDomain(project, "insurance-fraud-investigation"),
+		};
+		const map = await this.readUnifiedEventMap(params.projectId, signal);
+		const scopedEvents = map?.events.filter((event) => params.chapter === undefined || event.chapter === params.chapter) ?? [];
+		const scopedMap = map === undefined ? undefined : { ...map, events: scopedEvents } as UnifiedEventMap;
+		const refs = await this.buildUnifiedReferenceSets(params.projectId, signal);
+		const issues = checkUnifiedEventMap(scopedMap, capabilities, refs);
+		// Professional authority 不能绕过：存在 professional model/plan 时附加其校验结果
+		if (capabilities.hasProfessional) {
+			const model = await this.readProfessionalDomainModel(params.projectId, signal);
+			const plan = await this.readProfessionalCasePlan(params.projectId, signal);
+			if (model !== undefined && plan !== undefined) {
+				const professionalIssues = checkProfessionalCase(model, plan);
+				for (const professionalIssue of professionalIssues) issues.push({ code: professionalIssue.code, severity: professionalIssue.severity, message: `professional gate: ${professionalIssue.message}` });
+			}
+		}
+		const status = (issues.some((item) => item.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const stats = collisionStats(map);
+		const report = {
+			version: 1,
+			projectId: params.projectId,
+			...(params.chapter === undefined ? {} : { chapter: params.chapter }),
+			status,
+			issues,
+			metrics: { totalEvents: map?.events.length ?? 0, scopedEvents: scopedEvents.length, collisionEvents: stats.collision },
+			sourceHashes: [map].map(hashJson),
+			generatedAt: new Date().toISOString(),
+		};
+		const relativePath = "continuity/reports/unified-event-map.json";
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { ...report, path: relativePath };
+	}
+
+	private async buildUnifiedReferenceSets(projectId: string, signal?: AbortSignal): Promise<UnifiedReferenceSets> {
+		const refs: UnifiedReferenceSets = {};
+		const mysteryCase = await this.readMysteryCase(projectId, signal);
+		const mysteryClues = await this.readMysteryClues(projectId, signal);
+		const mysterySuspects = await this.readMysterySuspects(projectId, signal);
+		if (mysteryCase !== undefined) {
+			refs.claimIds = new Set(mysteryCase.truthClaims.map((claim) => claim.id));
+			refs.claimRevealChapters = new Map(mysteryCase.truthClaims.filter((claim) => claim.plannedRevealChapter !== undefined).map((claim) => [claim.id, claim.plannedRevealChapter as number]));
+		}
+		if (mysteryClues.length > 0) refs.clueIds = new Set(mysteryClues.map((clue) => clue.id));
+		if (mysterySuspects.length > 0) refs.suspectIds = new Set(mysterySuspects.map((suspect) => suspect.id));
+		const marriageStructure = await this.readMatureMarriageStructure(projectId, signal);
+		if (marriageStructure !== undefined) {
+			refs.economicItemIds = new Set(marriageStructure.economicItems.map((item) => item.id));
+			refs.responsibilityIds = new Set(marriageStructure.responsibilities.map((item) => item.id));
+			refs.decisionRightIds = new Set(marriageStructure.decisionRights.map((item) => item.id));
+			refs.socialTieIds = new Set(marriageStructure.socialTies.map((item) => item.id));
+			refs.inertiaIds = new Set(marriageStructure.inertiaFactors.map((item) => item.id));
+			refs.exitConstraintIds = new Set(marriageStructure.exitConstraints.map((item) => item.id));
+		}
+		const harmDocument = await this.readJsonIfExists(this.projectFile(projectId, "continuity/chase-wife-harm-ledger.json"), signal);
+		const repairDocument = await this.readJsonIfExists(this.projectFile(projectId, "continuity/chase-wife-repair-ledger.json"), signal);
+		if (isJsonRecord(harmDocument) && Array.isArray(harmDocument.harms)) refs.harmIds = new Set(harmDocument.harms.filter(isJsonRecord).map((item) => String(item.id)));
+		if (isJsonRecord(repairDocument) && Array.isArray(repairDocument.repairs)) refs.repairIds = new Set(repairDocument.repairs.filter(isJsonRecord).map((item) => String(item.id)));
+		const professionalModel = await this.readProfessionalDomainModel(projectId, signal);
+		const professionalPlan = await this.readProfessionalCasePlan(projectId, signal);
+		if (professionalModel !== undefined) {
+			refs.evidenceSourceIds = new Set(professionalModel.evidenceSources.map((item) => item.id));
+			refs.escalationPathIds = new Set(professionalModel.escalationPaths.map((item) => item.id));
+		}
+		if (professionalPlan !== undefined) {
+			refs.professionalActionIds = new Set(professionalPlan.actions.map((item) => item.id));
+			refs.conflictIds = new Set(professionalPlan.conflictsOfInterest.map((item) => item.id));
+			refs.consequenceIds = new Set(professionalPlan.professionalConsequences.map((item) => item.id));
+			if (professionalPlan.observations.length > 0) {
+				refs.observationClueRefs = new Map(professionalPlan.observations.map((item) => [item.id, item.mysteryClueId]));
+			}
+		}
+		return refs;
+	}
+
+	async saveUnifiedEventDraft(params: SaveUnifiedEventDraftParams, signal?: AbortSignal): Promise<SavedChapterDraftResult & { eventId: number }> {
+		await this.ensureProject(params.projectId, signal);
+		const directory = this.projectFile(params.projectId, `work/unified-event-drafts/${chapterName(params.chapter)}`);
+		const prefix = `event-${padChapter(params.eventId)}-r`;
+		const paths = await this.listFiles(directory, signal);
+		const revisions = paths.map((path) => path.match(new RegExp(`${prefix}(\\d+)\\.md$`))?.[1]).filter((value): value is string => value !== undefined).map(Number);
+		const revision = params.revision ?? ((revisions.length > 0 ? Math.max(...revisions) : 0) + 1);
+		const path = this.projectFile(params.projectId, `work/unified-event-drafts/${chapterName(params.chapter)}/${prefix}${String(revision).padStart(2, "0")}.md`);
+		if (params.revision !== undefined && (await this.readTextIfExists(path, signal)) !== undefined) throw new Error("Unified event draft revision already exists.");
+		await this.writeAtomically(path, normalizeText(params.content), signal);
+		return { projectId: params.projectId, documentType: "chapter-draft", chapter: params.chapter, eventId: params.eventId, revision, path: this.relativeProjectPath(params.projectId, path), bytes: Buffer.byteLength(params.content, "utf8") };
+	}
+
+	async checkUnifiedEventDraft(params: CheckUnifiedEventDraftParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; eventId: number; revision?: number; actualChars: number; status: "ok" | "warning" | "error"; issues: string[]; path: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const draft = params.revision === undefined ? await this.latestUnifiedEventDraft(params.projectId, params.chapter, params.eventId, signal) : { revision: params.revision, content: await this.readTextIfExists(this.projectFile(params.projectId, `work/unified-event-drafts/${chapterName(params.chapter)}/event-${padChapter(params.eventId)}-r${String(params.revision).padStart(2, "0")}.md`), signal) };
+		const issues: string[] = [];
+		if (!draft || draft.content === undefined) issues.push("event draft is missing");
+		const actualChars = draft?.content === undefined ? 0 : countChineseCharacters(draft.content);
+		if (draft?.content !== undefined && (actualChars < 60 || actualChars > 1500)) issues.push(`event draft has ${actualChars} characters; expected 60-1500`);
+		if (draft?.content !== undefined && /(?:^|\n)\s*(?:事件\s*\\d+|情绪分析|状态变化|出口钩子)\s*[:：]/u.test(draft.content)) issues.push("event contains planning labels instead of narrative prose");
+		const status = (issues.some((item) => item === "event draft is missing") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const relativePath = `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(params.eventId)}-unified.json`;
+		const report = { projectId: params.projectId, chapter: params.chapter, eventId: params.eventId, revision: draft?.revision, actualChars, expectedChars: { min: 60, max: 1500 }, status, issues, contentHash: draft?.content === undefined ? undefined : sha256(draft.content), generatedAt: new Date().toISOString() };
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { ...report, path: relativePath };
+	}
+
+	private async latestUnifiedEventDraft(projectId: string, chapter: number, eventId: number, signal?: AbortSignal): Promise<{ path: string; revision: number; content: string } | undefined> {
+		const directory = this.projectFile(projectId, `work/unified-event-drafts/${chapterName(chapter)}`);
+		const paths = await this.listFiles(directory, signal);
+		const matches = paths.map((path) => {
+			const match = path.match(new RegExp(`event-${padChapter(eventId)}-r(\\d+)\\.md$`));
+			return match ? { path, revision: Number(match[1]) } : undefined;
+		}).filter((value): value is { path: string; revision: number } => value !== undefined).sort((left, right) => left.revision - right.revision);
+		const latest = matches.at(-1);
+		if (!latest) return undefined;
+		const content = await this.readTextIfExists(latest.path, signal);
+		return content === undefined ? undefined : { ...latest, content };
+	}
+
+	async saveUnifiedEventSemanticReport(params: SaveUnifiedEventSemanticReportParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; eventId: number; revision?: number; status: "ok" | "error"; issues: string[]; source: "model"; path: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const draft = params.revision === undefined ? await this.latestUnifiedEventDraft(params.projectId, params.chapter, params.eventId, signal) : { revision: params.revision, content: await this.readTextIfExists(this.projectFile(params.projectId, `work/unified-event-drafts/${chapterName(params.chapter)}/event-${padChapter(params.eventId)}-r${String(params.revision).padStart(2, "0")}.md`), signal) };
+		if (!draft || draft.content === undefined) throw new Error("The unified semantic report requires an existing event draft.");
+		const issues: string[] = [];
+		if (!params.actionShown) issues.push("actionShown must be true");
+		if (!params.consequenceShown) issues.push("consequenceShown must be true");
+		const anchors = params.deltaEvidence.map((item) => ({ label: `delta ${item.dimension}`, anchor: item.evidence }));
+		for (const item of anchors) {
+			if (!isSemanticEvidenceAnchor(item.anchor)) issues.push(`${item.label} must be a prose anchor`);
+			else {
+				const anchorIssue = validateSemanticEvidenceAnchor(draft.content, item.anchor, item.label);
+				if (anchorIssue !== undefined) issues.push(anchorIssue);
+			}
+		}
+		const status = issues.length === 0 ? "ok" as const : "error" as const;
+		const relativePath = `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(params.eventId)}-unified-semantics.json`;
+		const report = { projectId: params.projectId, chapter: params.chapter, eventId: params.eventId, revision: draft.revision, status, issues, source: "model" as const, actionShown: params.actionShown, consequenceShown: params.consequenceShown, deltaEvidence: params.deltaEvidence, notes: params.notes, contentHash: sha256(draft.content), generatedAt: new Date().toISOString() };
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { ...report, path: relativePath };
+	}
+
+	async assembleUnifiedChapter(params: AssembleUnifiedChapterParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision: number; eventCount: number; path: string; manifestPath: string }> {
+		await this.ensureProject(params.projectId, signal);
+		const map = await this.readUnifiedEventMap(params.projectId, signal);
+		if (map === undefined) throw new Error("Unified assembly requires a unified event map.");
+		const events = map.events.filter((event) => event.chapter === params.chapter).sort((left, right) => left.eventId - right.eventId);
+		if (events.length === 0) throw new Error("Chapter has no unified events.");
+		const eventMapHash = hashJson(map);
+		const drafts: string[] = [];
+		const manifestEvents: Array<{ eventId: number; revision: number; charCount: number; contentHash: string }> = [];
+		for (const event of events) {
+			const draft = await this.latestUnifiedEventDraft(params.projectId, params.chapter, event.eventId, signal);
+			if (!draft) throw new Error(`Unified event draft ${event.eventId} is missing.`);
+			const report = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(event.eventId)}-unified.json`), signal);
+			const semantics = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(event.eventId)}-unified-semantics.json`), signal);
+			const draftHash = sha256(draft.content);
+			if (!isJsonRecord(report) || report.status !== "ok" || report.revision !== draft.revision || report.contentHash !== draftHash) throw new Error(`Unified event ${event.eventId} must pass check_unified_event_draft for the current revision before assembly.`);
+			if (!isJsonRecord(semantics) || semantics.source !== "model" || semantics.status !== "ok" || semantics.revision !== draft.revision || semantics.contentHash !== draftHash) throw new Error(`Unified event ${event.eventId} requires a current passing save_unified_event_semantic_report before assembly.`);
+			drafts.push(draft.content.trim());
+			manifestEvents.push({ eventId: event.eventId, revision: draft.revision, charCount: countChineseCharacters(draft.content), contentHash: draftHash });
+		}
+		const assembledContent = drafts.join("\n\n");
+		const chapterDraft = await this.saveChapterDraftInternal({ projectId: params.projectId, chapter: params.chapter, revision: params.revision, content: assembledContent }, signal);
+		const manifestEventRanges = manifestEvents.map((manifestEvent, index) => {
+			const startChar = manifestEvents.slice(0, index).reduce((sum, item) => sum + item.charCount, 0);
+			return { ...manifestEvent, startChar, endChar: startChar + manifestEvent.charCount };
+		});
+		const manifestPath = `work/unified-assemblies/${chapterName(params.chapter)}-r${String(chapterDraft.revision).padStart(2, "0")}.json`;
+		const manifest = { version: 1, projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft.revision, eventMapHash, eventDrafts: manifestEventRanges, assembledCharCount: countChineseCharacters(assembledContent), assembledHash: sha256(normalizeText(assembledContent)), generatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, manifestPath), `${JSON.stringify(manifest, null, 2)}\n`, signal);
+		return { projectId: params.projectId, chapter: params.chapter, draftRevision: chapterDraft.revision, eventCount: events.length, path: chapterDraft.path, manifestPath };
 	}
 	private async writeTransaction(projectId: string, chapter: number, entries: Array<{ relativePath: string; content: string }>, signal?: AbortSignal): Promise<string> {
 		const transactionId = randomUUID();

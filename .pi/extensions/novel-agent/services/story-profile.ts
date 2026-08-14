@@ -9,6 +9,8 @@ export interface StoryProfile {
 	professionalDomain?: string;
 	themes?: string[];
 	storyForm?: string;
+	audience?: string;
+	setting?: string;
 }
 
 const PRIMARY_GENRE_ALIASES: Record<string, string> = {
@@ -77,6 +79,8 @@ export function resolveStoryProfile(project: Record<string, unknown>): StoryProf
 		professionalDomain: stringField(rawProfile.professionalDomain),
 		themes: stringArray(rawProfile.themes),
 		storyForm: stringField(rawProfile.storyForm),
+		audience: stringField(rawProfile.audience),
+		setting: stringField(rawProfile.setting),
 	};
 }
 

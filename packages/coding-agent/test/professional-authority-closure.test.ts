@@ -176,6 +176,7 @@ function closurePlan(overrides: Partial<ProfessionalCasePlan> = {}): Professiona
 		conflictsOfInterest: [],
 		escalations: [],
 		professionalConsequences: [],
+		observations: [],
 		unresolvedQuestions: [],
 		...overrides,
 	};

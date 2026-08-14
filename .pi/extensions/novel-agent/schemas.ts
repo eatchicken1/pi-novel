@@ -124,6 +124,8 @@ export const StoryProfileSchema = Type.Object({
 	professionalDomain: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
 	themes: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { maxItems: 12 })),
 	storyForm: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
+	audience: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
+	setting: Type.Optional(Type.String({ minLength: 1, maxLength: 60 })),
 });
 
 const ConfirmationSchema = Type.Optional(Type.Literal("USER_CONFIRMED"));
@@ -889,6 +891,19 @@ export const ProfessionalCaseEscalationSchema = Type.Object({
 	purpose: Type.String({ minLength: 1 }),
 });
 
+// 中间层：EvidenceSource（可取得信息的渠道）→ Action（职业动作）→ Observation（实际发现的事实）→ 可选 MysteryClue（经 realizesClueId 显式关联，不自动复制）。
+export const ProfessionalObservationSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	actionId: Type.String({ minLength: 1, maxLength: 80 }),
+	evidenceSourceId: Type.String({ minLength: 1, maxLength: 80 }),
+	observableFact: Type.String({ minLength: 1 }),
+	limitations: Type.Array(Type.String({ minLength: 1 })),
+	discoveredByCharacterId: Type.String({ minLength: 1, maxLength: 80 }),
+	reliability: MysteryReliabilitySchema,
+	intendedChapter: Type.Integer({ minimum: 1 }),
+	mysteryClueId: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+});
+
 export const ProfessionalCasePlanSchema = Type.Object({
 	id: Type.String({ minLength: 1, maxLength: 80 }),
 	domain: ProfessionalDomainSchema,
@@ -898,6 +913,7 @@ export const ProfessionalCasePlanSchema = Type.Object({
 	conflictsOfInterest: Type.Array(ProfessionalConflictOfInterestSchema),
 	escalations: Type.Array(ProfessionalCaseEscalationSchema),
 	professionalConsequences: Type.Array(ProfessionalConsequenceSchema),
+	observations: Type.Array(ProfessionalObservationSchema),
 	unresolvedQuestions: Type.Array(Type.String({ minLength: 1 })),
 });
 
@@ -917,6 +933,181 @@ export const SaveProfessionalCasePlanSchema = Type.Object({
 
 export const CheckProfessionalDomainSchema = Type.Object({ projectId: ProjectIdSchema });
 export const CheckProfessionalCaseSchema = Type.Object({ projectId: ProjectIdSchema });
+
+// ==== Unified Narrative Event Layer ====
+
+export const UnifiedEventPovSchema = Type.Union([
+	Type.Literal("heroine-first-person"),
+	Type.Literal("male-limited-third-person"),
+	Type.Literal("third-person"),
+]);
+
+export const UnifiedEventChronologySchema = Type.Union([
+	Type.Literal("present"),
+	Type.Literal("flashback"),
+	Type.Literal("flashforward-preview"),
+]);
+
+export const UnifiedMysteryDeltaSchema = Type.Object({
+	discoveredClueIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	readerRevealedClueIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	claimKnowledgeChanges: Type.Array(Type.Object({
+		claimId: Type.String({ minLength: 1, maxLength: 80 }),
+		audience: Type.Union([Type.Literal("reader"), Type.Literal("heroine")]),
+		knowledge: Type.Union([Type.Literal("knows"), Type.Literal("suspects"), Type.Literal("believes")]),
+	})),
+	suspectChanges: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	interpretationChanges: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	proofProgressClaimIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	revealClaimIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+});
+
+export const UnifiedMarriageDeltaSchema = Type.Object({
+	economicItemChanges: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	responsibilityChanges: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	decisionRightChanges: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	socialTieChanges: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	inertiaChanges: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	exitConstraintChanges: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	restructuringProgress: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+});
+
+const UnifiedAgencyStateSchema = Type.Object({
+	epistemic: Type.Integer({ minimum: 0, maximum: 4 }),
+	relational: Type.Integer({ minimum: 0, maximum: 4 }),
+	material: Type.Integer({ minimum: 0, maximum: 4 }),
+	social: Type.Integer({ minimum: 0, maximum: 4 }),
+	future: Type.Integer({ minimum: 0, maximum: 4 }),
+});
+
+const UnifiedHeroinePhaseSchema = Type.Union([
+	Type.Literal("injury"), Type.Literal("recognition"), Type.Literal("micro-withdrawal"), Type.Literal("boundary-test"),
+	Type.Literal("irreversible-exit"), Type.Literal("self-rebuild"), Type.Literal("final-boundary"),
+]);
+
+const UnifiedMalePhaseSchema = Type.Union([
+	Type.Literal("entitlement"), Type.Literal("loss-of-control"), Type.Literal("wrong-pursuit"),
+	Type.Literal("real-consequence"), Type.Literal("recognition"), Type.Literal("respect-or-failure"),
+]);
+
+export const UnifiedChaseWifeDeltaSchema = Type.Object({
+	informationDelta: Type.Array(Type.String({ minLength: 1 })),
+	relationshipDelta: Type.Array(Type.String({ minLength: 1 })),
+	resourceDelta: Type.Array(Type.String({ minLength: 1 })),
+	riskDelta: Type.Array(Type.String({ minLength: 1 })),
+	heroineAgencyBefore: Type.Integer({ minimum: 0, maximum: 100 }),
+	heroineAgencyAfter: Type.Integer({ minimum: 0, maximum: 100 }),
+	heroineAgencyStateBefore: Type.Optional(UnifiedAgencyStateSchema),
+	heroineAgencyStateAfter: Type.Optional(UnifiedAgencyStateSchema),
+	harmRefs: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	repairRefs: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	heroinePhase: Type.Optional(UnifiedHeroinePhaseSchema),
+	malePhase: Type.Optional(UnifiedMalePhaseSchema),
+	paywallHook: Type.Boolean(),
+});
+
+export const UnifiedProfessionalDeltaSchema = Type.Object({
+	actionIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	evidenceSourceIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	workflowFromStageId: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+	workflowToStageId: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+	conflictIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	escalationPathIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	consequenceIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	observationIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+});
+
+export const UnifiedCharacterDeltaSchema = Type.Object({
+	characterId: Type.String({ minLength: 1, maxLength: 80 }),
+	dimension: Type.Union([
+		Type.Literal("agency"),
+		Type.Literal("knowledge"),
+		Type.Literal("relationship"),
+		Type.Literal("resource"),
+		Type.Literal("risk"),
+		Type.Literal("health"),
+		Type.Literal("reputation"),
+	]),
+	from: Type.String({ minLength: 1 }),
+	to: Type.String({ minLength: 1 }),
+});
+
+export const UnifiedEventSchema = Type.Object({
+	eventId: Type.Integer({ minimum: 1, maximum: 64 }),
+	chapter: ChapterNumberSchema,
+	scene: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+	chronology: UnifiedEventChronologySchema,
+	pov: UnifiedEventPovSchema,
+	storyGoal: Type.String({ minLength: 1 }),
+	conflict: Type.String({ minLength: 1 }),
+	action: Type.String({ minLength: 1 }),
+	consequence: Type.String({ minLength: 1 }),
+	mysteryDelta: Type.Optional(UnifiedMysteryDeltaSchema),
+	marriageDelta: Type.Optional(UnifiedMarriageDeltaSchema),
+	chaseWifeDelta: Type.Optional(UnifiedChaseWifeDeltaSchema),
+	professionalDelta: Type.Optional(UnifiedProfessionalDeltaSchema),
+	characterDeltas: Type.Array(UnifiedCharacterDeltaSchema),
+	resourceDeltas: Type.Array(Type.Object({ itemRef: Type.String({ minLength: 1 }), change: Type.String({ minLength: 1 }) })),
+	riskDeltas: Type.Array(Type.Object({ label: Type.String({ minLength: 1 }), change: Type.String({ minLength: 1 }) })),
+	causes: Type.Array(Type.Integer({ minimum: 1, maximum: 64 })),
+	irreversible: Type.Boolean(),
+	cannotRemoveBecause: Type.String({ minLength: 1 }),
+});
+
+export const UnifiedEventMapSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	events: Type.Array(UnifiedEventSchema, { minItems: 1 }),
+});
+
+export const SaveUnifiedEventMapSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	events: Type.Array(UnifiedEventSchema, { minItems: 1 }),
+});
+
+export const CheckUnifiedEventMapSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: Type.Optional(ChapterNumberSchema),
+});
+
+export const SaveUnifiedEventDraftSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	eventId: Type.Integer({ minimum: 1, maximum: 64 }),
+	content: Type.String({ minLength: 1 }),
+	revision: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
+export const CheckUnifiedEventDraftSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	eventId: Type.Integer({ minimum: 1, maximum: 64 }),
+	revision: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
+export const SaveUnifiedEventSemanticReportSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	eventId: Type.Integer({ minimum: 1, maximum: 64 }),
+	revision: Type.Optional(Type.Integer({ minimum: 1 })),
+	actionShown: Type.Boolean(),
+	consequenceShown: Type.Boolean(),
+	deltaEvidence: Type.Array(Type.Object({
+		dimension: Type.String({ minLength: 1, maxLength: 40 }),
+		evidence: Type.Object({
+			startChar: Type.Integer({ minimum: 0 }),
+			endChar: Type.Integer({ minimum: 1 }),
+			excerpt: Type.String({ minLength: 1 }),
+		}),
+	}), { minItems: 1 }),
+	notes: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const AssembleUnifiedChapterSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	chapter: ChapterNumberSchema,
+	revision: Type.Optional(Type.Integer({ minimum: 1 })),
+});
 
 
 
@@ -1682,6 +1873,19 @@ export type SaveProfessionalDomainModelParams = Static<typeof SaveProfessionalDo
 export type SaveProfessionalCasePlanParams = Static<typeof SaveProfessionalCasePlanSchema>;
 export type CheckProfessionalDomainParams = Static<typeof CheckProfessionalDomainSchema>;
 export type CheckProfessionalCaseParams = Static<typeof CheckProfessionalCaseSchema>;
+export type ProfessionalObservation = Static<typeof ProfessionalObservationSchema>;
+export type UnifiedEvent = Static<typeof UnifiedEventSchema>;
+export type UnifiedEventMap = Static<typeof UnifiedEventMapSchema>;
+export type UnifiedMysteryDelta = Static<typeof UnifiedMysteryDeltaSchema>;
+export type UnifiedMarriageDelta = Static<typeof UnifiedMarriageDeltaSchema>;
+export type UnifiedChaseWifeDelta = Static<typeof UnifiedChaseWifeDeltaSchema>;
+export type UnifiedProfessionalDelta = Static<typeof UnifiedProfessionalDeltaSchema>;
+export type SaveUnifiedEventMapParams = Static<typeof SaveUnifiedEventMapSchema>;
+export type CheckUnifiedEventMapParams = Static<typeof CheckUnifiedEventMapSchema>;
+export type SaveUnifiedEventDraftParams = Static<typeof SaveUnifiedEventDraftSchema>;
+export type CheckUnifiedEventDraftParams = Static<typeof CheckUnifiedEventDraftSchema>;
+export type SaveUnifiedEventSemanticReportParams = Static<typeof SaveUnifiedEventSemanticReportSchema>;
+export type AssembleUnifiedChapterParams = Static<typeof AssembleUnifiedChapterSchema>;
 export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
 export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
 export type ReadStoryContextParams = Static<typeof ReadStoryContextSchema>;

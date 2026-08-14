@@ -194,6 +194,7 @@ export function checkProfessionalCase(
 		["action", plan.actions],
 		["conflict", plan.conflictsOfInterest],
 		["professional consequence", plan.professionalConsequences],
+		["observation", plan.observations],
 	];
 	for (const [kind, items] of collections) {
 		for (const item of items) {
@@ -317,6 +318,11 @@ export function checkProfessionalCase(
 				issues.push(issue("PROFESSIONAL_CONSEQUENCE_REF_MISSING", "error", `professional consequence "${consequence.id}" references missing trigger "${triggerRefId}"`));
 			}
 		}
+	}
+	// Observation 桥接：EvidenceSource → Action → Observation（mysteryClueId 由 unified 层校验）
+	for (const observation of plan.observations) {
+		if (!actionIds.has(observation.actionId)) issues.push(issue("PROFESSIONAL_REFERENCE_MISSING", "error", `observation "${observation.id}" references missing action "${observation.actionId}"`));
+		if (!evidenceIds.has(observation.evidenceSourceId)) issues.push(issue("PROFESSIONAL_REFERENCE_MISSING", "error", `observation "${observation.id}" references missing evidence source "${observation.evidenceSourceId}"`));
 	}
 	return issues;
 }

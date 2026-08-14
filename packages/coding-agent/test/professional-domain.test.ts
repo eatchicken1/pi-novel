@@ -191,6 +191,7 @@ function casePlan(overrides: Partial<ProfessionalCasePlan> = {}): ProfessionalCa
 		conflictsOfInterest: [],
 		escalations: [],
 		professionalConsequences: [],
+		observations: [],
 		unresolvedQuestions: [],
 		...overrides,
 	};

@@ -8,9 +8,15 @@ import type {
 	CheckChaseWifeHarmRepairProgressParams,
 	CheckMatureMarriageRestructuringParams,
 	CheckMatureMarriageStructureParams,
+	AssembleUnifiedChapterParams,
 	CheckProfessionalCaseParams,
 	CheckProfessionalDomainParams,
 	CheckMysteryDesignParams,
+	CheckUnifiedEventDraftParams,
+	CheckUnifiedEventMapParams,
+	SaveUnifiedEventDraftParams,
+	SaveUnifiedEventMapParams,
+	SaveUnifiedEventSemanticReportParams,
 	CheckMysteryFairnessParams,
 	SaveMatureMarriageRestructuringParams,
 	SaveMatureMarriageStructureParams,
@@ -66,9 +72,15 @@ import {
 	CheckChaseWifeEventSemanticsSchema,
 	CheckMatureMarriageRestructuringSchema,
 	CheckMatureMarriageStructureSchema,
+	AssembleUnifiedChapterSchema,
 	CheckProfessionalCaseSchema,
 	CheckProfessionalDomainSchema,
 	CheckMysteryDesignSchema,
+	CheckUnifiedEventDraftSchema,
+	CheckUnifiedEventMapSchema,
+	SaveUnifiedEventDraftSchema,
+	SaveUnifiedEventMapSchema,
+	SaveUnifiedEventSemanticReportSchema,
 	CheckMysteryFairnessSchema,
 	SaveMatureMarriageRestructuringSchema,
 	SaveMatureMarriageStructureSchema,
@@ -577,6 +589,89 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckProfessionalCaseParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).checkProfessionalCase(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
+			name: "save_unified_event_map",
+			label: "Save Unified Event Map",
+			description: "Save the unified narrative event map for a chapter: each event is one Story Action plus optional mystery/marriage/chase-wife/professional deltas and character/resource/risk deltas. The unified layer references engine artifacts and never rewrites engine authority. Author planning: reader-sim never reads it.",
+			parameters: SaveUnifiedEventMapSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveUnifiedEventMapParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveUnifiedEventMap(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_unified_event_map",
+			label: "Check Unified Event Map",
+			description: "Run the deterministic unified event map checker: duplicate ids, cause DAG, capability-illegal deltas, engine reference validity, empty events, irreversible events, mystery reveal timing, collision statistics, and the professional authority gate.",
+			parameters: CheckUnifiedEventMapSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckUnifiedEventMapParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkUnifiedEventMap(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_unified_event_draft",
+			label: "Save Unified Event Draft",
+			description: "Save one unified event draft with deterministic revision paths; draft one event before the next.",
+			parameters: SaveUnifiedEventDraftSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveUnifiedEventDraftParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveUnifiedEventDraft(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_unified_event_draft",
+			label: "Check Unified Event Draft",
+			description: "Check one unified event draft for length budget and planning-label leakage and save a deterministic report.",
+			parameters: CheckUnifiedEventDraftSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckUnifiedEventDraftParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkUnifiedEventDraft(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_unified_event_semantic_report",
+			label: "Save Unified Event Semantic Report",
+			description: "Save the model-submitted semantic report for one unified event: the action and consequence must be shown in prose with evidence anchors for every claimed delta.",
+			parameters: SaveUnifiedEventSemanticReportSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveUnifiedEventSemanticReportParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveUnifiedEventSemanticReport(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "assemble_unified_chapter",
+			label: "Assemble Unified Chapter",
+			description: "Assemble validated unified event drafts in event order into a revisioned chapter draft with an event span map (eventId, startChar, endChar, sourceRevision, sourceHash). Only validated event drafts may be assembled.",
+			parameters: AssembleUnifiedChapterSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: AssembleUnifiedChapterParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).assembleUnifiedChapter(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),
