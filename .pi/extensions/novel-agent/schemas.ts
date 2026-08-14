@@ -1004,7 +1004,25 @@ export const UnifiedChaseWifeDeltaSchema = Type.Object({
 	heroinePhase: Type.Optional(UnifiedHeroinePhaseSchema),
 	malePhase: Type.Optional(UnifiedMalePhaseSchema),
 	paywallHook: Type.Boolean(),
+	// Chase Wife 收敛：Chase Wife 事件语义直接声明在统一事件 delta 内，
+	// 投影适配器据此生成 ChaseWifeEvent 供既有 validators 使用（chase-wife 不再维护第二份事件事实）。
+	role: Type.Optional(Type.Union([
+		Type.Literal("opening-injury"), Type.Literal("evidence"), Type.Literal("preference-exposure"), Type.Literal("gaslighting"),
+		Type.Literal("micro-withdrawal"), Type.Literal("boundary-test"), Type.Literal("decision"), Type.Literal("irreversible-exit"),
+		Type.Literal("pursuit-control"), Type.Literal("pursuit-failure"), Type.Literal("real-consequence"), Type.Literal("recognition"),
+		Type.Literal("repair-attempt"), Type.Literal("credible-repair"), Type.Literal("boundary-respect"), Type.Literal("self-rebuild"),
+		Type.Literal("final-boundary"), Type.Literal("closure"),
+	])),
+	beatRefs: Type.Optional(Type.Array(Type.Integer({ minimum: 1, maximum: 24 }))),
+	targetTrack: Type.Optional(Type.Union([Type.Literal("heroine"), Type.Literal("male"), Type.Literal("shared")])),
+	lengthMode: Type.Optional(Type.Union([Type.Literal("flash"), Type.Literal("bridge"), Type.Literal("standard"), Type.Literal("anchor")])),
+	minChars: Type.Optional(Type.Integer({ minimum: 1 })),
+	maxChars: Type.Optional(Type.Integer({ minimum: 1 })),
+	injuryMechanism: Type.Optional(Type.Union([Type.Literal("neglect"), Type.Literal("substitution"), Type.Literal("coercion"), Type.Literal("gaslighting"), Type.Literal("resource-transfer"), Type.Literal("public-humiliation"), Type.Literal("betrayal-evidence")])),
+	scene: Type.Optional(Type.Integer({ minimum: 1, maximum: 8 })),
+	setback: Type.Optional(Type.Object({ dimension: Type.Union([Type.Literal("epistemic"), Type.Literal("relational"), Type.Literal("material"), Type.Literal("social"), Type.Literal("future")]), reason: Type.String({ minLength: 1 }), recoveryBeatRef: Type.Integer({ minimum: 1, maximum: 24 }) })),
 });
+
 
 export const UnifiedProfessionalDeltaSchema = Type.Object({
 	actionIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),

@@ -95,6 +95,7 @@ import type {
 	StoryDistinctivenessProfile,
 	SaveStoryDistinctivenessParams,
 	CheckStoryDistinctivenessParams,
+	UnifiedChaseWifeDelta,
 } from "../schemas.ts";
 import { hasChaseWifeCapability, hasMatureMarriageCapability, hasPrimaryGenre, hasProfessionalDomain, normalizePrimaryGenre, normalizeProfessionalDomain, normalizeRelationshipMechanism } from "./story-profile.ts";
 import { checkMysteryDesign, checkMysteryFairness, isMysteryPrivatePath, type MysteryIssue } from "./mystery-checker.ts";
@@ -1046,34 +1047,43 @@ export class NovelProjectStore {
 			await addSceneContract(`work/scene-contracts/${current}.json`);
 			if (isJsonRecord(project) && hasChaseWifeCapability(project)) {
 				await addFile("outline/genre/chase-wife-beat-sheet.json", "chase-wife-beat-sheet");
-				await addFile(`work/chase-wife-events/${current}.json`, "chase-wife-event-map");
+				// Converged 模式：unified 事件地图/草稿已在 unified 上下文块读取，不再重复读取 legacy chase-wife 事件文件。
+				const chaseProjection = await this.projectChaseWifeChapter(params.projectId, params.chapter, signal);
+				if (chaseProjection !== undefined) {
+					await addFile(`continuity/reports/${current}-chase-wife-pacing.json`, "chase-wife-pacing");
+					await addFile(`continuity/reports/${current}-chase-wife-events.json`, "chase-wife-event-map-report");
+				} else {
+					await addFile(`work/chase-wife-events/${current}.json`, "chase-wife-event-map");
+				}
 				const eventMap = await this.readJsonIfExists(this.projectFile(params.projectId, `work/chase-wife-events/${current}.json`), signal);
 				const eventMapHash = isJsonRecord(eventMap) ? hashJson(eventMap) : undefined;
 				const eventSpecs = isJsonRecord(eventMap) && Array.isArray(eventMap.events) ? eventMap.events.filter(isChaseWifeEvent) : [];
-				const eventDrafts = await this.listFiles(this.chaseWifeEventDirectory(params.projectId, params.chapter), signal);
-				const latestByEvent = new Map<number, string>();
-				for (const path of eventDrafts) {
-					const match = path.match(/event-(\d+)-r(\d+)\.md$/);
-					if (!match) continue;
-					const eventId = Number(match[1]);
-					const revision = Number(match[2]);
-					const previous = latestByEvent.get(eventId);
-					if (previous === undefined || revision > Number(previous.match(/-r(\d+)\.md$/)?.[1] ?? 0)) latestByEvent.set(eventId, path);
+				if (chaseProjection === undefined) {
+					const eventDrafts = await this.listFiles(this.chaseWifeEventDirectory(params.projectId, params.chapter), signal);
+					const latestByEvent = new Map<number, string>();
+					for (const path of eventDrafts) {
+						const match = path.match(/event-(\d+)-r(\d+)\.md$/);
+						if (!match) continue;
+						const eventId = Number(match[1]);
+						const revision = Number(match[2]);
+						const previous = latestByEvent.get(eventId);
+						if (previous === undefined || revision > Number(previous.match(/-r(\d+)\.md$/)?.[1] ?? 0)) latestByEvent.set(eventId, path);
+					}
+					for (const path of latestByEvent.values()) {
+						const match = path.match(/event-(\d+)-r(\d+)\.md$/);
+						const eventId = Number(match?.[1]);
+						const revision = Number(match?.[2]);
+						const report = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${current}-event-${padChapter(eventId)}-chase-wife.json`), signal);
+						const semantics = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${current}-event-${padChapter(eventId)}-semantics.json`), signal);
+						const eventSpec = eventSpecs.find((event) => event.eventId === eventId);
+						const content = await this.readTextIfExists(path, signal);
+						const contentHash = content === undefined ? undefined : sha256(content);
+						const hashesMatch = eventMapHash !== undefined && eventSpec !== undefined && contentHash !== undefined && isJsonRecord(report) && report.contentHash === contentHash && report.eventSpecHash === hashJson(eventSpec) && report.eventMapHash === eventMapHash && isJsonRecord(semantics) && semantics.contentHash === contentHash && semantics.eventSpecHash === hashJson(eventSpec) && semantics.eventMapHash === eventMapHash;
+						if (isJsonRecord(report) && report.status === "ok" && report.revision === revision && isJsonRecord(semantics) && semantics.source === "model" && semantics.status === "ok" && semantics.revision === revision && hashesMatch) await addFile(this.relativeProjectPath(params.projectId, path), "chase-wife-event-draft");
+						else excludedFiles.push(this.relativeProjectPath(params.projectId, path));
+					}
+					await addFile(`continuity/reports/${current}-chase-wife-pacing.json`, "chase-wife-pacing");
 				}
-				for (const path of latestByEvent.values()) {
-					const match = path.match(/event-(\d+)-r(\d+)\.md$/);
-					const eventId = Number(match?.[1]);
-					const revision = Number(match?.[2]);
-					const report = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${current}-event-${padChapter(eventId)}-chase-wife.json`), signal);
-					const semantics = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${current}-event-${padChapter(eventId)}-semantics.json`), signal);
-					const eventSpec = eventSpecs.find((event) => event.eventId === eventId);
-					const content = await this.readTextIfExists(path, signal);
-					const contentHash = content === undefined ? undefined : sha256(content);
-					const hashesMatch = eventMapHash !== undefined && eventSpec !== undefined && contentHash !== undefined && isJsonRecord(report) && report.contentHash === contentHash && report.eventSpecHash === hashJson(eventSpec) && report.eventMapHash === eventMapHash && isJsonRecord(semantics) && semantics.contentHash === contentHash && semantics.eventSpecHash === hashJson(eventSpec) && semantics.eventMapHash === eventMapHash;
-					if (isJsonRecord(report) && report.status === "ok" && report.revision === revision && isJsonRecord(semantics) && semantics.source === "model" && semantics.status === "ok" && semantics.revision === revision && hashesMatch) await addFile(this.relativeProjectPath(params.projectId, path), "chase-wife-event-draft");
-					else excludedFiles.push(this.relativeProjectPath(params.projectId, path));
-				}
-				await addFile(`continuity/reports/${current}-chase-wife-pacing.json`, "chase-wife-pacing");
 			}
 			if (params.includeCurrentDraft !== false) {
 				const drafts = await this.listFiles(this.projectFile(params.projectId, "work/drafts"), signal);
@@ -1966,18 +1976,29 @@ export class NovelProjectStore {
 			}
 			progress.push({ harmId, severity: typeof harm.severity === "string" ? harm.severity : "unknown", recognizedByMale, repairCount: relatedRepairs.length, credibleRepairCount, evidenceBound: harmEvidenceIssues.length === 0, stage, unresolvedDebt });
 		}
-		const eventPaths = (await this.listFiles(this.projectFile(params.projectId, "work/chase-wife-events"), signal)).filter((path) => /chapter-(\d+)\.json$/u.test(path));
 		let wrongPursuitCount = 0;
 		let realConsequenceCount = 0;
-		for (const path of eventPaths) {
-			const chapterMatch = path.match(/chapter-(\d+)\.json$/u);
-			if (chapterMatch === null || Number(chapterMatch[1]) > maximumChapter) continue;
-			if (!await this.isChaseWifeChapterAssembled(params.projectId, Number(chapterMatch[1]), signal)) continue;
-			const value = await this.readJsonIfExists(path, signal);
-			if (!isJsonRecord(value) || !Array.isArray(value.events)) continue;
-			for (const event of value.events.filter(isChaseWifeEvent)) {
-				if (event.role === "pursuit-control" || event.role === "pursuit-failure") wrongPursuitCount += 1;
-				if (event.role === "real-consequence") realConsequenceCount += 1;
+		// Converged 模式：从 unified 事件统计 pursuit/real-consequence（unified 是唯一事件权威）。
+		const unifiedMap = await this.readUnifiedEventMap(params.projectId, signal);
+		if (unifiedMap !== undefined) {
+			for (const event of unifiedMap.events) {
+				if (event.chapter > maximumChapter) continue;
+				const role = event.chaseWifeDelta?.role;
+				if (role === "pursuit-control" || role === "pursuit-failure") wrongPursuitCount += 1;
+				if (role === "real-consequence") realConsequenceCount += 1;
+			}
+		} else {
+			const eventPaths = (await this.listFiles(this.projectFile(params.projectId, "work/chase-wife-events"), signal)).filter((path) => /chapter-(\d+)\.json$/u.test(path));
+			for (const path of eventPaths) {
+				const chapterMatch = path.match(/chapter-(\d+)\.json$/u);
+				if (chapterMatch === null || Number(chapterMatch[1]) > maximumChapter) continue;
+				if (!await this.isChaseWifeChapterAssembled(params.projectId, Number(chapterMatch[1]), signal)) continue;
+				const value = await this.readJsonIfExists(path, signal);
+				if (!isJsonRecord(value) || !Array.isArray(value.events)) continue;
+				for (const event of value.events.filter(isChaseWifeEvent)) {
+					if (event.role === "pursuit-control" || event.role === "pursuit-failure") wrongPursuitCount += 1;
+					if (event.role === "real-consequence") realConsequenceCount += 1;
+				}
 			}
 		}
 		const status = stalled ? "stalled" as const : issues.length > 0 ? "warning" as const : "on-track" as const;
@@ -2080,6 +2101,8 @@ export class NovelProjectStore {
 
 	async saveChaseWifeEventMap(params: SaveChaseWifeEventMapParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; path: string; events: number }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
+		// Converged 模式拒绝双事件事实：unified 覆盖的章不再允许写入 legacy chase-wife event map。
+		if ((await this.projectChaseWifeChapter(params.projectId, params.chapter, signal)) !== undefined) throw new Error(`LEGACY_EVENT_AUTHORITY_CONFLICT: chapter ${params.chapter} is covered by the unified narrative event map; use save_unified_event_map.`);
 		if (!isValidPovMode(params.povMode)) throw new Error("Chase-wife event maps must declare heroine-first-person or split-pov.");
 		const beatSheet = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/genre/chase-wife-beat-sheet.json"), signal);
 		if (isJsonRecord(beatSheet) && isValidPovMode(beatSheet.povMode) && beatSheet.povMode !== params.povMode) throw new Error("Chapter event map povMode must match the story beat sheet.");
@@ -2131,10 +2154,13 @@ export class NovelProjectStore {
 		return { projectId: params.projectId, chapter: params.chapter, path: relativePath, events: events.length };
 	}
 
-	async checkChaseWifeEventMap(params: CheckChaseWifeEventMapParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; status: "ok" | "warning" | "error"; issues: string[]; checkedEvents: number; path: string }> {
+	async checkChaseWifeEventMap(params: CheckChaseWifeEventMapParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; status: "ok" | "warning" | "error"; issues: string[]; checkedEvents: number; eventMapHash?: string; path: string }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
+		// Converged 模式：以 unified 投影为检查对象；legacy 文件存在时做双事件事实分歧检测。
+		const projection = await this.projectChaseWifeChapter(params.projectId, params.chapter, signal);
 		const relativePath = `work/chase-wife-events/${chapterName(params.chapter)}.json`;
-		const value = await this.readJsonIfExists(this.projectFile(params.projectId, relativePath), signal);
+		const value = projection === undefined ? await this.readJsonIfExists(this.projectFile(params.projectId, relativePath), signal) : projection.document;
+		const source = projection === undefined ? "legacy" : "unified";
 		const issues: string[] = [];
 		let hasStructuralError = false;
 		let checkedEvents = 0;
@@ -2142,11 +2168,19 @@ export class NovelProjectStore {
 			issues.push("missing or invalid chase-wife event map");
 			hasStructuralError = true;
 		} else {
+			if (source === "unified") {
+				if (projection?.legacyDivergence === true) {
+					issues.push("LEGACY_EVENT_AUTHORITY_CONFLICT: the legacy chase-wife event map diverges from the unified narrative event map; remove the legacy event map");
+					hasStructuralError = true;
+				} else if (projection?.legacyPresent === true) {
+					issues.push("legacy chase-wife event map is redundant: unified narrative events are the authority");
+				}
+			}
 			if (!isValidPovMode(value.povMode)) {
 				issues.push("chase-wife event map must declare heroine-first-person or split-pov");
 				hasStructuralError = true;
 			}
-			if (params.chapter === 1) {
+			if (params.chapter === 1 && source === "legacy") {
 				const openingMode = value.openingMode === "cold-conflict" || value.openingMode === "result-first" || value.openingMode === "exit-in-progress" || value.openingMode === "quiet-dislocation" ? value.openingMode : "quiet-dislocation";
 				const openingConflictMarker = typeof value.openingConflictMarker === "string" ? value.openingConflictMarker : undefined;
 				const openingIntroIssue = validateChaseWifeOpeningIntro(value.openingIntro, openingConflictMarker);
@@ -2162,11 +2196,11 @@ export class NovelProjectStore {
 					issues.push("exit-in-progress mode requires a causal exit marker");
 					hasStructuralError = true;
 				}
-			} else if (value.openingIntro !== undefined) {
+			} else if (value.openingIntro !== undefined && source === "legacy") {
 				issues.push("only chapter 1 may contain an opening intro");
 				hasStructuralError = true;
 			}
-			if (params.chapter > 1 && value.causalExitMarker !== undefined) {
+			if (params.chapter > 1 && value.causalExitMarker !== undefined && source === "legacy") {
 				issues.push("only chapter 1 may contain a causal exit marker");
 				hasStructuralError = true;
 			}
@@ -2180,7 +2214,7 @@ export class NovelProjectStore {
 				issues.push("event map contains invalid event records");
 				hasStructuralError = true;
 			}
-			if (events.length < 3 || events.length > 6) {
+			if ((events.length < 3 || events.length > 6) && source !== "unified") {
 				issues.push("chase-wife event maps must contain 3-6 valid events");
 				hasStructuralError = true;
 			}
@@ -2296,7 +2330,12 @@ export class NovelProjectStore {
 	}
 
 	private async isChaseWifeChapterAssembled(projectId: string, chapter: number, signal?: AbortSignal): Promise<boolean> {
-		return (await this.latestChaseWifeAssembly(projectId, chapter, signal)) !== undefined;
+		if ((await this.latestChaseWifeAssembly(projectId, chapter, signal)) !== undefined) return true;
+		// Converged 模式：统一装配清单存在即视为已装配。
+		const projection = await this.projectChaseWifeChapter(projectId, chapter, signal);
+		if (projection === undefined) return false;
+		const assemblyPaths = await this.listFiles(this.projectFile(projectId, "work/unified-assemblies"), signal);
+		return assemblyPaths.some((path) => new RegExp(`${chapterName(chapter)}-r\\d+\\.json$`, "u").test(path));
 	}
 
 	private async isChaseWifeChapterFinalized(projectId: string, chapter: number, signal?: AbortSignal): Promise<boolean> {
@@ -2318,6 +2357,12 @@ export class NovelProjectStore {
 	}
 
 	private async hasEarlierChaseWifeExit(projectId: string, chapter: number, scope: Exclude<ChaseWifeArtifactScope, "planned"> = "assembled", signal?: AbortSignal): Promise<boolean> {
+		// Converged 模式：以 unified 事件为权威，检查更早章是否已出现正式退出（role=irreversible-exit 且非预览）。
+		const unifiedMap = await this.readUnifiedEventMap(projectId, signal);
+		if (unifiedMap !== undefined) {
+			const earlier = unifiedMap.events.filter((event) => event.chapter < chapter && event.chaseWifeDelta?.role === "irreversible-exit" && event.chronology !== "flashforward-preview");
+			if (earlier.length > 0) return true;
+		}
 		const paths = (await this.listFiles(this.projectFile(projectId, "work/chase-wife-events"), signal)).filter((path) => /chapter-\d+\.json$/u.test(path));
 		for (const path of paths) {
 			const match = path.match(/chapter-(\d+)\.json$/u);
@@ -2491,6 +2536,13 @@ export class NovelProjectStore {
 	}
 
 	private async latestChaseWifeEventDraft(projectId: string, chapter: number, eventId: number, signal?: AbortSignal): Promise<{ path: string; revision: number; content: string } | undefined> {
+		// Converged 模式：chase 事件 id 通过投影映射回 unified 事件 id，草稿即 unified 事件草稿。
+		const { source, unifiedEventIds } = await this.readChaseWifeEventMap(projectId, chapter, signal).catch(() => ({ source: "legacy" as const, unifiedEventIds: [] as number[] }));
+		if (source === "unified") {
+			const unifiedId = (unifiedEventIds ?? [])[eventId - 1];
+			if (unifiedId === undefined) return undefined;
+			return this.latestUnifiedEventDraft(projectId, chapter, unifiedId, signal);
+		}
 		const directory = this.chaseWifeEventDirectory(projectId, chapter);
 		const paths = await this.listFiles(directory, signal);
 		const matches = paths.map((path) => {
@@ -2503,16 +2555,125 @@ export class NovelProjectStore {
 		return content === undefined ? undefined : { ...latest, content };
 	}
 
-	private async readChaseWifeEventMap(projectId: string, chapter: number, signal?: AbortSignal): Promise<{ map: JsonRecord; events: ChaseWifeEvent[]; eventMapHash: string }> {
+	// Chase Wife → Unified 收敛：统一事件是唯一事件事实源；chase-wife 事件由投影适配器生成，
+	// 供既有 chase-wife validators（event map / pacing / harm-repair / ending）消费。
+	private async projectChaseWifeChapter(projectId: string, chapter: number, signal?: AbortSignal): Promise<{ document: JsonRecord; events: ChaseWifeEvent[]; unifiedEventIds: number[]; legacyDivergence: boolean; legacyPresent: boolean } | undefined> {
+		const map = await this.readUnifiedEventMap(projectId, signal);
+		const chapterEvents = map === undefined ? [] : map.events.filter((event) => event.chapter === chapter).sort((left, right) => left.eventId - right.eventId);
+		const chaseEvents = chapterEvents.filter((event) => event.chaseWifeDelta !== undefined);
+		if (chaseEvents.length === 0) return undefined;
+		const beatSheet = await this.readJsonIfExists(this.projectFile(projectId, "outline/genre/chase-wife-beat-sheet.json"), signal);
+		const beats = isJsonRecord(beatSheet) && Array.isArray(beatSheet.beats) ? beatSheet.beats.filter(isChaseWifeBeat) : [];
+		const inChapterIds = new Map(chapterEvents.map((event, index) => [event.eventId, index + 1]));
+		const projectedEvents: ChaseWifeEvent[] = [];
+		const unifiedEventIds: number[] = [];
+		for (const event of chaseEvents) {
+			if (event.pov === "third-person") throw new Error(`Unified event ${event.eventId} declares chaseWifeDelta with pov third-person; chase-wife events require heroine-first-person or male-limited-third-person.`);
+			const delta = event.chaseWifeDelta as UnifiedChaseWifeDelta;
+			if (delta.role === undefined) throw new Error(`Unified event ${event.eventId} declares chaseWifeDelta without a chase-wife role; declare role to converge the chase-wife arc.`);
+			if (beats.length > 0 && delta.beatRefs === undefined) throw new Error(`Unified event ${event.eventId} declares chaseWifeDelta but the beat sheet requires beatRefs.`);
+			if (delta.beatRefs !== undefined && delta.beatRefs.some((beat) => !beats.some((candidate) => candidate.beat === beat))) throw new Error(`Unified event ${event.eventId} chaseWifeDelta references a missing beat.`);
+			if (delta.heroinePhase !== undefined && delta.beatRefs !== undefined && !delta.beatRefs.some((beat) => beats.some((candidate) => candidate.beat === beat && candidate.heroinePhase === delta.heroinePhase))) throw new Error(`Unified event ${event.eventId} chaseWifeDelta heroinePhase does not match its beatRefs.`);
+			if (delta.malePhase !== undefined && delta.beatRefs !== undefined && !delta.beatRefs.some((beat) => beats.some((candidate) => candidate.beat === beat && candidate.malePhase === delta.malePhase))) throw new Error(`Unified event ${event.eventId} chaseWifeDelta malePhase does not match its beatRefs.`);
+			const lengthMode = delta.lengthMode ?? "standard";
+			const limits = CHASE_WIFE_LENGTH_LIMITS[lengthMode];
+			const minChars = delta.minChars ?? limits.min;
+			const maxChars = delta.maxChars ?? limits.max;
+			const projectedEventId = projectedEvents.length + 1;
+			const causes = event.causes.filter((cause) => inChapterIds.has(cause)).map((cause) => inChapterIds.get(cause) as number);
+			const projectedEvent: ChaseWifeEvent = {
+				eventId: projectedEventId,
+				role: delta.role,
+				beatRefs: delta.beatRefs,
+				harmRefs: delta.harmRefs,
+				repairRefs: delta.repairRefs,
+				chronology: event.chronology,
+				heroinePhase: delta.heroinePhase,
+				malePhase: delta.malePhase,
+				scene: delta.scene ?? projectedEventId,
+				pov: event.pov as "heroine-first-person" | "male-limited-third-person",
+				targetTrack: delta.targetTrack ?? "heroine",
+				paywallHook: delta.paywallHook,
+				causes,
+				injuryMechanism: delta.injuryMechanism,
+				informationDelta: delta.informationDelta,
+				relationshipDelta: delta.relationshipDelta,
+				resourceDelta: delta.resourceDelta,
+				riskDelta: delta.riskDelta,
+				heroineAgencyBefore: delta.heroineAgencyBefore,
+				heroineAgencyAfter: delta.heroineAgencyAfter,
+				heroineAgencyStateBefore: delta.heroineAgencyStateBefore ?? { epistemic: 0, relational: 0, material: 0, social: 0, future: 0 },
+				heroineAgencyStateAfter: delta.heroineAgencyStateAfter ?? { epistemic: 0, relational: 0, material: 0, social: 0, future: 0 },
+				setback: delta.setback,
+				irreversible: event.irreversible,
+				cannotRemoveBecause: event.cannotRemoveBecause,
+				lengthMode,
+				minChars,
+				maxChars,
+				// 适配器文本字段：由统一事件推导；converged 模式的正文校验走 unified draft/semantic 报告，
+				// 不再运行 chase-wife 专有的 prose 校验器（role/conflict/hook 检查由 unified 语义报告覆盖）。
+				eventDescription: event.action,
+				function: `推进 ${delta.role} 弧线`,
+				goal: event.storyGoal,
+				conflict: event.conflict,
+				actionOrConsequence: `${event.action}；${event.consequence}`,
+				protagonistReaction: event.consequence,
+				oppositionReaction: event.conflict,
+				informationChange: delta.informationDelta.join("；") || "信息状态推进",
+				emotionBefore: "克制",
+				emotionAfter: "变化",
+				physicalReaction: "行动",
+				setupOrPayoff: "推动下一步",
+				readerRelease: "释放读者压力",
+				entryHook: event.storyGoal,
+				exitHook: event.consequence,
+			};
+			projectedEvents.push(projectedEvent);
+			unifiedEventIds.push(event.eventId);
+		}
+		const legacyValue = await this.readJsonIfExists(this.projectFile(projectId, `work/chase-wife-events/${chapterName(chapter)}.json`), signal);
+		const legacyPresent = isJsonRecord(legacyValue) && Array.isArray(legacyValue.events);
+		let legacyDivergence = false;
+		if (legacyPresent) {
+			const legacyEvents = (legacyValue.events as unknown[]).filter(isChaseWifeEvent).sort((left, right) => left.eventId - right.eventId);
+			const sameLength = legacyEvents.length === projectedEvents.length;
+			const sameEvents = sameLength && projectedEvents.every((event, index) => normalizedEventSignature(event) === normalizedEventSignature(legacyEvents[index]));
+			legacyDivergence = !sameEvents;
+		}
+		// povMode 由实际事件推导：出现 male-limited-third-person 事件即 split-pov；否则取 beat sheet 声明或默认。
+		const hasMalePovEvent = projectedEvents.some((event) => event.pov === "male-limited-third-person");
+		const povMode = hasMalePovEvent ? "split-pov" : isJsonRecord(beatSheet) && isValidPovMode(beatSheet.povMode) ? beatSheet.povMode : "heroine-first-person";
+		const openingMode = isJsonRecord(beatSheet) && (beatSheet.openingMode === "cold-conflict" || beatSheet.openingMode === "result-first" || beatSheet.openingMode === "exit-in-progress" || beatSheet.openingMode === "quiet-dislocation") ? beatSheet.openingMode : "quiet-dislocation";
+		const document: JsonRecord = {
+			version: 2,
+			genre: "chase-wife",
+			projectId,
+			chapter,
+			source: "unified",
+			povMode,
+			openingMode,
+			openingConflict: chaseEvents[0]!.conflict,
+			events: projectedEvents,
+			unifiedEventIds,
+		};
+		return { document, events: projectedEvents, unifiedEventIds, legacyDivergence, legacyPresent };
+	}
+
+	private async readChaseWifeEventMap(projectId: string, chapter: number, signal?: AbortSignal): Promise<{ map: JsonRecord; events: ChaseWifeEvent[]; eventMapHash: string; source: "legacy" | "unified"; unifiedEventIds?: number[] }> {
+		const projection = await this.projectChaseWifeChapter(projectId, chapter, signal);
+		if (projection !== undefined) return { map: projection.document, events: projection.events, eventMapHash: hashJson(projection.document), source: "unified", unifiedEventIds: projection.unifiedEventIds };
 		const value = await this.readJsonIfExists(this.projectFile(projectId, `work/chase-wife-events/${chapterName(chapter)}.json`), signal);
 		if (!isJsonRecord(value) || !Array.isArray(value.events)) throw new Error(`Chase-wife event map for chapter ${chapter} is missing or invalid.`);
 		const events = value.events.filter(isChaseWifeEvent).sort((left, right) => left.eventId - right.eventId);
 		if (events.length !== value.events.length) throw new Error(`Chase-wife event map for chapter ${chapter} contains invalid event records.`);
-		return { map: value, events, eventMapHash: hashJson(value) };
+		return { map: value, events, eventMapHash: hashJson(value), source: "legacy" };
 	}
+
 
 	async saveChaseWifeEventDraft(params: SaveChaseWifeEventDraftParams, signal?: AbortSignal): Promise<SavedChapterDraftResult & { eventId: number }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
+		// Converged 模式拒绝双事件事实：草稿必须走 save_unified_event_draft。
+		if ((await this.projectChaseWifeChapter(params.projectId, params.chapter, signal)) !== undefined) throw new Error(`LEGACY_EVENT_AUTHORITY_CONFLICT: chapter ${params.chapter} is covered by the unified narrative event map; use save_unified_event_draft.`);
 		const { events } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
 		const event = events.find((candidate) => candidate.eventId === params.eventId);
 		if (!event) throw new Error(`Event ${params.eventId} is not present in the chapter event map.`);
@@ -2644,6 +2805,8 @@ export class NovelProjectStore {
 
 	async assembleChaseWifeChapter(params: AssembleChaseWifeChapterParams, signal?: AbortSignal): Promise<{ projectId: string; chapter: number; draftRevision: number; eventCount: number; path: string; manifestPath: string }> {
 		await this.ensureChaseWifeProject(params.projectId, signal);
+		// Converged 模式拒绝双事件事实：装配必须走 assemble_unified_chapter。
+		if ((await this.projectChaseWifeChapter(params.projectId, params.chapter, signal)) !== undefined) throw new Error(`LEGACY_EVENT_AUTHORITY_CONFLICT: chapter ${params.chapter} is covered by the unified narrative event map; use assemble_unified_chapter.`);
 		const { map, events, eventMapHash } = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
 		const drafts: string[] = [];
 		const manifestEvents: Array<{ eventId: number; revision: number; charCount: number; contentHash: string; eventSpecHash: string }> = [];
@@ -2702,14 +2865,17 @@ export class NovelProjectStore {
 		}
 		const chapterDraft = params.draftRevision === undefined ? await this.latestDraft(params.projectId, params.chapter, signal) : { revision: params.draftRevision, content: await this.readTextIfExists(this.draftPath(params.projectId, params.chapter, params.draftRevision), signal) };
 		if (!chapterDraft || chapterDraft.content === undefined) addIssue("missing-assembled-draft", "error", "assembled chapter draft is missing", 15);
-		const manifest = chapterDraft?.content === undefined ? undefined : await this.readJsonIfExists(this.projectFile(params.projectId, `work/chase-wife-assemblies/${chapterName(params.chapter)}-r${String(chapterDraft.revision).padStart(2, "0")}.json`), signal);
+		// Converged 模式：装配清单来自 unified assembly（无 eventMapHash 字段，只绑定 assembledHash）。
+		const manifestDirectory = map.source === "unified" ? "work/unified-assemblies" : "work/chase-wife-assemblies";
+		const manifest = chapterDraft?.content === undefined ? undefined : await this.readJsonIfExists(this.projectFile(params.projectId, `${manifestDirectory}/${chapterName(params.chapter)}-r${String(chapterDraft.revision).padStart(2, "0")}.json`), signal);
 		if (!isJsonRecord(manifest)) addIssue("missing-assembly-manifest", "error", "current assembly manifest is missing", 15);
-		else if (manifest.eventMapHash !== eventMapHash || manifest.assembledHash !== sha256(normalizeText(chapterDraft?.content ?? ""))) addIssue("stale-assembly-manifest", "error", "current assembly manifest is stale", 15);
+		else if ((map.source !== "unified" && manifest.eventMapHash !== eventMapHash) || manifest.assembledHash !== sha256(normalizeText(chapterDraft?.content ?? ""))) addIssue("stale-assembly-manifest", "error", "current assembly manifest is stale", 15);
 		const introChars = params.chapter === 1 && typeof map.openingIntro === "string" ? countChineseCharacters(chaseWifeChapterOnePrefix(map.openingIntro)) : 0;
 		const openingMode = map.openingMode === "cold-conflict" || map.openingMode === "result-first" || map.openingMode === "exit-in-progress" || map.openingMode === "quiet-dislocation" ? map.openingMode : "quiet-dislocation";
 		const assembledChars = chapterDraft?.content === undefined ? introChars + eventDrafts.reduce((sum, item) => sum + item.chars, 0) : countChineseCharacters(chapterDraft.content);
 		const totalChars = assembledChars;
-		const conflictMarker = typeof map.openingConflictMarker === "string" ? map.openingConflictMarker : undefined;
+		// Converged 模式无 openingConflictMarker：以首个 chase 事件的冲突文本（前 12 字）为标记。
+		const conflictMarker = typeof map.openingConflictMarker === "string" ? map.openingConflictMarker : events[0]?.conflict.slice(0, 12);
 		const conflictPosition = chapterDraft?.content !== undefined && conflictMarker ? chapterDraft.content.indexOf(conflictMarker) : -1;
 		if (params.chapter === 1 && (conflictMarker === undefined || conflictPosition < 0 || conflictPosition > 250)) addIssue("opening-conflict-late", "error", "first visible conflict is not verified within 250 characters", 15);
 		const firstAgencyEvent = eventDrafts.find((item) => item.event.targetTrack !== "male" && (item.event.heroineAgencyAfter > item.event.heroineAgencyBefore || ["micro-withdrawal", "boundary-test", "decision", "irreversible-exit", "self-rebuild", "final-boundary"].includes(item.event.role)));
@@ -3687,9 +3853,21 @@ export class NovelProjectStore {
 			}
 			if (hasChaseWifeCapability(existingProject)) {
 				const eventMap = await this.readChaseWifeEventMap(params.projectId, params.chapter, signal);
+				const converged = eventMap.source === "unified";
 				const eventMapReport = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${name}-chase-wife-events.json`), signal);
 				if (!isJsonRecord(eventMapReport) || eventMapReport.status !== "ok" || eventMapReport.eventMapHash !== eventMap.eventMapHash) throw new Error(`Chapter ${params.chapter} requires a current passing chase-wife event map report.`);
-				for (const event of eventMap.events) {
+				for (const [index, event] of eventMap.events.entries()) {
+					if (converged) {
+						// Converged 模式：正文来自 unified 事件草稿，校验走 unified budget/semantic 报告（contentHash + revision 绑定）。
+						const unifiedId = (eventMap.unifiedEventIds ?? [])[index];
+						const draft = unifiedId === undefined ? undefined : await this.latestUnifiedEventDraft(params.projectId, params.chapter, unifiedId, signal);
+						if (!draft) throw new Error(`Chapter ${params.chapter} requires unified event draft ${unifiedId}.`);
+						const budgetReport = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${name}-event-${padChapter(unifiedId)}-unified.json`), signal);
+						const semanticReport = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${name}-event-${padChapter(unifiedId)}-unified-semantics.json`), signal);
+						if (!isJsonRecord(budgetReport) || budgetReport.status !== "ok" || budgetReport.revision !== draft.revision || budgetReport.contentHash !== sha256(draft.content)) throw new Error(`Chapter ${params.chapter} unified event ${unifiedId} has no current passing budget report.`);
+						if (!isJsonRecord(semanticReport) || semanticReport.source !== "model" || semanticReport.status !== "ok" || semanticReport.revision !== draft.revision || semanticReport.contentHash !== sha256(draft.content)) throw new Error(`Chapter ${params.chapter} unified event ${unifiedId} has no current passing model semantic report.`);
+						continue;
+					}
 					const draft = await this.latestChaseWifeEventDraft(params.projectId, params.chapter, event.eventId, signal);
 					if (!draft) throw new Error(`Chapter ${params.chapter} requires event draft ${event.eventId}.`);
 					const budgetReport = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${name}-event-${padChapter(event.eventId)}-chase-wife.json`), signal);
@@ -3697,12 +3875,19 @@ export class NovelProjectStore {
 					if (!isJsonRecord(budgetReport) || budgetReport.status !== "ok" || budgetReport.revision !== draft.revision || budgetReport.contentHash !== sha256(draft.content) || budgetReport.eventSpecHash !== hashJson(event) || budgetReport.eventMapHash !== eventMap.eventMapHash) throw new Error(`Chapter ${params.chapter} event ${event.eventId} has no current passing budget report.`);
 					if (!isJsonRecord(semanticReport) || semanticReport.source !== "model" || semanticReport.status !== "ok" || semanticReport.revision !== draft.revision || semanticReport.contentHash !== sha256(draft.content) || semanticReport.eventSpecHash !== hashJson(event) || semanticReport.eventMapHash !== eventMap.eventMapHash) throw new Error(`Chapter ${params.chapter} event ${event.eventId} has no current passing model semantic report.`);
 				}
-				const manifestPath = this.projectFile(params.projectId, `work/chase-wife-assemblies/${name}-r${String(params.draftRevision).padStart(2, "0")}.json`);
+				const manifestPath = this.projectFile(params.projectId, `${converged ? "work/unified-assemblies" : "work/chase-wife-assemblies"}/${name}-r${String(params.draftRevision).padStart(2, "0")}.json`);
 				const manifest = await this.readJsonIfExists(manifestPath, signal);
-				if (!isJsonRecord(manifest) || manifest.draftRevision !== params.draftRevision || manifest.assembledHash !== sha256(draft.content) || manifest.eventMapHash !== eventMap.eventMapHash) throw new Error(`Chapter ${params.chapter} requires a current chase-wife assembly manifest.`);
+				if (!isJsonRecord(manifest) || manifest.draftRevision !== params.draftRevision || manifest.assembledHash !== sha256(draft.content) || (!converged && manifest.eventMapHash !== eventMap.eventMapHash)) throw new Error(`Chapter ${params.chapter} requires a current ${converged ? "unified" : "chase-wife"} assembly manifest.`);
 				const manifestEvents = Array.isArray(manifest.eventDrafts) ? manifest.eventDrafts.filter(isJsonRecord) : [];
 				let manifestEventsValid = manifestEvents.length === eventMap.events.length;
-				for (const event of eventMap.events) {
+				for (const [index, event] of eventMap.events.entries()) {
+					if (converged) {
+						const unifiedId = (eventMap.unifiedEventIds ?? [])[index];
+						const currentEventDraft = unifiedId === undefined ? undefined : await this.latestUnifiedEventDraft(params.projectId, params.chapter, unifiedId, signal);
+						const entry = unifiedId === undefined ? undefined : manifestEvents.find((candidate) => candidate.eventId === unifiedId);
+						if (!currentEventDraft || !entry || entry.revision !== currentEventDraft.revision || entry.contentHash !== sha256(currentEventDraft.content)) manifestEventsValid = false;
+						continue;
+					}
 					const currentEventDraft = await this.latestChaseWifeEventDraft(params.projectId, params.chapter, event.eventId, signal);
 					const entry = manifestEvents.find((candidate) => candidate.eventId === event.eventId);
 					if (!currentEventDraft || !entry || entry.revision !== currentEventDraft.revision || entry.contentHash !== sha256(currentEventDraft.content) || entry.eventSpecHash !== hashJson(event)) manifestEventsValid = false;

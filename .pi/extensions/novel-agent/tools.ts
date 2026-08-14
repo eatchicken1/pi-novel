@@ -160,7 +160,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "save_chase_wife_event_map",
 			label: "Save Chase-wife Event Map",
-			description: "Save a chase-wife chapter event map with heroine-first-person or split-pov, a required 60-140 character chapter-one hook intro, and an openingConflictMarker that must appear in that intro. Include state deltas, agency changes, causal links, and variable length budgets. The intro is prose only; assembly adds the 引言 and 第一章 headings.",
+			description: "[COMPATIBILITY MODE] Legacy chase-wife event map writer for old projects. The current event authority is the unified narrative event map (save_unified_event_map); this tool rejects chapters covered by the unified map with LEGACY_EVENT_AUTHORITY_CONFLICT.",
 			parameters: SaveChaseWifeEventMapSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: SaveChaseWifeEventMapParams, signal, _onUpdate, ctx) {
@@ -188,7 +188,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "save_chase_wife_event_draft",
 			label: "Save Chase-wife Event Draft",
-			description: "Save one chase-wife event draft with deterministic event and revision paths; draft one event before moving to the next.",
+			description: "[COMPATIBILITY MODE] Legacy chase-wife event draft writer for old projects. Use save_unified_event_draft for new projects; chapters covered by the unified map are rejected with LEGACY_EVENT_AUTHORITY_CONFLICT.",
 			parameters: SaveChaseWifeEventDraftSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: SaveChaseWifeEventDraftParams, signal, _onUpdate, ctx) {
@@ -314,7 +314,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "assemble_chase_wife_chapter",
 			label: "Assemble Chase-wife Chapter",
-			description: "Assemble checked event drafts in event order into a revisioned chapter draft. Chapter 1 is always formatted as 引言 → 第一章, with a short hook intro before event prose.",
+			description: "[COMPATIBILITY MODE] Legacy chase-wife chapter assembler for old projects. Use assemble_unified_chapter for new projects; chapters covered by the unified map are rejected with LEGACY_EVENT_AUTHORITY_CONFLICT.",
 			parameters: AssembleChaseWifeChapterSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: AssembleChaseWifeChapterParams, signal, _onUpdate, ctx) {
