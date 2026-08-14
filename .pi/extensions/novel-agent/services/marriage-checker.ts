@@ -123,9 +123,12 @@ function checkReferences(structure: MatureMarriageStructure, index: StructureInd
 	return issues;
 }
 
+// 照护负载只统计 care/domestic 相关 domain；financial 等职责不算照护负载，避免误报。
+const CARE_LOAD_DOMAINS = new Set(["domestic", "childcare", "eldercare", "health-care", "family-administration", "emotional-labor"]);
+
 function checkCareLoad(structure: MatureMarriageStructure): MarriageIssue[] {
 	const issues: MarriageIssue[] = [];
-	const recurring = structure.responsibilities.filter((item) => item.frequency === "daily" || item.frequency === "weekly" || item.frequency === "recurring");
+	const recurring = structure.responsibilities.filter((item) => (item.frequency === "daily" || item.frequency === "weekly" || item.frequency === "recurring") && CARE_LOAD_DOMAINS.has(item.domain));
 	const countByBearer = new Map<string, number>();
 	for (const item of recurring) {
 		const bearer = item.actualPrimaryBearer ?? "unknown";
@@ -208,6 +211,9 @@ export function checkMatureMarriageRestructuring(
 		if (change.afterBearer === undefined && (change.feasibility !== "unresolved" || change.remainingConsequence.trim().length === 0)) {
 			issues.push(issue("RESPONSIBILITY_VANISHED", "error", `responsibility change "${change.responsibilityId}" leaves no new bearer without an explicit unresolved explanation`));
 		}
+		if (change.afterBearer === "unknown" && (change.feasibility !== "unresolved" || change.remainingConsequence.trim().length === 0)) {
+			issues.push(issue("RESPONSIBILITY_BEARER_UNRESOLVED", "error", `responsibility change "${change.responsibilityId}" declares an unknown bearer; it must be marked feasibility=unresolved with a remaining consequence`));
+		}
 	}
 	for (const change of plan.decisionRightChanges) {
 		if (!decisionIds.has(change.decisionRightId)) issues.push(issue("MARRIAGE_REFERENCE_MISSING", "error", `decision right change references missing decision right "${change.decisionRightId}"`));
@@ -217,6 +223,22 @@ export function checkMatureMarriageRestructuring(
 	}
 	for (const response of plan.constraintResponses) {
 		if (!constraintIds.has(response.constraintId)) issues.push(issue("MARRIAGE_REFERENCE_MISSING", "error", `constraint response references missing exit constraint "${response.constraintId}"`));
+	}
+	const duplicateTargets: Array<[string, string]> = [];
+	const collectDuplicates = (label: string, targetIds: string[]): void => {
+		const seen = new Set<string>();
+		for (const targetId of targetIds) {
+			if (seen.has(targetId)) duplicateTargets.push([label, targetId]);
+			seen.add(targetId);
+		}
+	};
+	collectDuplicates("resource change", plan.resourceChanges.map((change) => change.economicItemId));
+	collectDuplicates("responsibility change", plan.responsibilityChanges.map((change) => change.responsibilityId));
+	collectDuplicates("decision right change", plan.decisionRightChanges.map((change) => change.decisionRightId));
+	collectDuplicates("social tie change", plan.socialTieChanges.map((change) => change.socialTieId));
+	collectDuplicates("constraint response", plan.constraintResponses.map((change) => change.constraintId));
+	for (const [label, targetId] of duplicateTargets) {
+		issues.push(issue("DUPLICATE_RESTRUCTURING_TARGET", "error", `${label} targets "${targetId}" more than once`));
 	}
 	for (const constraint of structure.exitConstraints) {
 		if ((constraint.severity === "high" || constraint.severity === "critical") && !plan.constraintResponses.some((response) => response.constraintId === constraint.id)) {

@@ -8,10 +8,14 @@ import type {
 	CheckChaseWifeHarmRepairProgressParams,
 	CheckMatureMarriageRestructuringParams,
 	CheckMatureMarriageStructureParams,
+	CheckProfessionalCaseParams,
+	CheckProfessionalDomainParams,
 	CheckMysteryDesignParams,
 	CheckMysteryFairnessParams,
 	SaveMatureMarriageRestructuringParams,
 	SaveMatureMarriageStructureParams,
+	SaveProfessionalCasePlanParams,
+	SaveProfessionalDomainModelParams,
 	SaveMysteryCaseParams,
 	SaveMysteryClueLedgerParams,
 	SaveMysteryInformationStateParams,
@@ -62,10 +66,14 @@ import {
 	CheckChaseWifeEventSemanticsSchema,
 	CheckMatureMarriageRestructuringSchema,
 	CheckMatureMarriageStructureSchema,
+	CheckProfessionalCaseSchema,
+	CheckProfessionalDomainSchema,
 	CheckMysteryDesignSchema,
 	CheckMysteryFairnessSchema,
 	SaveMatureMarriageRestructuringSchema,
 	SaveMatureMarriageStructureSchema,
+	SaveProfessionalCasePlanSchema,
+	SaveProfessionalDomainModelSchema,
 	SaveMysteryCaseSchema,
 	SaveMysteryClueLedgerSchema,
 	SaveMysteryInformationStateSchema,
@@ -514,6 +522,61 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			executionMode: "sequential",
 			async execute(_toolCallId, params: CheckMatureMarriageRestructuringParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).checkMatureMarriageRestructuring(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
+			name: "save_professional_domain_model",
+			label: "Save Professional Domain Model",
+			description: "Save the professional system model (role, authority boundaries, workflow graph, evidence sources, guardrails, escalation paths) for the insurance-fraud-investigation domain as proposed or user-confirmed canon. Only available for projects with that professional domain; reader-sim never reads it.",
+			parameters: SaveProfessionalDomainModelSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveProfessionalDomainModelParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveProfessionalDomainModel(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "save_professional_case_plan",
+			label: "Save Professional Case Plan",
+			description: "Save the in-case professional plan (actions, conflicts of interest, escalations, professional consequences) as proposed or user-confirmed canon. The plan must respect the domain model authority boundaries and workflow; it never auto-creates mystery clues or relationship harms.",
+			parameters: SaveProfessionalCasePlanSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveProfessionalCasePlanParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).saveProfessionalCasePlan(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_professional_domain",
+			label: "Check Professional Domain",
+			description: "Run the deterministic domain checker: duplicate ids, references, workflow entry/reachability/terminal, evidence access without authority, and escalation references. Workflow cycles/rework are allowed; no legal conclusions.",
+			parameters: CheckProfessionalDomainSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckProfessionalDomainParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkProfessionalDomain(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "check_professional_case",
+			label: "Check Professional Case",
+			description: "Run the deterministic case checker: action stage/authority/evidence/guardrail validity, authority enforcement, evidence inaccessibility, unmitigated conflicts, recusal violations, and consequence triggers. Never creates harms or legal outcomes.",
+			parameters: CheckProfessionalCaseSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckProfessionalCaseParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkProfessionalCase(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),

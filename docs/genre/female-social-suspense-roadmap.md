@@ -51,9 +51,20 @@ Mystery Engine 已落地，见 `docs/genre/female-social-suspense-mystery-engine
 - Skill：mechanism-mature-marriage-crisis + 4 resources；文档：docs/relationship/mature-marriage-crisis-engine.md；
 - 本轮为 planning structure，无正文 pipeline、无法律引擎。
 
-## Round 4：Professional Domain Engine
+## Round 4 完成（Professional Domain Engine：insurance-fraud-investigation）
 
-首个 domain：insurance-fraud-investigation。规划项：professional role、authority boundary、workflow、evidence source、professional action、professional constraint、conflict of interest、ethics、escalation、professional consequence。
+- hasProfessionalDomain / normalizeProfessionalDomain（别名：保险欺诈调查、保险反欺诈调查）；
+- Professional Domain Model（role/authority/workflow graph/evidence source/guardrail/escalation）+ Professional Case Plan（action/conflict/escalation/consequence）；
+- check_professional_domain / check_professional_case：权限强制（ACTION_OUTSIDE_AUTHORITY / ACTION_EVIDENCE_INACCESSIBLE / EVIDENCE_ACCESS_WITHOUT_AUTHORITY）、workflow 图（entry/reachability/terminal，rework cycle 合法）、冲突（UNMITIGATED_PROFESSIONAL_CONFLICT / ACTION_AFTER_RECUSAL）；
+- Professional Evidence ≠ Mystery Clue；Professional Conflict ≠ Marriage/Chase Wife Harm（均不自动创建）；
+- reader-sim 隔离扩展 professional author-private roots（Windows 路径安全）；
+- Skill：domain-insurance-fraud-investigation + 5 resources；文档：docs/professional/；
+- 官方制度边界：国家金融监督管理总局《反保险欺诈工作办法》（2024-08）结构化摘要 + 来源 + 核验日期；公司 SOP 为可配置故事设定；
+- 本轮为 planning structure：无 professional pipeline、无正文锚点、无法律结论引擎。
+
+## Round 5：Unified Narrative Event Integration
+
+one event → mysteryDelta + marriageDelta + chaseWifeDelta + professionalDelta；planned → prose evidence → finalized realization；双/多引擎门禁组合。
 
 ## 当前状态
 

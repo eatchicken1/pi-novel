@@ -589,4 +589,111 @@ describe("mature marriage crisis engine", () => {
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
+
+	it("R3F1: recurring financial duties never trigger CARE_LOAD_ASYMMETRY", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-marriage-r3f1-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initProject(store, "r3f1", ["mature-marriage-crisis"], "urban-romance", "urban-romance");
+			const s = structure({
+				responsibilities: [
+					responsibility("R1", "financial", { actualPrimaryBearer: "protagonist", frequency: "daily" }),
+					responsibility("R2", "financial", { actualPrimaryBearer: "protagonist", frequency: "weekly" }),
+					responsibility("R3", "financial", { actualPrimaryBearer: "protagonist", frequency: "recurring" }),
+				],
+			});
+			await store.saveMatureMarriageStructure({ projectId: "r3f1", status: "proposed", structure: s });
+			const report = await store.checkMatureMarriageStructure({ projectId: "r3f1" });
+			expect(report.issues.some((item) => item.code === "CARE_LOAD_ASYMMETRY")).toBe(false);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("R3F2: duplicate restructuring targets within one collection fail", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-marriage-r3f2-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initProject(store, "r3f2", ["mature-marriage-crisis"], "urban-romance", "urban-romance");
+			const s = structure({ economicItems: [economicItem("E1")] });
+			await store.saveMatureMarriageStructure({ projectId: "r3f2", status: "proposed", structure: s });
+			await store.saveMatureMarriageRestructuring({
+				projectId: "r3f2",
+				status: "proposed",
+				plan: plan({
+					resourceChanges: [
+						{ economicItemId: "E1", afterAccess: "none", action: "leave", remainingRisk: "r" },
+						{ economicItemId: "E1", afterAccess: "limited", action: "keep", remainingRisk: "r2" },
+					],
+				}),
+			});
+			const report = await store.checkMatureMarriageRestructuring({ projectId: "r3f2" });
+			expect(report.issues.some((item) => item.code === "DUPLICATE_RESTRUCTURING_TARGET")).toBe(true);
+			expect(report.status).toBe("error");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("R3F3: afterBearer=unknown with feasibility=ready fails", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-marriage-r3f3-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initProject(store, "r3f3", ["mature-marriage-crisis"], "urban-romance", "urban-romance");
+			const s = structure({ responsibilities: [responsibility("R1", "childcare")] });
+			await store.saveMatureMarriageStructure({ projectId: "r3f3", status: "proposed", structure: s });
+			await store.saveMatureMarriageRestructuring({
+				projectId: "r3f3",
+				status: "proposed",
+				plan: plan({
+					responsibilityChanges: [
+						{
+							responsibilityId: "R1",
+							afterBearer: "unknown",
+							feasibility: "ready",
+							transitionAction: "t",
+							remainingConsequence: "r",
+						},
+					],
+				}),
+			});
+			const report = await store.checkMatureMarriageRestructuring({ projectId: "r3f3" });
+			expect(report.issues.some((item) => item.code === "RESPONSIBILITY_BEARER_UNRESOLVED")).toBe(true);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("R3F4: afterBearer=unknown with an explicit unresolved state is valid", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-novel-marriage-r3f4-"));
+		try {
+			const store = new NovelProjectStore(cwd);
+			await initProject(store, "r3f4", ["mature-marriage-crisis"], "urban-romance", "urban-romance");
+			const s = structure({ responsibilities: [responsibility("R1", "childcare")] });
+			await store.saveMatureMarriageStructure({ projectId: "r3f4", status: "proposed", structure: s });
+			await store.saveMatureMarriageRestructuring({
+				projectId: "r3f4",
+				status: "proposed",
+				plan: plan({
+					responsibilityChanges: [
+						{
+							responsibilityId: "R1",
+							afterBearer: "unknown",
+							feasibility: "unresolved",
+							transitionAction: "t",
+							remainingConsequence: "仍需确定新照护安排",
+						},
+					],
+				}),
+			});
+			const report = await store.checkMatureMarriageRestructuring({ projectId: "r3f4" });
+			expect(
+				report.issues.some(
+					(item) => item.code === "RESPONSIBILITY_VANISHED" || item.code === "RESPONSIBILITY_BEARER_UNRESOLVED",
+				),
+			).toBe(false);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
 });

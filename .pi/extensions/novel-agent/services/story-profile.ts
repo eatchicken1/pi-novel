@@ -97,3 +97,21 @@ export function hasPrimaryGenre(project: Record<string, unknown>, genre: string)
 export function hasMatureMarriageCapability(project: Record<string, unknown>): boolean {
 	return hasRelationshipMechanism(project, "mature-marriage-crisis");
 }
+
+// ---- Professional Domain（Story DNA 第三种正交能力）----
+
+const PROFESSIONAL_DOMAIN_ALIASES: Record<string, string> = {
+	保险欺诈调查: "insurance-fraud-investigation",
+	保险反欺诈调查: "insurance-fraud-investigation",
+};
+
+export function normalizeProfessionalDomain(value: string): string {
+	const normalized = value.trim().toLowerCase();
+	return PROFESSIONAL_DOMAIN_ALIASES[value.trim()] ?? PROFESSIONAL_DOMAIN_ALIASES[normalized] ?? normalized;
+}
+
+export function hasProfessionalDomain(project: Record<string, unknown>, domain: string): boolean {
+	const profile = resolveStoryProfile(project);
+	if (profile.professionalDomain === undefined) return false;
+	return normalizeProfessionalDomain(profile.professionalDomain) === normalizeProfessionalDomain(domain);
+}

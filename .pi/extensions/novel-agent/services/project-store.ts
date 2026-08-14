@@ -17,6 +17,12 @@ import type {
 	SaveMatureMarriageStructureParams,
 	MatureMarriageStructure,
 	MatureMarriageRestructuringPlan,
+	CheckProfessionalCaseParams,
+	CheckProfessionalDomainParams,
+	ProfessionalCasePlan,
+	ProfessionalDomainModel,
+	SaveProfessionalCasePlanParams,
+	SaveProfessionalDomainModelParams,
 	SaveMysteryCaseParams,
 	SaveMysteryClueLedgerParams,
 	SaveMysteryInformationStateParams,
@@ -77,9 +83,10 @@ import type {
 	ScoreChaseWifeChapterParams,
 	SemanticEvidenceAnchor,
 } from "../schemas.ts";
-import { hasChaseWifeCapability, hasMatureMarriageCapability, hasPrimaryGenre, normalizePrimaryGenre, normalizeRelationshipMechanism } from "./story-profile.ts";
+import { hasChaseWifeCapability, hasMatureMarriageCapability, hasPrimaryGenre, hasProfessionalDomain, normalizePrimaryGenre, normalizeProfessionalDomain, normalizeRelationshipMechanism } from "./story-profile.ts";
 import { checkMysteryDesign, checkMysteryFairness, isMysteryPrivatePath, type MysteryIssue } from "./mystery-checker.ts";
 import { checkMatureMarriageRestructuring, checkMatureMarriageStructure, isMarriagePrivatePath, type MarriageIssue } from "./marriage-checker.ts";
+import { checkProfessionalCase, checkProfessionalDomain, isProfessionalPrivatePath, type ProfessionalIssue } from "./professional-checker.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -849,7 +856,7 @@ export class NovelProjectStore {
 		const storyProfile = params.storyProfile === undefined ? undefined : {
 			primaryGenre: resolvedPrimaryGenre,
 			relationshipMechanisms: params.storyProfile.relationshipMechanisms.map(normalizeRelationshipMechanism),
-			...(params.storyProfile.professionalDomain !== undefined ? { professionalDomain: params.storyProfile.professionalDomain } : {}),
+			...(params.storyProfile.professionalDomain !== undefined ? { professionalDomain: normalizeProfessionalDomain(params.storyProfile.professionalDomain) } : {}),
 			...(params.storyProfile.themes !== undefined && params.storyProfile.themes.length > 0 ? { themes: params.storyProfile.themes } : {}),
 			...(params.storyProfile.storyForm !== undefined ? { storyForm: params.storyProfile.storyForm } : {}),
 		};
@@ -929,7 +936,7 @@ export class NovelProjectStore {
 			if (added.has(relativePath)) return;
 			// reader-sim 硬隔离（defense-in-depth）：canon/work/outline 下的 mystery 作者规划路径都不得进入 reader 上下文，
 			// 统一  → / 后按 author-private roots 判定（Windows 路径同样生效），即使未来修改 sections 也不能泄漏作者秘密。
-			if ((params.task ?? "chapter-writing") === "reader-sim" && (isMysteryPrivatePath(relativePath) || isMarriagePrivatePath(relativePath))) {
+			if ((params.task ?? "chapter-writing") === "reader-sim" && (isMysteryPrivatePath(relativePath) || isMarriagePrivatePath(relativePath) || isProfessionalPrivatePath(relativePath))) {
 				excludedFiles.push(relativePath);
 				return;
 			}
@@ -1069,6 +1076,18 @@ export class NovelProjectStore {
 				: "work/marriage/restructuring-proposed.json";
 			await addFile(restructuringPath, "marriage-restructuring");
 		}
+		// Professional 上下文：planning / chapter-writing / continuity-review 读取 domain model 与 case plan（confirmed 优先，否则 proposed）；
+		// reader-sim 不读取（作者秘密隔离）。
+		if (isJsonRecord(project) && hasProfessionalDomain(project, "insurance-fraud-investigation") && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
+			const domainModelPath = (await this.readTextIfExists(this.projectFile(params.projectId, "canon/professional/domain-model.json"), signal)) !== undefined
+				? "canon/professional/domain-model.json"
+				: "work/professional/domain-model-proposed.json";
+			await addFile(domainModelPath, "professional-domain-model");
+			const casePlanPath = (await this.readTextIfExists(this.projectFile(params.projectId, "canon/professional/case-plan.json"), signal)) !== undefined
+				? "canon/professional/case-plan.json"
+				: "work/professional/case-plan-proposed.json";
+			await addFile(casePlanPath, "professional-case-plan");
+		}
 		// Mystery Engine 上下文：planning / chapter-writing / continuity-review 读取真相、线索、嫌疑与信息状态；
 		// reader-sim 不读取（作者秘密隔离）；不含 female-social-suspense primaryGenre 的项目不读取。
 		if (isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense") && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
@@ -1089,10 +1108,11 @@ export class NovelProjectStore {
 			if (part.startsWith("mystery-truth-model")) return 2;
 			if (part.startsWith("mystery-clues") || part.startsWith("mystery-suspect-model") || part.startsWith("mystery-information-state")) return 3;
 			if (part.startsWith("marriage-structure") || part.startsWith("marriage-restructuring")) return 4;
-			if (part.startsWith("chapter-draft")) return 5;
-			if (part.startsWith("chase-wife-event-draft")) return 6;
-			if (part.startsWith("chapter-plan") || part.startsWith("scene-contract")) return 7;
-			if (part.startsWith("previous-chapter")) return 8;
+			if (part.startsWith("professional-domain-model") || part.startsWith("professional-case-plan")) return 5;
+			if (part.startsWith("chapter-draft")) return 6;
+			if (part.startsWith("chase-wife-event-draft")) return 7;
+			if (part.startsWith("chapter-plan") || part.startsWith("scene-contract")) return 8;
+			if (part.startsWith("previous-chapter")) return 9;
 			return 10;
 		};
 		parts.sort((left, right) => priority(left) - priority(right));
@@ -3123,6 +3143,81 @@ export class NovelProjectStore {
 			generatedAt: new Date().toISOString(),
 		};
 		const relativePath = "continuity/reports/marriage-restructuring.json";
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { ...report, path: relativePath };
+	}
+	// ==== Professional Domain Engine（insurance-fraud-investigation）====
+
+	private async ensureProfessionalProject(projectId: string, signal?: AbortSignal): Promise<void> {
+		await this.ensureProject(projectId, signal);
+		const project = await this.readJsonIfExists(this.projectFile(projectId, "project.json"), signal);
+		if (!isJsonRecord(project) || !hasProfessionalDomain(project, "insurance-fraud-investigation")) throw new Error("This tool is only available for projects with the insurance-fraud-investigation professional domain.");
+	}
+
+	private async readProfessionalDomainModel(projectId: string, signal?: AbortSignal): Promise<ProfessionalDomainModel | undefined> {
+		const confirmed = await this.readJsonIfExists(this.projectFile(projectId, "canon/professional/domain-model.json"), signal);
+		const value = confirmed ?? await this.readJsonIfExists(this.projectFile(projectId, "work/professional/domain-model-proposed.json"), signal);
+		return isJsonRecord(value) && isJsonRecord(value.model) ? value.model as unknown as ProfessionalDomainModel : undefined;
+	}
+
+	private async readProfessionalCasePlan(projectId: string, signal?: AbortSignal): Promise<ProfessionalCasePlan | undefined> {
+		const confirmed = await this.readJsonIfExists(this.projectFile(projectId, "canon/professional/case-plan.json"), signal);
+		const value = confirmed ?? await this.readJsonIfExists(this.projectFile(projectId, "work/professional/case-plan-proposed.json"), signal);
+		return isJsonRecord(value) && isJsonRecord(value.plan) ? value.plan as unknown as ProfessionalCasePlan : undefined;
+	}
+
+	async saveProfessionalDomainModel(params: SaveProfessionalDomainModelParams, signal?: AbortSignal): Promise<{ projectId: string; status: "proposed" | "confirmed"; path: string }> {
+		await this.ensureProfessionalProject(params.projectId, signal);
+		requireConfirmation(params.status, params.confirmation);
+		const relativePath = params.status === "confirmed" ? "canon/professional/domain-model.json" : "work/professional/domain-model-proposed.json";
+		const document = { version: 1, projectId: params.projectId, genre: "professional", status: params.status, model: params.model, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, status: params.status, path: relativePath };
+	}
+
+	async saveProfessionalCasePlan(params: SaveProfessionalCasePlanParams, signal?: AbortSignal): Promise<{ projectId: string; status: "proposed" | "confirmed"; path: string }> {
+		await this.ensureProfessionalProject(params.projectId, signal);
+		requireConfirmation(params.status, params.confirmation);
+		const relativePath = params.status === "confirmed" ? "canon/professional/case-plan.json" : "work/professional/case-plan-proposed.json";
+		const document = { version: 1, projectId: params.projectId, genre: "professional", status: params.status, plan: params.plan, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		return { projectId: params.projectId, status: params.status, path: relativePath };
+	}
+
+	async checkProfessionalDomain(params: CheckProfessionalDomainParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: ProfessionalIssue[]; counts: Record<string, number>; path: string }> {
+		await this.ensureProfessionalProject(params.projectId, signal);
+		const model = await this.readProfessionalDomainModel(params.projectId, signal);
+		const issues = checkProfessionalDomain(model);
+		const status = (issues.some((item) => item.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const report = {
+			version: 1,
+			projectId: params.projectId,
+			status,
+			issues,
+			counts: { authorities: model?.authorityBoundaries.length ?? 0, stages: model?.workflowStages.length ?? 0, evidenceSources: model?.evidenceSources.length ?? 0, guardrails: model?.guardrails.length ?? 0, escalationPaths: model?.escalationPaths.length ?? 0 },
+			sourceHashes: [model].map(hashJson),
+			generatedAt: new Date().toISOString(),
+		};
+		const relativePath = "continuity/reports/professional-domain.json";
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { ...report, path: relativePath };
+	}
+
+	async checkProfessionalCase(params: CheckProfessionalCaseParams, signal?: AbortSignal): Promise<{ projectId: string; status: "ok" | "warning" | "error"; issues: ProfessionalIssue[]; path: string }> {
+		await this.ensureProfessionalProject(params.projectId, signal);
+		const model = await this.readProfessionalDomainModel(params.projectId, signal);
+		const plan = await this.readProfessionalCasePlan(params.projectId, signal);
+		const issues = checkProfessionalCase(model, plan);
+		const status = (issues.some((item) => item.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok") as "ok" | "warning" | "error";
+		const report = {
+			version: 1,
+			projectId: params.projectId,
+			status,
+			issues,
+			sourceHashes: [model, plan].map(hashJson),
+			generatedAt: new Date().toISOString(),
+		};
+		const relativePath = "continuity/reports/professional-case.json";
 		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
 		return { ...report, path: relativePath };
 	}

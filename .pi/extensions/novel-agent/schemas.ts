@@ -643,6 +643,273 @@ export const SaveMatureMarriageRestructuringSchema = Type.Object({
 export const CheckMatureMarriageStructureSchema = Type.Object({ projectId: ProjectIdSchema });
 export const CheckMatureMarriageRestructuringSchema = Type.Object({ projectId: ProjectIdSchema });
 
+// ==== Professional Domain Engine（Story DNA 第三种正交能力）====
+
+export const ProfessionalDomainSchema = Type.String({ minLength: 1, maxLength: 120, examples: ["insurance-fraud-investigation", "保险欺诈调查"] });
+
+export const ProfessionalAuthorityCategorySchema = Type.Union([
+	Type.Literal("inspect-internal-record"),
+	Type.Literal("request-record"),
+	Type.Literal("interview"),
+	Type.Literal("site-visit"),
+	Type.Literal("data-query"),
+	Type.Literal("make-risk-assessment"),
+	Type.Literal("recommend-decision"),
+	Type.Literal("approve-decision"),
+	Type.Literal("share-information"),
+	Type.Literal("escalate"),
+	Type.Literal("external-referral"),
+	Type.Literal("other"),
+]);
+
+export const ProfessionalAuthorityLevelSchema = Type.Union([
+	Type.Literal("direct"),
+	Type.Literal("conditional"),
+	Type.Literal("approval-required"),
+	Type.Literal("not-authorized"),
+]);
+
+export const ProfessionalAuthorityBoundarySchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	category: ProfessionalAuthorityCategorySchema,
+	scopeDescription: Type.String({ minLength: 1 }),
+	authorityLevel: ProfessionalAuthorityLevelSchema,
+	conditions: Type.Array(Type.String({ minLength: 1 })),
+	approvalRole: Type.Optional(Type.String({ minLength: 1 })),
+	escalationPathIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	violationConsequence: Type.String({ minLength: 1 }),
+});
+
+export const ProfessionalWorkflowStageSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	name: Type.String({ minLength: 1 }),
+	objective: Type.String({ minLength: 1 }),
+	isEntry: Type.Boolean(),
+	entryConditions: Type.Array(Type.String({ minLength: 1 })),
+	allowedAuthorityIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	requiredInputs: Type.Array(Type.String({ minLength: 1 })),
+	possibleNextStageIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	terminal: Type.Boolean(),
+	reviewOrApprovalRequired: Type.Optional(Type.Boolean()),
+	notes: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const ProfessionalEvidenceSourceCategorySchema = Type.Union([
+	Type.Literal("internal-claim-file"),
+	Type.Literal("underwriting-record"),
+	Type.Literal("policy-record"),
+	Type.Literal("internal-system-log"),
+	Type.Literal("medical-record"),
+	Type.Literal("financial-record"),
+	Type.Literal("digital-record"),
+	Type.Literal("physical-inspection"),
+	Type.Literal("interview"),
+	Type.Literal("public-record"),
+	Type.Literal("industry-platform"),
+	Type.Literal("third-party-service"),
+	Type.Literal("regulator-or-law-enforcement-return"),
+	Type.Literal("other"),
+]);
+
+export const ProfessionalEvidenceAccessModeSchema = Type.Union([
+	Type.Literal("direct-role-access"),
+	Type.Literal("internal-approval"),
+	Type.Literal("consent-based"),
+	Type.Literal("contractual-request"),
+	Type.Literal("collaboration-request"),
+	Type.Literal("public"),
+	Type.Literal("regulator-or-law-enforcement-only"),
+	Type.Literal("unavailable"),
+]);
+
+export const ProfessionalPrivacySensitivitySchema = Type.Union([
+	Type.Literal("ordinary"),
+	Type.Literal("sensitive"),
+	Type.Literal("highly-sensitive"),
+	Type.Literal("unknown"),
+]);
+
+export const ProfessionalEvidenceSourceSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	category: ProfessionalEvidenceSourceCategorySchema,
+	description: Type.String({ minLength: 1 }),
+	holder: Type.String({ minLength: 1 }),
+	accessMode: ProfessionalEvidenceAccessModeSchema,
+	requiredAuthorityIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	privacyOrSensitivity: ProfessionalPrivacySensitivitySchema,
+	verificationLimitations: Type.Array(Type.String({ minLength: 1 })),
+	chainOrProvenanceNote: Type.String({ minLength: 1 }),
+});
+
+export const ProfessionalGuardrailCategorySchema = Type.Union([
+	Type.Literal("authority"),
+	Type.Literal("privacy"),
+	Type.Literal("data-security"),
+	Type.Literal("evidence-integrity"),
+	Type.Literal("consumer-protection"),
+	Type.Literal("timeliness"),
+	Type.Literal("conflict-of-interest"),
+	Type.Literal("approval"),
+	Type.Literal("collaboration"),
+	Type.Literal("other"),
+]);
+
+export const ProfessionalGuardrailSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	category: ProfessionalGuardrailCategorySchema,
+	description: Type.String({ minLength: 1 }),
+	appliesToStageIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	requiredAuthorityIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	violationConsequence: Type.String({ minLength: 1 }),
+	sourceBasis: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const ProfessionalEscalationPathSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	trigger: Type.String({ minLength: 1 }),
+	fromRoleOrFunction: Type.String({ minLength: 1 }),
+	toRoleOrOrganization: Type.String({ minLength: 1 }),
+	purpose: Type.String({ minLength: 1 }),
+	requiredInformation: Type.Array(Type.String({ minLength: 1 })),
+	possibleOutcomes: Type.Array(Type.String({ minLength: 1 })),
+	limitations: Type.Array(Type.String({ minLength: 1 })),
+});
+
+export const ProfessionalRoleSchema = Type.Object({
+	title: Type.String({ minLength: 1 }),
+	departmentOrFunction: Type.String({ minLength: 1 }),
+	organizationType: Type.String({ minLength: 1 }),
+	coreResponsibilities: Type.Array(Type.String({ minLength: 1 })),
+	reportsTo: Type.String({ minLength: 1 }),
+	decisionScope: Type.String({ minLength: 1 }),
+	cannotDecide: Type.Array(Type.String({ minLength: 1 })),
+	collaboratesWith: Type.Array(Type.String({ minLength: 1 })),
+	professionalRisk: Type.String({ minLength: 1 }),
+});
+
+export const ProfessionalDomainModelSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	domain: ProfessionalDomainSchema,
+	protagonistRole: ProfessionalRoleSchema,
+	organizationContext: Type.String({ minLength: 1 }),
+	authorityBoundaries: Type.Array(ProfessionalAuthorityBoundarySchema),
+	workflowStages: Type.Array(ProfessionalWorkflowStageSchema, { minItems: 1 }),
+	evidenceSources: Type.Array(ProfessionalEvidenceSourceSchema),
+	guardrails: Type.Array(ProfessionalGuardrailSchema),
+	escalationPaths: Type.Array(ProfessionalEscalationPathSchema),
+});
+
+export const ProfessionalActionSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	stageId: Type.String({ minLength: 1, maxLength: 80 }),
+	description: Type.String({ minLength: 1 }),
+	purpose: Type.String({ minLength: 1 }),
+	authorityIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	evidenceSourceIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	guardrailIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	expectedInformationGain: Type.String({ minLength: 1 }),
+	decisionOrWorkflowEffect: Type.String({ minLength: 1 }),
+	ifBlocked: Type.String({ minLength: 1 }),
+	escalationPathId: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+	professionalRisk: Type.String({ minLength: 1 }),
+});
+
+export const ProfessionalConflictSourceSchema = Type.Union([
+	Type.Literal("spouse"),
+	Type.Literal("family"),
+	Type.Literal("financial"),
+	Type.Literal("organizational"),
+	Type.Literal("prior-relationship"),
+	Type.Literal("personal-interest"),
+	Type.Literal("other"),
+]);
+
+export const ProfessionalConflictSeveritySchema = Type.Union([
+	Type.Literal("low"),
+	Type.Literal("medium"),
+	Type.Literal("high"),
+	Type.Literal("critical"),
+]);
+
+export const ProfessionalConflictMitigationSchema = Type.Union([
+	Type.Literal("disclose"),
+	Type.Literal("second-review"),
+	Type.Literal("recusal"),
+	Type.Literal("reassignment"),
+	Type.Literal("information-firewall"),
+	Type.Literal("supervisor-approval"),
+	Type.Literal("unresolved"),
+]);
+
+export const ProfessionalConflictOfInterestSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	description: Type.String({ minLength: 1 }),
+	source: ProfessionalConflictSourceSchema,
+	affectedActionIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	affectedStageIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	severity: ProfessionalConflictSeveritySchema,
+	disclosureRequired: Type.Boolean(),
+	mitigation: ProfessionalConflictMitigationSchema,
+	mitigationDescription: Type.String({ minLength: 1 }),
+	remainingRisk: Type.String({ minLength: 1 }),
+});
+
+export const ProfessionalConsequenceCategorySchema = Type.Union([
+	Type.Literal("case-integrity"),
+	Type.Literal("career"),
+	Type.Literal("employment"),
+	Type.Literal("compliance"),
+	Type.Literal("consumer-impact"),
+	Type.Literal("financial"),
+	Type.Literal("organizational"),
+	Type.Literal("relationship-pressure"),
+	Type.Literal("other"),
+]);
+
+export const ProfessionalConsequenceSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	triggerRefIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	category: ProfessionalConsequenceCategorySchema,
+	description: Type.String({ minLength: 1 }),
+	reversibility: Type.Union([Type.Literal("reversible"), Type.Literal("difficult"), Type.Literal("irreversible"), Type.Literal("unknown")]),
+	affectedParties: Type.Array(Type.String({ minLength: 1 })),
+});
+
+export const ProfessionalCaseEscalationSchema = Type.Object({
+	escalationPathId: Type.String({ minLength: 1, maxLength: 80 }),
+	purpose: Type.String({ minLength: 1 }),
+});
+
+export const ProfessionalCasePlanSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	domain: ProfessionalDomainSchema,
+	mandate: Type.String({ minLength: 1 }),
+	startingStageId: Type.String({ minLength: 1, maxLength: 80 }),
+	actions: Type.Array(ProfessionalActionSchema, { minItems: 1 }),
+	conflictsOfInterest: Type.Array(ProfessionalConflictOfInterestSchema),
+	escalations: Type.Array(ProfessionalCaseEscalationSchema),
+	professionalConsequences: Type.Array(ProfessionalConsequenceSchema),
+	unresolvedQuestions: Type.Array(Type.String({ minLength: 1 })),
+});
+
+export const SaveProfessionalDomainModelSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	status: UpdateStatusSchema,
+	model: ProfessionalDomainModelSchema,
+	confirmation: ConfirmationSchema,
+});
+
+export const SaveProfessionalCasePlanSchema = Type.Object({
+	projectId: ProjectIdSchema,
+	status: UpdateStatusSchema,
+	plan: ProfessionalCasePlanSchema,
+	confirmation: ConfirmationSchema,
+});
+
+export const CheckProfessionalDomainSchema = Type.Object({ projectId: ProjectIdSchema });
+export const CheckProfessionalCaseSchema = Type.Object({ projectId: ProjectIdSchema });
+
+
 
 export const RepairNovelProjectSchema = Type.Object({ projectId: ProjectIdSchema });
 export const GetNovelStatusSchema = Type.Object({ projectId: ProjectIdSchema });
@@ -1391,6 +1658,21 @@ export type SaveMatureMarriageStructureParams = Static<typeof SaveMatureMarriage
 export type SaveMatureMarriageRestructuringParams = Static<typeof SaveMatureMarriageRestructuringSchema>;
 export type CheckMatureMarriageStructureParams = Static<typeof CheckMatureMarriageStructureSchema>;
 export type CheckMatureMarriageRestructuringParams = Static<typeof CheckMatureMarriageRestructuringSchema>;
+export type ProfessionalDomainModel = Static<typeof ProfessionalDomainModelSchema>;
+export type ProfessionalRole = Static<typeof ProfessionalRoleSchema>;
+export type ProfessionalAuthorityBoundary = Static<typeof ProfessionalAuthorityBoundarySchema>;
+export type ProfessionalWorkflowStage = Static<typeof ProfessionalWorkflowStageSchema>;
+export type ProfessionalEvidenceSource = Static<typeof ProfessionalEvidenceSourceSchema>;
+export type ProfessionalGuardrail = Static<typeof ProfessionalGuardrailSchema>;
+export type ProfessionalEscalationPath = Static<typeof ProfessionalEscalationPathSchema>;
+export type ProfessionalCasePlan = Static<typeof ProfessionalCasePlanSchema>;
+export type ProfessionalAction = Static<typeof ProfessionalActionSchema>;
+export type ProfessionalConflictOfInterest = Static<typeof ProfessionalConflictOfInterestSchema>;
+export type ProfessionalConsequence = Static<typeof ProfessionalConsequenceSchema>;
+export type SaveProfessionalDomainModelParams = Static<typeof SaveProfessionalDomainModelSchema>;
+export type SaveProfessionalCasePlanParams = Static<typeof SaveProfessionalCasePlanSchema>;
+export type CheckProfessionalDomainParams = Static<typeof CheckProfessionalDomainSchema>;
+export type CheckProfessionalCaseParams = Static<typeof CheckProfessionalCaseSchema>;
 export type RepairNovelProjectParams = Static<typeof RepairNovelProjectSchema>;
 export type GetNovelStatusParams = Static<typeof GetNovelStatusSchema>;
 export type ReadStoryContextParams = Static<typeof ReadStoryContextSchema>;
