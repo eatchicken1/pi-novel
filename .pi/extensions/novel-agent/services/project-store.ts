@@ -444,7 +444,7 @@ function isSemanticEvidenceAnchor(value: unknown): value is SemanticEvidenceAnch
 function isChaseWifeLedgerEvidence(value: unknown): value is ChaseWifeLedgerEvidence {
 	return isJsonRecord(value)
 		&& isPositiveInteger(value.chapter)
-		&& (value.eventId === undefined || (isPositiveInteger(value.eventId) && value.eventId <= 8))
+		&& (value.eventId === undefined || (isPositiveInteger(value.eventId) && value.eventId <= 6))
 		&& (value.draftRevision === undefined || isPositiveInteger(value.draftRevision))
 		&& typeof value.startChar === "number"
 		&& Number.isInteger(value.startChar)
@@ -1441,6 +1441,7 @@ export class NovelProjectStore {
 			const start = [...sentence].slice(0, 4).join("");
 			starts.set(start, (starts.get(start) ?? 0) + 1);
 		}
+		// 每个 pattern 的第二项是该词在 UTF-8 被误读为 GBK 后的乱码形态；计入同一模板表达可拦截编码损坏的正稿。
 		const templatePatterns = [
 			{ key: "仿佛", patterns: ["仿佛", "浠夸經"] },
 			{ key: "似乎", patterns: ["似乎", "浼间箮"] },
@@ -1453,6 +1454,7 @@ export class NovelProjectStore {
 		if (repeatedSentenceStartCount >= 3 && templatePatterns.length === 0) addFinding("repeated-sentence-start", "重复句式开头", repeatedSentenceStartCount);
 		const maxTemplateCount = Math.max(0, ...templatePatterns.map((item) => item.count));
 		if (templatePatterns.length > 0) addFinding("template-expression", `高频模板表达：${templatePatterns.map(({ key, count }) => `${key}（${count}次）`).join("、")}`, maxTemplateCount, maxTemplateCount >= 4);
+		// "鈥斺€" 是 "——" 的乱码形态（UTF-8 误读为 GBK）；文本要么含正常破折号要么含乱码形态，分别计数不会重复。
 		const emDashCount = (content.match(/—/gu) ?? []).length + (content.split("鈥斺€").length - 1);
 		if (emDashCount >= 4) addFinding("em-dash", "破折号使用频率较高", emDashCount, emDashCount >= 6);
 		const repeatedPsychology = (content.match(/(?:我终于明白|我知道|我累了|他才意识到|我不想再|对不起|我错了|I finally understand|I know|I'm tired|I was wrong)/giu) ?? []).length;
@@ -2001,7 +2003,7 @@ export class NovelProjectStore {
 			const limits = CHASE_WIFE_LENGTH_LIMITS[event.lengthMode];
 			if (event.minChars < limits.min || event.maxChars > limits.max || event.minChars > event.maxChars) throw new Error(`Event ${event.eventId} has an invalid ${event.lengthMode} length range.`);
 			if (event.causes.some((cause) => cause >= event.eventId)) throw new Error(`Event ${event.eventId} can only cause from earlier events.`);
-			if (eventStateDeltaCount(event) < 2 && !event.irreversible && event.heroineAgencyAfter <= event.heroineAgencyBefore) throw new Error(`Event ${event.eventId} must create at least two state changes, an irreversible action, or an agency increase.`);
+			if (eventStateDeltaCount(event) < 2 && !event.irreversible && event.heroineAgencyAfter <= event.heroineAgencyBefore && event.role !== "real-consequence") throw new Error(`Event ${event.eventId} must create at least two state changes, an irreversible action, a real consequence, or an agency increase.`);
 			if (event.role === "irreversible-exit" && (!event.irreversible || event.heroineAgencyAfter <= event.heroineAgencyBefore)) throw new Error("An irreversible-exit event must be irreversible and increase heroine agency.");
 			if (event.pov === "male-limited-third-person" && !earlierExit && (exitIndex < 0 || index < exitIndex)) throw new Error("Male-limited-third-person events can only appear after the irreversible exit.");
 		}
@@ -2106,8 +2108,8 @@ export class NovelProjectStore {
 					issues.push(`event ${event.eventId} has a forward or self-cause`);
 					hasStructuralError = true;
 				}
-				if (eventStateDeltaCount(event) < 2 && !event.irreversible && event.heroineAgencyAfter <= event.heroineAgencyBefore) {
-					issues.push(`event ${event.eventId} has no meaningful state delta`);
+				if (eventStateDeltaCount(event) < 2 && !event.irreversible && event.heroineAgencyAfter <= event.heroineAgencyBefore && event.role !== "real-consequence") {
+					issues.push(`event ${event.eventId} has no meaningful state delta, irreversible action, or real consequence`);
 					hasStructuralError = true;
 				}
 				if (event.role === "irreversible-exit" && (!event.irreversible || event.heroineAgencyAfter <= event.heroineAgencyBefore)) {
@@ -2446,15 +2448,7 @@ export class NovelProjectStore {
 		const actionEvidence = containsActionEvidence(content) || containsChineseActionEvidence(content);
 		const contentHasFirstPerson = /(?:我|I|me|my|鎴戝?)/iu.test(content);
 		if (event.targetTrack !== "male" && event.heroineAgencyAfter > event.heroineAgencyBefore && !actionEvidence) addIssue("agency-without-action", "error", "the declared heroine agency increase has no visible action evidence");
-		if (event.pov === "heroine-first-person" && !/我/u.test(content)) addIssue("missing-first-person-evidence", "error", "heroine-first-person event has no visible first-person marker");
-		if (contentHasFirstPerson) {
-			const missingFirstPersonIssue = issues.findIndex((issue) => issue.code === "missing-first-person-evidence");
-			if (missingFirstPersonIssue >= 0) issues.splice(missingFirstPersonIssue, 1);
-		}
-		if (event.pov === "heroine-first-person" && content.includes("我")) {
-			const missingFirstPersonIssue = issues.findIndex((issue) => issue.code === "missing-first-person-evidence");
-			if (missingFirstPersonIssue >= 0) issues.splice(missingFirstPersonIssue, 1);
-		}
+		if (event.pov === "heroine-first-person" && !contentHasFirstPerson) addIssue("missing-first-person-evidence", "error", "heroine-first-person event has no visible first-person marker");
 		let purePsychologyRun = 0;
 		let maxPurePsychologyRun = 0;
 		for (const paragraph of content.split(/\r?\n\s*\r?\n/gu)) {
@@ -2549,6 +2543,7 @@ export class NovelProjectStore {
 		if (params.chapter === 1 && intro.length === 0) throw new Error("Chapter 1 assembly requires the opening intro before the first chapter.");
 		const introPrefix = params.chapter === 1 ? chaseWifeChapterOnePrefix(intro) : "";
 		const assembledContent = [introPrefix, ...drafts].filter((part) => part.length > 0).join("\n\n");
+		if (params.chapter === 1 && !assembledContent.startsWith(`${CHASE_WIFE_INTRO_HEADING}\n\n`)) throw new Error("Chapter 1 assembly must begin with the standalone opening intro as its first part.");
 		const manifestEventRanges = manifestEvents.map((manifestEvent, index) => {
 			const startChar = countChineseCharacters(introPrefix) + manifestEvents.slice(0, index).reduce((sum, item) => sum + item.charCount, 0);
 			return { ...manifestEvent, startChar, endChar: startChar + manifestEvent.charCount };
@@ -2579,6 +2574,13 @@ export class NovelProjectStore {
 			const chars = countChineseCharacters(draft.content);
 			eventDrafts.push({ event, content: draft.content, chars });
 			if (chars < event.minChars || chars > event.maxChars) addIssue("event-budget", "error", `event ${event.eventId} is outside its ${event.lengthMode} budget`, 10);
+		}
+		if (params.chapter === 1 && typeof map.openingIntro === "string" && map.openingIntro.trim().length > 0) {
+			const firstEventDraft = eventDrafts.find((item) => item.event.eventId === 1);
+			const introText = normalizedCharacterText(map.openingIntro.trim());
+			if (firstEventDraft !== undefined && introText.length > 0 && normalizedCharacterText(firstEventDraft.content).startsWith(introText)) {
+				addIssue("intro-duplicated-in-first-event", "error", "the first event must not repeat the opening intro; the intro is a standalone short first part", 15);
+			}
 		}
 		const chapterDraft = params.draftRevision === undefined ? await this.latestDraft(params.projectId, params.chapter, signal) : { revision: params.draftRevision, content: await this.readTextIfExists(this.draftPath(params.projectId, params.chapter, params.draftRevision), signal) };
 		if (!chapterDraft || chapterDraft.content === undefined) addIssue("missing-assembled-draft", "error", "assembled chapter draft is missing", 15);
@@ -2665,6 +2667,7 @@ export class NovelProjectStore {
 		let firstConflictPosition = -1;
 		let openingMode: "cold-conflict" | "result-first" | "exit-in-progress" | "quiet-dislocation" = "quiet-dislocation";
 		let causalExitMarker: string | undefined;
+		let chapterOneIntro: string | undefined;
 		let causalExitPosition = -1;
 		let totalChars = 0;
 		let finalizedChapterCount = 0;
@@ -2683,6 +2686,7 @@ export class NovelProjectStore {
 				if (chapter === 1) {
 					openingMode = mapValue.openingMode === "cold-conflict" || mapValue.openingMode === "result-first" || mapValue.openingMode === "exit-in-progress" || mapValue.openingMode === "quiet-dislocation" ? mapValue.openingMode : "quiet-dislocation";
 					causalExitMarker = typeof mapValue.causalExitMarker === "string" ? mapValue.causalExitMarker : undefined;
+					chapterOneIntro = typeof mapValue.openingIntro === "string" ? mapValue.openingIntro : undefined;
 				}
 				const events = mapValue.events.filter(isChaseWifeEvent).sort((left, right) => left.eventId - right.eventId);
 				for (const event of events) {
@@ -2694,25 +2698,31 @@ export class NovelProjectStore {
 					sourceHashes.push(sha256(draft.content));
 					storyEvents.push({ chapter, event, content: draft.content, chars: countChineseCharacters(draft.content) });
 				}
-				if (chapter === 1 && typeof mapValue.openingConflictMarker === "string") {
-					const first = storyEvents.find((item) => item.chapter === 1 && item.event.eventId === 1);
-					if (first) {
-						const localPosition = first.content?.indexOf(mapValue.openingConflictMarker) ?? -1;
+				if (chapter === 1 && typeof mapValue.openingConflictMarker === "string" && typeof mapValue.openingIntro === "string") {
+					// 引言是全文的第一部分，冲突标记必须先能在引言（组装前缀）中找到；找不到再回退事件 1 草稿。
+					const introMarkerPosition = chaseWifeChapterOnePrefix(mapValue.openingIntro).indexOf(mapValue.openingConflictMarker);
+					if (introMarkerPosition >= 0) {
+						firstConflictPosition = introMarkerPosition;
+					} else {
+						const first = storyEvents.find((item) => item.chapter === 1 && item.event.eventId === 1);
+						const localPosition = first?.content?.indexOf(mapValue.openingConflictMarker) ?? -1;
 						firstConflictPosition = localPosition < 0 ? -1 : introChars + localPosition;
 					}
 				}
-				if (chapter === 1 && causalExitMarker !== undefined) {
-					const first = storyEvents.find((item) => item.chapter === 1 && item.event.eventId === 1);
-					const localPosition = first?.content?.indexOf(causalExitMarker) ?? -1;
-					causalExitPosition = localPosition < 0 ? -1 : introChars + localPosition;
-				}
 			}
 			totalChars = introChars + storyEvents.reduce((sum, item) => sum + item.chars, 0);
-			if (causalExitMarker !== undefined) {
+			if (causalExitMarker !== undefined && causalExitPosition < 0 && chapterOneIntro !== undefined) {
+				const introMarkerPosition = chaseWifeChapterOnePrefix(chapterOneIntro).indexOf(causalExitMarker);
+				if (introMarkerPosition >= 0) causalExitPosition = introMarkerPosition;
+			}
+			if (causalExitMarker !== undefined && causalExitPosition < 0) {
 				let chapterCursor = introChars;
 				for (const item of storyEvents.filter((candidate) => candidate.chapter === 1)) {
 					const localPosition = item.content?.indexOf(causalExitMarker) ?? -1;
-					if (causalExitPosition < 0 && localPosition >= 0) causalExitPosition = chapterCursor + localPosition;
+					if (localPosition >= 0) {
+						causalExitPosition = chapterCursor + localPosition;
+						break;
+					}
 					chapterCursor += item.chars;
 				}
 			}
@@ -2753,6 +2763,9 @@ export class NovelProjectStore {
 				if (chapter === 1) {
 					openingMode = map.openingMode === "cold-conflict" || map.openingMode === "result-first" || map.openingMode === "exit-in-progress" || map.openingMode === "quiet-dislocation" ? map.openingMode : "quiet-dislocation";
 					causalExitMarker = typeof map.causalExitMarker === "string" ? map.causalExitMarker : undefined;
+					if (typeof map.openingIntro === "string" && map.openingIntro.trim().length > 0 && !content.startsWith(chaseWifeChapterOnePrefix(map.openingIntro))) {
+						addIssue("missing-intro-first-part", "error", "chapter 1 must begin with the standalone opening intro as its first part", 15);
+					}
 					const eventChars = chapterEventChars.reduce((sum, item) => sum + item.chars, 0);
 					introChars = Math.max(0, countChineseCharacters(content) - eventChars);
 					if (typeof map.openingConflictMarker === "string") {
@@ -2777,6 +2790,7 @@ export class NovelProjectStore {
 		let newLifeChars = 0;
 		let previousHeroineAgency: number | undefined;
 		let previousHeroineAgencyState: ChaseWifeAgencyState | undefined;
+		let previousAgencyChapter: number | undefined;
 		let heroineAgencyUpgradesBeforeExit = 0;
 		const heroineAgencyUpgradeDimensions = new Set<string>();
 		let irreversibleExitSeen = false;
@@ -2784,13 +2798,22 @@ export class NovelProjectStore {
 		let repeatedInjuryMechanism = 0;
 		for (const item of storyEvents) {
 			if (item.event.targetTrack !== "male") {
-				if (previousHeroineAgency !== undefined && item.event.heroineAgencyBefore !== previousHeroineAgency) addIssue("agency-discontinuity", "error", `heroine agency drops or jumps between chapters before event ${item.event.eventId}`, 10);
+				const agencyChapterChanged = previousAgencyChapter !== undefined && item.chapter !== previousAgencyChapter;
+				if (previousHeroineAgency !== undefined && item.event.heroineAgencyBefore !== previousHeroineAgency) {
+					// 章内严格连续；跨章允许上升（时间跳跃中的离屏成长），禁止无理由回退。
+					const upwardAcrossChapter = agencyChapterChanged && item.event.heroineAgencyBefore > previousHeroineAgency;
+					if (!upwardAcrossChapter) addIssue("agency-discontinuity", "error", `heroine agency does not continue into event ${item.event.eventId}`, 10);
+				}
 				if (item.event.heroineAgencyAfter < item.event.heroineAgencyBefore && item.event.setback === undefined) addIssue("agency-regression", "error", `heroine agency regresses in event ${item.event.eventId} without an explicit recovery beat`, 10);
 				previousHeroineAgency = item.event.heroineAgencyAfter;
+				previousAgencyChapter = item.chapter;
 				if (item.event.heroineAgencyStateBefore !== undefined && item.event.heroineAgencyStateAfter !== undefined) {
 					if (previousHeroineAgencyState !== undefined) {
 						for (const dimension of ["epistemic", "relational", "material", "social", "future"] as const) {
-							if (item.event.heroineAgencyStateBefore[dimension] !== previousHeroineAgencyState[dimension]) addIssue("agency-state-discontinuity", "error", `heroine ${dimension} agency does not continue into event ${item.event.eventId}`, 10);
+							if (item.event.heroineAgencyStateBefore[dimension] !== previousHeroineAgencyState[dimension]) {
+								const upwardAcrossChapterDimension = agencyChapterChanged && item.event.heroineAgencyStateBefore[dimension] > previousHeroineAgencyState[dimension];
+								if (!upwardAcrossChapterDimension) addIssue("agency-state-discontinuity", "error", `heroine ${dimension} agency does not continue into event ${item.event.eventId}`, 10);
+							}
 						}
 					}
 					for (const dimension of ["epistemic", "relational", "material", "social", "future"] as const) {

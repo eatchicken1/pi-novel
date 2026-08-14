@@ -4,6 +4,8 @@
 
 可使用忽视、替代、欺骗、煤气灯、强迫、资源转移、公开羞辱、背叛证据和边界侵犯。相同机制连续两次后必须升级或换机制，不能把“陪别人”“替别人解释”“给别人资源”拆成三次同构事件。
 
+事件地图的 injuryMechanism 与伤害台账的 category 共用同一分类：neglect 忽视 / substitution 替代 / deception 欺骗 / gaslighting 煤气灯 / coercion 强迫 / resource-transfer 资源转移 / public-humiliation 公开羞辱 / betrayal-evidence 背叛证据 / boundary-violation 边界侵犯。台账的细分分类映射：deprioritization ≈ neglect/substitution，resource-exploitation ≈ resource-transfer，future-betrayal ≈ betrayal-evidence，care-labor-exploitation 与 social-isolation 用于台账细分，事件级归入 neglect。
+
 ## 后果升级
 
 伤害应从私下失望升级到资源损失、关系排序公开化、证据形成、女主撤回供给、公共场合后果和不可逆退出。后果必须落到人物能失去的具体东西：承诺、时间、金钱、住所、名誉、工作机会、社会位置或选择权。

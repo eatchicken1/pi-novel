@@ -16,7 +16,7 @@ description: 追妻文专属创作流程：女主第一人称、关系失衡、�
 ## 类型不变量
 
 - 默认使用女主第一人称；只有 `split-pov` 才允许女主退出后的男方有限第三人称。
-- 正文入口固定是 60—140 个非空白字符的女主第一人称短引言，随后才进入第一章。第一章事件地图的 `openingConflictMarker` 必须在引言正文中真实出现。引言必须包含具体关系冲突和情绪钩子；组装时由工具添加 `# 引言` 与 `# 第一章` 标题，模型不得跳过引言或自行输出标题。
+- 正文入口固定是 60—140 个非空白字符的女主第一人称短引言，随后才进入第一章。引言是全文独立的第一部分，短且有强烈冲突；第一章第一个事件承接引言继续制造冲突，但不得逐字复述引言。第一章事件地图的 `openingConflictMarker` 必须在引言正文中真实出现。引言必须包含具体关系冲突和情绪钩子；组装时由工具添加 `# 引言` 与 `# 第一章` 标题，模型不得跳过引言或自行输出标题。
 - 开篇 250 字内必须出现可见冲突，女主前 12% 内必须有主动行为。
 - Beat Sheet 必须包含 `stayingLogic`：情感原因、错误信念、持续证据和突破阈值；物质、社会、家庭或职业原因按故事需要补充。
 - 女主退出前至少有两次主动权升级；男方追逐必须产生现实损失、错误行动或具体认知。
@@ -28,7 +28,7 @@ description: 追妻文专属创作流程：女主第一人称、关系失衡、�
 
 1. 规划阶段先调用 `read_story_context(task=planning)`，依次完成双轨 Beat Sheet、`check_chase_wife_arc(scope=planned)`、`openingMode`、`stayingLogic`、候选伤害账本、候选修复账本和 ending contract；修复方案先保持 `proposed`。
 2. 进入具体章节后调用 `read_story_context(task=chapter-writing)`，只读取当前章节需要的正史、Beat、事件地图和相关台账。
-3. 保存章节事件地图；第一章先保存符合 openingMode 的短引言，再填写每个事件的 `beatRefs`、因果来源、伤害机制、状态差、主动权差、入口钩子和出口钩子。
+3. 保存章节事件地图；第一章先保存符合 openingMode 的短引言，再填写每个事件的 `beatRefs`、`harmRefs`/`repairRefs`（关联候选台账）、因果来源、伤害机制、状态差、主动权差（含五维状态）、入口钩子和出口钩子。
 4. 对每个事件依次调用 `save_chase_wife_event_draft`、`check_chase_wife_event_draft`、`check_chase_wife_event_prose` 和 `save_chase_wife_event_semantic_report`。
 5. 所有事件报告必须是 `source=model` 且 `status=ok`，再调用 `assemble_chase_wife_chapter`。组装结果必须明确呈现“引言→第一章”，不能让第一章直接成为全文首段。
 6. 组装后运行章节节奏、章节评分、AI 痕迹、Reader Sim 和 Story Review；Reader 与 Story Review 两者都必须通过，报告必须带当前正文哈希和正文锚点。

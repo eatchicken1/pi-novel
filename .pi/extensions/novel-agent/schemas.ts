@@ -444,6 +444,8 @@ const ChaseWifeInjuryMechanismSchema = Type.Union([
 	Type.Literal("resource-transfer"),
 	Type.Literal("public-humiliation"),
 	Type.Literal("betrayal-evidence"),
+	Type.Literal("deception"),
+	Type.Literal("boundary-violation"),
 ]);
 
 const ChaseWifeLengthModeSchema = Type.Union([
@@ -508,9 +510,9 @@ export const SaveChaseWifeBeatSheetSchema = Type.Object({
 	povMode: ChaseWifePovModeSchema,
 	pacingMode: Type.Optional(ChaseWifePacingModeSchema),
 	openingMode: Type.Optional(ChaseWifeOpeningModeSchema),
-	heroineArc: Type.Array(ChaseWifeHeroineArcPhaseSchema, { minItems: 4, maxItems: 7 }),
-	maleArc: Type.Array(ChaseWifeMaleArcPhaseSchema, { minItems: 3, maxItems: 6 }),
-	openingIntro: Type.String({ minLength: 1, maxLength: 140 }),
+	heroineArc: Type.Array(ChaseWifeHeroineArcPhaseSchema, { minItems: 5, maxItems: 7 }),
+	maleArc: Type.Array(ChaseWifeMaleArcPhaseSchema, { minItems: 5, maxItems: 6 }),
+	openingIntro: Type.String({ minLength: 1 }),
 	openingConflict: Type.String({ minLength: 1 }),
 	stayingLogic: ChaseWifeStayingLogicSchema,
 	beats: Type.Array(ChaseWifeBeatSchema, { minItems: 12, maxItems: 24 }),
@@ -519,7 +521,7 @@ export const SaveChaseWifeBeatSheetSchema = Type.Object({
 export const CheckChaseWifeArcSchema = Type.Object({ projectId: ProjectIdSchema, scope: Type.Optional(ChaseWifeArtifactScopeSchema) });
 
 export const ChaseWifeEventSchema = Type.Object({
-	eventId: Type.Integer({ minimum: 1, maximum: 8 }),
+	eventId: Type.Integer({ minimum: 1, maximum: 6 }),
 	role: ChaseWifeEventRoleSchema,
 	beatRefs: Type.Optional(Type.Array(Type.Integer({ minimum: 1, maximum: 24 }))),
 	harmRefs: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
@@ -569,7 +571,7 @@ export const SaveChaseWifeEventMapSchema = Type.Object({
 	chapter: ChapterNumberSchema,
 	povMode: ChaseWifePovModeSchema,
 	openingMode: Type.Optional(ChaseWifeOpeningModeSchema),
-	openingIntro: Type.Optional(Type.String({ minLength: 1, maxLength: 140 })),
+	openingIntro: Type.Optional(Type.String({ minLength: 1 })),
 	openingConflict: Type.String({ minLength: 1 }),
 	openingConflictMarker: Type.Optional(Type.String({ minLength: 2, maxLength: 80 })),
 	causalExitMarker: Type.Optional(Type.String({ minLength: 2, maxLength: 100 })),
@@ -584,7 +586,7 @@ export const CheckChaseWifeEventMapSchema = Type.Object({
 export const SaveChaseWifeEventDraftSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	chapter: ChapterNumberSchema,
-	eventId: Type.Integer({ minimum: 1, maximum: 8 }),
+	eventId: Type.Integer({ minimum: 1, maximum: 6 }),
 	content: Type.String({ minLength: 1 }),
 	revision: Type.Optional(Type.Integer({ minimum: 1 })),
 });
@@ -592,7 +594,7 @@ export const SaveChaseWifeEventDraftSchema = Type.Object({
 export const CheckChaseWifeEventDraftSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	chapter: ChapterNumberSchema,
-	eventId: Type.Integer({ minimum: 1, maximum: 8 }),
+	eventId: Type.Integer({ minimum: 1, maximum: 6 }),
 	revision: Type.Optional(Type.Integer({ minimum: 1 })),
 });
 
@@ -622,7 +624,7 @@ export const CheckChaseWifeStoryPacingSchema = Type.Object({
 export const CheckChaseWifeEventSemanticsSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	chapter: ChapterNumberSchema,
-	eventId: Type.Integer({ minimum: 1, maximum: 8 }),
+	eventId: Type.Integer({ minimum: 1, maximum: 6 }),
 	revision: Type.Optional(Type.Integer({ minimum: 1 })),
 });
 
@@ -634,7 +636,7 @@ const SemanticEvidenceAnchorSchema = Type.Object({
 
 const ChaseWifeLedgerEvidenceSchema = Type.Object({
 	chapter: ChapterNumberSchema,
-	eventId: Type.Optional(Type.Integer({ minimum: 1, maximum: 8 })),
+	eventId: Type.Optional(Type.Integer({ minimum: 1, maximum: 6 })),
 	draftRevision: Type.Optional(Type.Integer({ minimum: 1 })),
 	startChar: Type.Integer({ minimum: 0 }),
 	endChar: Type.Integer({ minimum: 1 }),
@@ -645,7 +647,7 @@ const ChaseWifeLedgerEvidenceSchema = Type.Object({
 export const SaveChaseWifeEventSemanticReportSchema = Type.Object({
 	projectId: ProjectIdSchema,
 	chapter: ChapterNumberSchema,
-	eventId: Type.Integer({ minimum: 1, maximum: 8 }),
+	eventId: Type.Integer({ minimum: 1, maximum: 6 }),
 	revision: Type.Optional(Type.Integer({ minimum: 1 })),
 	roleSatisfied: Type.Boolean(),
 	conflictShown: Type.Boolean(),

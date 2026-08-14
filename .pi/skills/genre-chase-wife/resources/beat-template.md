@@ -4,7 +4,7 @@
 
 ```text
 openingMode: cold-conflict | result-first | exit-in-progress | quiet-dislocation
-openingIntro: 所有 openingMode 均必填，60—140 个非空白字符的女主第一人称短引言；只填正文，不填标题
+openingIntro: 所有 openingMode 均必填，60—140 个非空白字符的女主第一人称短引言；引言是全文独立的第一部分，短且有强烈冲突，只填正文，不填标题；第一章不得复述引言
 openingConflict: 250 字内可验证的具体冲突；第一章 openingConflictMarker 必须出现在短引言正文中
 povMode: heroine-first-person | split-pov
 stayingLogic: emotionalReason / falseBelief / sustainingEvidence / breakingThreshold / optional materialReason / optional socialReason / optional familyReason / optional careerReason
@@ -28,10 +28,10 @@ painPoint / rewardPoint / hook
 每章 3—6 个事件，长度使用 `flash=60—180`、`bridge=100—250`、`standard=220—450`、`anchor=450—850`。
 
 ```text
-eventId / role / scene / pov / targetTrack / paywallHook / beatRefs
+eventId / role / scene / pov / targetTrack / paywallHook / beatRefs / harmRefs / repairRefs
 causes / injuryMechanism
 informationDelta / relationshipDelta / resourceDelta / riskDelta
-heroineAgencyBefore / heroineAgencyAfter / irreversible / cannotRemoveBecause
+heroineAgencyBefore / heroineAgencyAfter / heroineAgencyStateBefore / heroineAgencyStateAfter / setback / irreversible / cannotRemoveBecause
 lengthMode / minChars / maxChars
 eventDescription / function / goal / conflict
 actionOrConsequence / protagonistReaction / oppositionReaction
@@ -39,11 +39,24 @@ informationChange / emotionBefore / emotionAfter / physicalReaction
 setupOrPayoff / readerRelease / entryHook / exitHook
 ```
 
-组装结果必须按 `# 引言` → 引言正文 → `# 第一章` → 第一章事件正文输出。第一章第一个事件的角色按 openingMode 匹配：`cold-conflict` 使用 `opening-injury` 或 `preference-exposure`，`result-first` 使用 `decision` 或 `irreversible-exit`，`exit-in-progress` 使用 `irreversible-exit`，`quiet-dislocation` 使用 `opening-injury`。该事件承接引言并继续制造冲突。后续章节从上一章出口钩子或当前冲突切入，不重复引言。事件地图只用于规划和审查，正文不能输出字段名。
+组装结果必须按 `# 引言` → 引言正文 → `# 第一章` → 第一章事件正文输出。引言是独立的第一部分，短且有强烈冲突；第一章第一个事件承接引言继续制造冲突，但不得逐字复述引言。第一章第一个事件的角色按 openingMode 匹配：`cold-conflict` 使用 `opening-injury` 或 `preference-exposure`，`result-first` 使用 `decision` 或 `irreversible-exit`，`exit-in-progress` 使用 `irreversible-exit`，`quiet-dislocation` 使用 `opening-injury`。该事件承接引言并继续制造冲突。后续章节从上一章出口钩子或当前冲突切入，不重复引言。事件地图只用于规划和审查，正文不能输出字段名。
 
 ## 最低结构要求
 
-- 每个事件至少改变两项信息、关系、资源、风险或主动权，或产生不可逆行动、现实后果或铺垫回收。
+- 每个事件至少改变两项信息、关系、资源、风险或主动权，或产生不可逆行动、主动权提升、现实后果（real-consequence 角色）或铺垫回收（铺垫回收仍须伴随至少一项状态变化）。
 - 女主在 `irreversible-exit` 前至少有两次主动权升级。
 - 男方 `recognition` 必须晚于 `real-consequence`。
 - 每个事件必须引用有效 Beat；全篇所有 Beat 至少被一个事件兑现。
+
+## 结局契约与市场分型
+
+市场研究的四种分型映射到三种可执行模式：
+
+| 市场分型 | 结局模式 |
+| --- | --- |
+| 复合型 | earned-reunion |
+| 破镜不重圆型 | no-reunion |
+| 换伴侣型 | no-reunion（新关系通过 self-rebuild 事件验证独立未来） |
+| 独立收束型 | no-reunion 或 open-ending |
+
+先选结局分型再设计追悔强度；`reunionEligibilityRules` 只作作者可读说明，可执行条件必须写入结构化 `eligibilityRules`。
