@@ -23,6 +23,16 @@ import type {
 	CheckCharacterComplexityParams,
 	SaveCharacterContradictionProfileParams,
 	CheckVerticalStoryQualityParams,
+	SaveStoryConceptParams,
+	DevelopStoryBibleParams,
+	DesignStoryArchitectureParams,
+	BuildNarrativeEventGraphParams,
+	PlanChapterParams,
+	DraftChapterParams,
+	DiagnoseChapterParams,
+	ReviseChapterParams,
+	ReviewManuscriptParams,
+	FinalizeManuscriptUnifiedParams,
 	SaveUnifiedEventDraftParams,
 	SaveUnifiedEventMapParams,
 	SaveUnifiedEventSemanticReportParams,
@@ -91,6 +101,16 @@ import {
 	CheckCharacterComplexitySchema,
 	SaveCharacterContradictionProfileSchema,
 	CheckVerticalStoryQualitySchema,
+	SaveStoryConceptSchema,
+	DevelopStoryBibleSchema,
+	DesignStoryArchitectureSchema,
+	BuildNarrativeEventGraphSchema,
+	PlanChapterSchema,
+	DraftChapterSchema,
+	DiagnoseChapterSchema,
+	ReviseChapterSchema,
+	ReviewManuscriptSchema,
+	FinalizeManuscriptUnifiedSchema,
 	CheckProfessionalCaseSchema,
 	CheckProfessionalDomainSchema,
 	CheckMysteryDesignSchema,
@@ -829,6 +849,145 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),
+	);
+	pi.registerTool(
+		defineTool({
+			name: "develop_story_concept",
+			label: "Develop Story Concept",
+			description: "Develop a vague idea into a reviewable story concept: premise, protagonist hook and goal, external/relationship/social/professional conflicts, central dilemma and mystery, promises, stakes, contradictions, risks, potential, and self-assessed generic risks. Concept development only; it never writes chapters or engine cases.",
+			parameters: SaveStoryConceptSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: SaveStoryConceptParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).developStoryConcept(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "develop_story_bible",
+			label: "Develop Story Bible",
+			description: "Develop the current story concept into a proposed story foundation, coordinating the active mystery, relationship, marriage, professional, social-suspense, and character capabilities. Saves every artifact as proposed and never auto-confirms canon; run applicable checks and returns confirmationRequired with the artifacts awaiting confirmation.",
+			parameters: DevelopStoryBibleSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: DevelopStoryBibleParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).developStoryBible(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "design_story_architecture",
+			label: "Design Story Architecture",
+			description: "Design the macro narrative architecture from the story foundation: story movements, major questions, reframes, false model, pressure escalation, relationship turning points, professional dilemmas, irreversible decisions, climax, ending settlement, and character arcs. Movement definitions become the single source reused by the vertical design checker.",
+			parameters: DesignStoryArchitectureSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: DesignStoryArchitectureParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).designStoryArchitecture(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "build_narrative_event_graph",
+			label: "Build Narrative Event Graph",
+			description: "Build the whole-story unified narrative event graph from the architecture: saves the proposed events into the unified event map per chapter, runs the unified event map checker and movement coverage, and blocks on missing engine references (never silently creates clues, harms, or other engine artifacts).",
+			parameters: BuildNarrativeEventGraphSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: BuildNarrativeEventGraphParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).buildNarrativeEventGraph(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "plan_chapter",
+			label: "Plan Chapter",
+			description: "Plan one chapter against the unified event graph: validates the event ids, determines the current story movement, builds the relevant chapter context package (events, movement, previous ending, relevant engine refs, unresolved continuity, style constraints), and saves the chapter plan and scene contracts in one call.",
+			parameters: PlanChapterSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: PlanChapterParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).planChapter(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		)),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "draft_chapter",
+			label: "Draft Chapter",
+			description: "Draft one chapter end to end from the plan: saves each unified event draft, runs the mechanical check, saves the model semantic report (with chase-wife evidence for chase events), assembles the unified chapter, and runs chapter-level integrity checks. Never auto-finalizes; returns diagnose_chapter as the next action.",
+			parameters: DraftChapterSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: DraftChapterParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).draftChapter(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "diagnose_chapter",
+			label: "Diagnose Chapter",
+			description: "Diagnose one chapter like an editor: merges and de-duplicates findings from the unified map, event drafts, semantics, continuity, realization, chase-wife gates, AI artifacts, vertical design, character complexity, and realized fairness into a P0-P4 priority model with affected events and recommended strategies.",
+			parameters: DiagnoseChapterSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: DiagnoseChapterParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).diagnoseChapter(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		)),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "revise_chapter",
+			label: "Revise Chapter",
+			description: "Revise one chapter from a revision plan: saves the plan, applies scoped event-draft revisions only for affected events, re-runs the mechanical and semantic gates, reassembles, and re-runs chapter gates. Never regenerates realization records (stale by hash until prose is confirmed).",
+			parameters: ReviseChapterSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: ReviseChapterParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).reviseChapter(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		)),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "review_manuscript",
+			label: "Review Manuscript",
+			description: "Review the whole manuscript at structure level (not the sum of chapter diagnoses): deterministic manuscript diagnostics (external plot stall, detached relationship, disappearing profession, weak exit pressure, single-engine climax) merged with the model review, and a story-level revision plan.",
+			parameters: ReviewManuscriptSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: ReviewManuscriptParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).reviewManuscript(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		)),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "finalize_manuscript_unified",
+			label: "Finalize Manuscript (Unified Seal)",
+			description: "Finalize the whole manuscript under unified authority for converged projects: verifies all chapters finalized, current unified event bindings, current narrative realization, realized mystery fairness, chase-wife ending eligibility and harm/repair progress, movement integrity, vertical blocking checks, and a current manuscript review; then writes the unified manuscript seal. Requires USER_CONFIRMED.",
+			parameters: FinalizeManuscriptUnifiedSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: FinalizeManuscriptUnifiedParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).finalizeManuscriptUnified(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		)),
 	);
 	const confirmedUpdateTool = (
 		name: string,

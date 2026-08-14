@@ -103,6 +103,23 @@ import type {
 	SaveCharacterContradictionProfileParams,
 	CheckCharacterComplexityParams,
 	CheckVerticalStoryQualityParams,
+	StoryConcept,
+	SaveStoryConceptParams,
+	StoryFoundation,
+	DevelopStoryBibleParams,
+	StoryArchitecture,
+	DesignStoryArchitectureParams,
+	BuildNarrativeEventGraphParams,
+	PlanChapterParams,
+	DraftChapterParams,
+	UnifiedChaseSemanticEvidence,
+	DiagnoseChapterParams,
+	ReviseChapterParams,
+	ReviewManuscriptParams,
+	FinalizeManuscriptUnifiedParams,
+	ChapterDiagnosis,
+	UnifiedEvent,
+	ManuscriptReview,
 } from "../schemas.ts";
 import { hasChaseWifeCapability, hasMatureMarriageCapability, hasPrimaryGenre, hasProfessionalDomain, normalizePrimaryGenre, normalizeProfessionalDomain, normalizeRelationshipMechanism } from "./story-profile.ts";
 import { checkMysteryDesign, checkMysteryFairness, isMysteryPrivatePath, type MysteryIssue } from "./mystery-checker.ts";
@@ -113,6 +130,7 @@ import { checkNarrativeRealizations, collectPlannedRealizations, type PlannedRea
 import { checkStoryDistinctiveness, distinctivenessStats, type DistinctivenessIssue } from "./distinctiveness-checker.ts";
 import { checkRealizedFairness, type RealizedFairnessIssue } from "./realized-fairness-checker.ts";
 import { checkCharacterComplexity, checkSocialSuspenseDesign, checkVerticalQualityReview, type VerticalIssue } from "./vertical-checker.ts";
+import { aggregateDiagnosis, computeAuthoringPhase, computeFoundationReadiness, computeRecommendedNextActions, workflowResult, type AuthoringPhase, type DiagnosisSourceIssue, type WorkflowBlocker, type WorkflowFacts, type WorkflowResult } from "./authoring-workflow.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -248,6 +266,15 @@ export interface NovelProjectStatus {
 	finalizedChapters: number[];
 	missingFiles: string[];
 	updatedAt: string;
+	// Author Workflow 动态状态（从 artifact 计算，非第二事实源）
+	workflowPhase?: string;
+	foundationReady?: boolean;
+	foundationMissing?: string[];
+	eventGraphReady?: boolean;
+	currentChapter?: number;
+	chapterPlanReady?: boolean;
+	chapterDraftReady?: boolean;
+	recommendedNextActions?: Array<{ tool: string; reason: string; chapter?: number }>;
 }
 
 export interface StoryContextResult {
@@ -943,6 +970,10 @@ export class NovelProjectStore {
 		for (const relativePath of requiredFiles) {
 			if ((await this.readTextIfExists(this.projectFile(params.projectId, relativePath), signal)) === undefined) missingFiles.push(relativePath);
 		}
+		// Author Workflow 状态：从实际 artifact 动态计算，不复制引擎事实。
+		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
+		const readiness = computeFoundationReadiness(facts);
+		const recommendedNextActions = computeRecommendedNextActions(facts);
 		return {
 			projectId: params.projectId,
 			status: project.status,
@@ -951,6 +982,14 @@ export class NovelProjectStore {
 			finalizedChapters,
 			missingFiles,
 			updatedAt: typeof project.updatedAt === "string" ? project.updatedAt : "",
+			workflowPhase: phase,
+			foundationReady: readiness.ready,
+			foundationMissing: readiness.missing,
+			eventGraphReady: facts.hasEventGraph && facts.eventGraphBlockers.length === 0,
+			currentChapter: facts.nextChapter,
+			chapterPlanReady: facts.hasPlanForNext,
+			chapterDraftReady: facts.hasDraftForNext,
+			recommendedNextActions,
 		};
 	}
 
@@ -964,7 +1003,7 @@ export class NovelProjectStore {
 			if (added.has(relativePath)) return;
 			// reader-sim 硬隔离（defense-in-depth）：canon/work/outline 下的 mystery 作者规划路径都不得进入 reader 上下文，
 			// 统一  → / 后按 author-private roots 判定（Windows 路径同样生效），即使未来修改 sections 也不能泄漏作者秘密。
-			if ((params.task ?? "chapter-writing") === "reader-sim" && (isMysteryPrivatePath(relativePath) || isMarriagePrivatePath(relativePath) || isProfessionalPrivatePath(relativePath) || isUnifiedPrivatePath(relativePath) || relativePath.includes("female-social-suspense-design.json") || relativePath.includes("contradiction-profiles.json"))) {
+			if ((params.task ?? "chapter-writing") === "reader-sim" && (isMysteryPrivatePath(relativePath) || isMarriagePrivatePath(relativePath) || isProfessionalPrivatePath(relativePath) || isUnifiedPrivatePath(relativePath) || relativePath.includes("female-social-suspense-design.json") || relativePath.includes("contradiction-profiles.json") || relativePath.includes("story-architecture.json") || relativePath.includes("work/authoring/") || relativePath.includes("story-bible-index") || relativePath.includes("chapter-diagnosis") || relativePath.includes("manuscript-diagnosis") || relativePath.includes("manuscript/review.json"))) {
 				excludedFiles.push(relativePath);
 				return;
 			}
@@ -1025,8 +1064,10 @@ export class NovelProjectStore {
 			}
 		};
 		const task = params.task ?? "chapter-writing";
+		// Author Workflow 任务上下文：不同阶段读不同内容（Local > Global）。
+		const engineTasks = new Set(["planning", "chapter-writing", "continuity-review", "story-foundation", "story-architecture", "event-design", "chapter-planning", "chapter-drafting", "chapter-diagnosis", "chapter-revision"]);
 		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
-		const sections = params.sections ?? (task === "reader-sim" ? ["project", "summaries"] : ["project", "story-bible", "style-guide", "characters", "outline", "timeline", "summaries", "continuity"]);
+		const sections = params.sections ?? (task === "reader-sim" ? ["project", "summaries"] : task === "manuscript-review" ? ["project", "summaries", "continuity"] : task === "story-concept" ? ["project", "story-bible", "style-guide", "timeline"] : ["project", "story-bible", "style-guide", "characters", "outline", "timeline", "summaries", "continuity"]);
 		for (const section of sections) {
 			if (section === "project" || section === "story-bible" || section === "style-guide") await addFile(section === "project" ? "project.json" : `${section}.md`, section);
 			else if (section === "summaries") {
@@ -1103,7 +1144,7 @@ export class NovelProjectStore {
 		}
 		// Marriage Engine 上下文：planning / chapter-writing / continuity-review 读取结构（confirmed 优先，否则 proposed）；
 		// reader-sim 不读取（作者秘密隔离：restructuring 可能泄露未来分居/离婚安排）。
-		if (isJsonRecord(project) && hasMatureMarriageCapability(project) && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
+		if (isJsonRecord(project) && hasMatureMarriageCapability(project) && engineTasks.has(task)) {
 			const structurePath = (await this.readTextIfExists(this.projectFile(params.projectId, "canon/marriage/structure.json"), signal)) !== undefined
 				? "canon/marriage/structure.json"
 				: "work/marriage/structure-proposed.json";
@@ -1114,7 +1155,7 @@ export class NovelProjectStore {
 			await addFile(restructuringPath, "marriage-restructuring");
 		}
 		// Unified 上下文：作者侧读取全篇统一事件地图与当前章事件草稿（reader-sim 不读取）。
-		if (isJsonRecord(project) && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
+		if (isJsonRecord(project) && engineTasks.has(task)) {
 			await addFile("outline/unified/event-map.json", "unified-event-map");
 			if (params.chapter !== undefined) {
 				const draftPaths = await this.listFiles(this.projectFile(params.projectId, "work/unified-event-drafts/" + chapterName(params.chapter)), signal);
@@ -1132,15 +1173,24 @@ export class NovelProjectStore {
 				}
 			}
 		}
+		// Author Workflow 上下文：concept / bible index / architecture / 诊断 / 全书评审（作者侧）。
+		if (isJsonRecord(project) && engineTasks.has(task)) {
+			await addFile("work/authoring/story-concept.json", "story-concept");
+			await addFile("work/authoring/story-bible-index.json", "story-bible-index");
+			await addFile("outline/story-architecture.json", "story-architecture");
+			if (params.chapter !== undefined) await addFile(`work/diagnosis/${chapterName(params.chapter)}.json`, "chapter-diagnosis");
+			await addFile("work/diagnosis/manuscript.json", "manuscript-diagnosis");
+			await addFile("evaluations/manuscript/review.json", "manuscript-review");
+		}
 		// Vertical Design 上下文：作者侧读取垂直设计（社会机制/婚姻模式/职业困境/乐章/对抗/主题）与女主矛盾画像；
 		// reader-sim 不读取（作者秘密隔离）。
-		if (isJsonRecord(project) && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
+		if (isJsonRecord(project) && engineTasks.has(task)) {
 			await addFile("outline/genre/female-social-suspense-design.json", "vertical-design");
 			await addFile("outline/characters/contradiction-profiles.json", "vertical-character-profiles");
 		}
 		// Professional 上下文：planning / chapter-writing / continuity-review 读取 domain model 与 case plan（confirmed 优先，否则 proposed）；
 		// reader-sim 不读取（作者秘密隔离）。
-		if (isJsonRecord(project) && hasProfessionalDomain(project, "insurance-fraud-investigation") && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
+		if (isJsonRecord(project) && hasProfessionalDomain(project, "insurance-fraud-investigation") && engineTasks.has(task)) {
 			const domainModelPath = (await this.readTextIfExists(this.projectFile(params.projectId, "canon/professional/domain-model.json"), signal)) !== undefined
 				? "canon/professional/domain-model.json"
 				: "work/professional/domain-model-proposed.json";
@@ -1152,7 +1202,7 @@ export class NovelProjectStore {
 		}
 		// Mystery Engine 上下文：planning / chapter-writing / continuity-review 读取真相、线索、嫌疑与信息状态；
 		// reader-sim 不读取（作者秘密隔离）；不含 female-social-suspense primaryGenre 的项目不读取。
-		if (isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense") && (task === "planning" || task === "chapter-writing" || task === "continuity-review")) {
+		if (isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense") && engineTasks.has(task)) {
 			await addFile("outline/mystery/clue-ledger.json", "mystery-clues");
 			await addFile("outline/mystery/information-state.json", "mystery-information-state");
 			const truthModelPath = (await this.readTextIfExists(this.projectFile(params.projectId, "canon/mystery/truth-model.json"), signal)) !== undefined
@@ -1487,7 +1537,28 @@ export class NovelProjectStore {
 		const chapterPaths = paths.filter((candidate) => candidate.endsWith(".md"));
 		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
 		if (isJsonRecord(project) && hasChaseWifeCapability(project)) {
-			const seal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/chase-wife-finalized.json"), signal);
+			// Converged 优先：unified manuscript seal（不要求旧 chase-wife 独立 event map）。
+			const unifiedSeal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/unified-seal.json"), signal);
+			if (isJsonRecord(unifiedSeal) && unifiedSeal.status === "finalized") {
+				const unifiedMap = await this.readUnifiedEventMap(params.projectId, signal);
+				const eventMapHash = unifiedMap === undefined ? "missing" : hashJson(unifiedMap);
+				if (unifiedSeal.unifiedEventMapHash !== eventMapHash) throw new Error("Unified manuscript seal is stale: the unified event map changed after the manuscript gate.");
+				const sealedSources = Array.isArray(unifiedSeal.sources) ? unifiedSeal.sources.filter(isJsonRecord) : [];
+				let staleSeal = sealedSources.length !== chapterPaths.length;
+				for (const source of sealedSources) {
+					if (typeof source.chapter !== "number" || typeof source.chapterHash !== "string" || typeof source.summaryHash !== "string") { staleSeal = true; continue; }
+					const name = chapterName(source.chapter);
+					const chapterContent = await this.readTextIfExists(this.projectFile(params.projectId, `chapters/${name}.md`), signal);
+					const summary = await this.readJsonIfExists(this.projectFile(params.projectId, `summaries/${name}.json`), signal);
+					if (chapterContent === undefined || sha256(chapterContent) !== source.chapterHash || !isJsonRecord(summary) || hashJson(summary) !== source.summaryHash) staleSeal = true;
+				}
+				if (staleSeal) throw new Error("Unified manuscript export is stale because a finalized chapter or summary changed after the manuscript gate.");
+				const endingContractNow = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/genre/chase-wife-ending-contract.json"), signal);
+				if (typeof unifiedSeal.endingContractHash === "string" && unifiedSeal.endingContractHash !== "n/a" && (!isJsonRecord(endingContractNow) || hashJson(endingContractNow) !== unifiedSeal.endingContractHash)) throw new Error("Unified manuscript seal is stale: the ending contract changed after the manuscript gate.");
+				const endingEligibility = await this.checkChaseWifeEndingEligibility({ projectId: params.projectId }, signal);
+				if (endingEligibility.status !== "ok") throw new Error("Chase-wife ending eligibility no longer passes; re-run finalize_manuscript.");
+			} else {
+				const seal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/chase-wife-finalized.json"), signal);
 			const pacing = await this.readJsonIfExists(this.projectFile(params.projectId, "continuity/reports/chase-wife-story-pacing.json"), signal);
 			const beatSheet = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/genre/chase-wife-beat-sheet.json"), signal);
 			const arcReport = await this.readJsonIfExists(this.projectFile(params.projectId, chaseWifeArcReportPath("finalized")), signal);
@@ -1508,6 +1579,7 @@ export class NovelProjectStore {
 				if (chapterContent === undefined || sha256(chapterContent) !== source.chapterHash || !isJsonRecord(summary) || hashJson(summary) !== source.summaryHash || !isJsonRecord(eventMap) || hashJson(eventMap) !== source.eventMapHash || !isJsonRecord(manifest) || hashJson(manifest) !== source.manifestHash) staleSeal = true;
 			}
 			if (staleSeal) throw new Error("Chase-wife export is stale because a finalized chapter, summary, event map, or assembly manifest changed after the manuscript gate.");
+			}
 		}
 		const sections: string[] = [];
 		let words = 0;
@@ -2381,8 +2453,15 @@ export class NovelProjectStore {
 		if (!finalizedChapters.has(chapter)) return false;
 		const content = await this.readTextIfExists(this.projectFile(projectId, `chapters/${chapterName(chapter)}.md`), signal);
 		const summary = await this.readJsonIfExists(this.projectFile(projectId, `summaries/${chapterName(chapter)}.json`), signal);
+		if (content === undefined || !isJsonRecord(summary) || !isPositiveInteger(summary.draftRevision)) return false;
+		// Converged 模式：unified 装配清单绑定定稿正文即可视为 finalized（不需要 legacy chase-wife event map）。
+		const projection = await this.projectChaseWifeChapter(projectId, chapter, signal);
+		if (projection !== undefined) {
+			const manifest = await this.readJsonIfExists(this.projectFile(projectId, `work/unified-assemblies/${chapterName(chapter)}-r${String(summary.draftRevision).padStart(2, "0")}.json`), signal);
+			return isJsonRecord(manifest) && manifest.draftRevision === summary.draftRevision && manifest.assembledHash === sha256(normalizeText(content)) && await this.isChaseWifeChapterAssembled(projectId, chapter, signal);
+		}
 		const map = await this.readJsonIfExists(this.projectFile(projectId, `work/chase-wife-events/${chapterName(chapter)}.json`), signal);
-		if (content === undefined || !isJsonRecord(summary) || !isPositiveInteger(summary.draftRevision) || !isJsonRecord(map)) return false;
+		if (!isJsonRecord(map)) return false;
 		const manifest = await this.readJsonIfExists(this.projectFile(projectId, `work/chase-wife-assemblies/${chapterName(chapter)}-r${String(summary.draftRevision).padStart(2, "0")}.json`), signal);
 		return isJsonRecord(manifest) && manifest.eventMapHash === hashJson(map) && manifest.assembledHash === sha256(normalizeText(content)) && await this.isChaseWifeChapterAssembled(projectId, chapter, signal);
 	}
@@ -2435,6 +2514,15 @@ export class NovelProjectStore {
 			const content = await this.readTextIfExists(chapterPath, signal);
 			const summary = await this.readJsonIfExists(this.projectFile(projectId, `summaries/${chapterName(chapter)}.json`), signal);
 			const draftRevision = isJsonRecord(summary) && isPositiveInteger(summary.draftRevision) ? summary.draftRevision : undefined;
+			// Converged 模式：从 unified 投影的事件角色扫描（不需要 legacy chase-wife event map）。
+			const projection = await this.projectChaseWifeChapter(projectId, chapter, signal);
+			if (projection !== undefined) {
+				if (content === undefined || draftRevision === undefined) continue;
+				const manifest = await this.readJsonIfExists(this.projectFile(projectId, `work/unified-assemblies/${chapterName(chapter)}-r${String(draftRevision).padStart(2, "0")}.json`), signal);
+				if (!isJsonRecord(manifest) || manifest.draftRevision !== draftRevision || manifest.assembledHash !== sha256(normalizeText(content))) continue;
+				if (projection.events.some((event) => event.role === role)) return true;
+				continue;
+			}
 			const map = await this.readJsonIfExists(this.projectFile(projectId, `work/chase-wife-events/${chapterName(chapter)}.json`), signal);
 			const manifest = draftRevision === undefined ? undefined : await this.readJsonIfExists(this.projectFile(projectId, `work/chase-wife-assemblies/${chapterName(chapter)}-r${String(draftRevision).padStart(2, "0")}.json`), signal);
 			if (content === undefined || !isJsonRecord(map) || !Array.isArray(map.events) || !isJsonRecord(manifest) || manifest.eventMapHash !== hashJson(map) || manifest.assembledHash !== sha256(normalizeText(content))) continue;
@@ -3664,9 +3752,30 @@ export class NovelProjectStore {
 				if (anchorIssue !== undefined) issues.push(anchorIssue);
 			}
 		}
+		// Chase Wife 收敛语义强度：chaseWifeDelta 事件必须提交 chaseEvidence，且每个声明的关系 delta 必须出现在正文中。
+		const map = await this.readUnifiedEventMap(params.projectId, signal);
+		const event = map?.events.find((candidate) => candidate.eventId === params.eventId && candidate.chapter === params.chapter);
+		const chaseDelta = event?.chaseWifeDelta;
+		if (chaseDelta !== undefined) {
+			const chase = params.chaseEvidence as UnifiedChaseSemanticEvidence | undefined;
+			if (chase === undefined) {
+				issues.push("chase-wife events require chaseEvidence (roleShown, conflictShown, relationshipDeltasShown, and capability-specific flags)");
+			} else {
+				if (!chase.roleShown) issues.push("chase role is not shown in the prose");
+				if (!chase.conflictShown) issues.push("chase conflict is not shown in the prose");
+				const normalized = draft.content.replace(/\s+/gu, "");
+				for (const delta of chaseDelta.relationshipDelta) {
+					if (!normalized.includes(delta)) issues.push(`declared relationship delta "${delta}" does not appear in the prose`);
+				}
+				if (chaseDelta.injuryMechanism !== undefined && chase.injuryMechanismShown !== true) issues.push("declared injury mechanism requires injuryMechanismShown evidence");
+				if (chaseDelta.heroineAgencyAfter > chaseDelta.heroineAgencyBefore && chase.agencyActionShown !== true) issues.push("heroine agency increase requires agencyActionShown evidence");
+				if ((chaseDelta.role === "pursuit-control" || chaseDelta.role === "pursuit-failure") && chase.wrongPursuitShown !== true) issues.push("wrong-pursuit events require wrongPursuitShown evidence");
+				if ((chaseDelta.role === "repair-attempt" || chaseDelta.role === "credible-repair" || chaseDelta.role === "boundary-respect") && chase.repairActionShown !== true) issues.push("repair events require repairActionShown evidence");
+			}
+		}
 		const status = issues.length === 0 ? "ok" as const : "error" as const;
 		const relativePath = `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(params.eventId)}-unified-semantics.json`;
-		const report = { projectId: params.projectId, chapter: params.chapter, eventId: params.eventId, revision: draft.revision, status, issues, source: "model" as const, actionShown: params.actionShown, consequenceShown: params.consequenceShown, deltaEvidence: params.deltaEvidence, notes: params.notes, contentHash: sha256(draft.content), generatedAt: new Date().toISOString() };
+		const report = { projectId: params.projectId, chapter: params.chapter, eventId: params.eventId, revision: draft.revision, status, issues, source: "model" as const, actionShown: params.actionShown, consequenceShown: params.consequenceShown, deltaEvidence: params.deltaEvidence, chaseEvidence: params.chaseEvidence, notes: params.notes, contentHash: sha256(draft.content), generatedAt: new Date().toISOString() };
 		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
 		return { ...report, path: relativePath };
 	}
@@ -3911,6 +4020,659 @@ export class NovelProjectStore {
 		const relativePath = "evaluations/vertical-quality/story.json";
 		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(report, null, 2)}\n`, signal);
 		return { projectId: params.projectId, status, issues, verdict: params.review.verdict, path: relativePath };
+	}
+	// ==== Author Workflow（上层创作工作流编排） ====
+
+	private async collectWorkflowFacts(projectId: string, signal?: AbortSignal): Promise<WorkflowFacts> {
+		const project = await this.readJsonIfExists(this.projectFile(projectId, "project.json"), signal);
+		const capabilities = {
+			hasMystery: isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense"),
+			hasMarriage: isJsonRecord(project) && hasMatureMarriageCapability(project),
+			hasChaseWife: isJsonRecord(project) && hasChaseWifeCapability(project),
+			hasProfessional: isJsonRecord(project) && hasProfessionalDomain(project, "insurance-fraud-investigation"),
+		};
+		const hasConcept = (await this.readJsonIfExists(this.projectFile(projectId, "work/authoring/story-concept.json"), signal)) !== undefined;
+		const hasArchitecture = (await this.readJsonIfExists(this.projectFile(projectId, "outline/story-architecture.json"), signal)) !== undefined;
+		const unifiedMap = await this.readUnifiedEventMap(projectId, signal);
+		const hasEventGraph = unifiedMap !== undefined && unifiedMap.events.length > 0;
+		const foundationMissing: string[] = [];
+		const foundationBlockers: string[] = [];
+		if (capabilities.hasMystery) {
+			if ((await this.readMysteryCase(projectId, signal)) === undefined) foundationMissing.push("mystery truth model");
+			if ((await this.readMysteryClues(projectId, signal)).length === 0) foundationMissing.push("mystery clue ledger");
+		}
+		if (capabilities.hasMarriage && (await this.readMatureMarriageStructure(projectId, signal)) === undefined) foundationMissing.push("marriage structure");
+		if (capabilities.hasProfessional) {
+			if ((await this.readProfessionalDomainModel(projectId, signal)) === undefined) foundationMissing.push("professional domain model");
+			if ((await this.readProfessionalCasePlan(projectId, signal)) === undefined) foundationMissing.push("professional case plan");
+		}
+		if (capabilities.hasChaseWife && (await this.readJsonIfExists(this.projectFile(projectId, "outline/genre/chase-wife-beat-sheet.json"), signal)) === undefined) foundationMissing.push("chase-wife beat sheet");
+		if (capabilities.hasMystery && (await this.readSocialSuspenseDesign(projectId, signal)) === undefined) foundationMissing.push("social suspense design");
+		// 人物矛盾画像属于 vertical stack；无任何垂直能力的普通项目不要求。
+		const hasAnyVerticalCapability = capabilities.hasMystery || capabilities.hasMarriage || capabilities.hasChaseWife || capabilities.hasProfessional;
+		if (hasAnyVerticalCapability && (await this.readJsonIfExists(this.projectFile(projectId, "outline/characters/contradiction-profiles.json"), signal)) === undefined) foundationMissing.push("character contradiction profile");
+		const nextChapter = isJsonRecord(project) && isPositiveInteger(project.nextChapter) ? project.nextChapter : 1;
+		const planExists = (await this.readTextIfExists(this.projectFile(projectId, `work/chapter-plans/${chapterName(nextChapter)}.md`), signal)) !== undefined;
+		const draft = await this.latestDraft(projectId, nextChapter, signal);
+		const diagnosis = await this.readJsonIfExists(this.projectFile(projectId, `work/diagnosis/${chapterName(nextChapter)}.json`), signal);
+		const chapterPaths = (await this.listFiles(this.projectFile(projectId, "chapters"), signal)).filter((path) => /chapter-\d+\.md$/u.test(path));
+		const projectStatus = await this.readJsonIfExists(this.projectFile(projectId, "status.json"), signal);
+		const finalizedChapters = isJsonRecord(projectStatus) && Array.isArray(projectStatus.finalizedChapters) ? projectStatus.finalizedChapters.filter(isPositiveInteger) : [];
+		const eventGraphErrors = hasEventGraph ? (await this.checkUnifiedEventMap({ projectId }, signal)).issues.filter((issue) => issue.severity === "error") : [];
+		const hasManuscriptReview = (await this.readJsonIfExists(this.projectFile(projectId, "evaluations/manuscript/review.json"), signal)) !== undefined;
+		const hasUnifiedSeal = (await this.readJsonIfExists(this.projectFile(projectId, "evaluations/manuscript/unified-seal.json"), signal)) !== undefined;
+		return {
+			hasConcept,
+			hasFoundation: foundationMissing.length === 0,
+			hasArchitecture,
+			hasEventGraph,
+			hasPlanForNext: planExists,
+			hasDraftForNext: draft !== undefined,
+			hasDiagnosisForNext: diagnosis !== undefined && isJsonRecord(diagnosis) && typeof diagnosis.verdict === "string",
+			diagnosisHasBlockers: isJsonRecord(diagnosis) && diagnosis.verdict === "blocked",
+			allChaptersFinalized: chapterPaths.length > 0 && chapterPaths.length === finalizedChapters.length && finalizedChapters.length > 0,
+			hasManuscriptReview,
+			hasUnifiedSeal,
+			nextChapter,
+			foundationMissing,
+			foundationBlockers: eventGraphErrors.map((issue) => issue.message),
+			eventGraphBlockers: eventGraphErrors.map((issue) => issue.message),
+			chapterBlockers: [],
+		};
+	}
+
+	private async workflowFactsFor(projectId: string, signal?: AbortSignal): Promise<{ facts: WorkflowFacts; phase: AuthoringPhase }> {
+		const facts = await this.collectWorkflowFacts(projectId, signal);
+		return { facts, phase: computeAuthoringPhase(facts) };
+	}
+
+	private async recordWorkflowOperation(projectId: string, tool: string, status: string, createdArtifacts: string[], signal?: AbortSignal): Promise<void> {
+		const operationId = randomUUID();
+		const document = { operationId, tool, startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), status, createdArtifacts };
+		await this.writeAtomically(this.projectFile(projectId, `work/workflow/operations/${operationId}.json`), `${JSON.stringify(document, null, 2)}\n`, signal);
+	}
+	async developStoryConcept(params: SaveStoryConceptParams, signal?: AbortSignal): Promise<WorkflowResult> {
+		await this.ensureProject(params.projectId, signal);
+		const concept = params.concept as StoryConcept;
+		const blockers: WorkflowBlocker[] = [];
+		const warnings: string[] = [];
+		if (concept.centralMystery.trim().length === 0) blockers.push({ code: "CONCEPT_WITHOUT_MYSTERY", message: "概念缺少 central mystery；只有题材没有故事" });
+		if (concept.protagonistGoal.trim().length === 0) blockers.push({ code: "CONCEPT_WITHOUT_GOAL", message: "女主没有主动目标" });
+		if (concept.relationshipConflict.trim().length === 0 && concept.socialQuestion.trim().length === 0) blockers.push({ code: "CONCEPT_WITHOUT_CONFLICT_SOURCE", message: "悬疑与婚姻/社会之间没有连接潜力" });
+		if (concept.genericRisks.length > 0) warnings.push(`概念自评 generic risk ${concept.genericRisks.length} 项：${concept.genericRisks.map((item) => item.risk).join("、")}——需在 bible 阶段用具体机制化解`);
+		const relativePath = "work/authoring/story-concept.json";
+		const document = { version: 1, projectId: params.projectId, concept, createdAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
+		await this.recordWorkflowOperation(params.projectId, "develop_story_concept", blockers.length === 0 ? "completed" : "needs-review", [relativePath], signal);
+		return workflowResult(params.projectId, phase, blockers.length > 0 ? "blocked" : "completed", { createdArtifacts: [relativePath], blockers, warnings, nextActions: computeRecommendedNextActions({ ...facts, hasConcept: true }) });
+	}
+
+	async developStoryBible(params: DevelopStoryBibleParams, signal?: AbortSignal): Promise<WorkflowResult> {
+		await this.ensureProject(params.projectId, signal);
+		const foundation = params.foundation as StoryFoundation;
+		const created: string[] = [];
+		const blockers: WorkflowBlocker[] = [];
+		const warnings: string[] = [];
+		// 只写 proposed，绝不自动 USER_CONFIRMED。
+		if (foundation.mystery !== undefined) {
+			await this.saveMysteryCase({ projectId: params.projectId, status: "proposed", case: foundation.mystery.case }, signal);
+			await this.saveMysteryClueLedger({ projectId: params.projectId, clues: foundation.mystery.clues }, signal);
+			created.push("work/mystery/truth-model-proposed.json", "outline/mystery/clue-ledger.json");
+		}
+		if (foundation.marriage !== undefined) {
+			await this.saveMatureMarriageStructure({ projectId: params.projectId, status: "proposed", structure: foundation.marriage.structure }, signal);
+			created.push("work/marriage/structure-proposed.json");
+		}
+		if (foundation.professional !== undefined) {
+			await this.saveProfessionalDomainModel({ projectId: params.projectId, status: "proposed", model: foundation.professional.model }, signal);
+			await this.saveProfessionalCasePlan({ projectId: params.projectId, status: "proposed", plan: foundation.professional.plan }, signal);
+			created.push("work/professional/domain-model-proposed.json", "work/professional/case-plan-proposed.json");
+		}
+		if (foundation.socialDesign !== undefined) {
+			await this.saveSocialSuspenseDesign({ projectId: params.projectId, design: foundation.socialDesign }, signal);
+			created.push("outline/genre/female-social-suspense-design.json");
+		}
+		for (const profile of foundation.characterProfiles) {
+			await this.saveCharacterContradictionProfile({ projectId: params.projectId, profile }, signal);
+		}
+		if (foundation.characterProfiles.length > 0) created.push("outline/characters/contradiction-profiles.json");
+		if (foundation.chase !== undefined) {
+			await this.saveChaseWifeBeatSheet({ projectId: params.projectId, povMode: foundation.chase.beatSheet.povMode, ...(foundation.chase.beatSheet.openingMode === undefined ? {} : { openingMode: foundation.chase.beatSheet.openingMode }), heroineArc: foundation.chase.beatSheet.heroineArc, maleArc: foundation.chase.beatSheet.maleArc, openingIntro: foundation.chase.beatSheet.openingIntro, openingConflict: foundation.chase.beatSheet.openingConflict, stayingLogic: foundation.chase.beatSheet.stayingLogic, beats: foundation.chase.beatSheet.beats }, signal);
+			created.push("outline/genre/chase-wife-beat-sheet.json");
+		}
+		// Story Bible 是索引/摘要层，不复制引擎事实。
+		const artifactRefs: Record<string, string> = { storyConcept: "work/authoring/story-concept.json" };
+		if (foundation.mystery !== undefined) artifactRefs.mysteryCase = "work/mystery/truth-model-proposed.json";
+		if (foundation.marriage !== undefined) artifactRefs.marriage = "work/marriage/structure-proposed.json";
+		if (foundation.professional !== undefined) artifactRefs.professional = "work/professional/case-plan-proposed.json";
+		if (foundation.socialDesign !== undefined) artifactRefs.socialDesign = "outline/genre/female-social-suspense-design.json";
+		if (foundation.chase !== undefined) artifactRefs.chaseBeatSheet = "outline/genre/chase-wife-beat-sheet.json";
+		const index = { version: 1, projectId: params.projectId, premise: foundation.premise, corePromises: foundation.corePromises, mainCharacters: ["heroine"], majorQuestions: [foundation.socialDesign?.socialArchitecture.centralSocialQuestion ?? foundation.premise], endingDirection: foundation.endingDirection, artifactRefs, updatedAt: new Date().toISOString() };
+		const indexPath = "work/authoring/story-bible-index.json";
+		await this.writeAtomically(this.projectFile(params.projectId, indexPath), `${JSON.stringify(index, null, 2)}\n`, signal);
+		created.push(indexPath);
+		// 自动跑适用检查，报告 P0 blockers 与 warning（不阻止继续）。
+		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		if (isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense")) {
+			const design = await this.checkSocialSuspenseDesign({ projectId: params.projectId }, signal);
+			const complexity = await this.checkCharacterComplexity({ projectId: params.projectId }, signal);
+			for (const issue of [...design.issues, ...complexity.issues]) {
+				if (issue.severity === "error") blockers.push({ code: issue.code, message: issue.message, source: "social-suspense-design" });
+				else warnings.push(`${issue.code}: ${issue.message}`);
+			}
+		}
+		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
+		await this.recordWorkflowOperation(params.projectId, "develop_story_bible", blockers.length === 0 ? "completed" : "needs-review", created, signal);
+		return workflowResult(params.projectId, phase, blockers.length > 0 ? "needs-review" : "completed", { createdArtifacts: created, reports: ["continuity/reports/female-social-suspense-design.json", "continuity/reports/character-complexity.json"], blockers, warnings, confirmationRequired: true, awaitingConfirmation: created.filter((path) => path.includes("proposed") || path.includes("beat-sheet")), nextActions: computeRecommendedNextActions({ ...facts, hasFoundation: true, foundationMissing: [] }) });
+	}
+	async designStoryArchitecture(params: DesignStoryArchitectureParams, signal?: AbortSignal): Promise<WorkflowResult> {
+		await this.ensureProject(params.projectId, signal);
+		// Architecture 门：foundation 缺失时 blocked（AW3）。
+		const factsBefore = await this.collectWorkflowFacts(params.projectId, signal);
+		if (!factsBefore.hasConcept) return workflowResult(params.projectId, "idea", "blocked", { blockers: [{ code: "ARCHITECTURE_WITHOUT_CONCEPT", message: "先 develop_story_concept" }], nextActions: [{ tool: "develop_story_concept", reason: "缺少故事概念" }] });
+		if (factsBefore.foundationMissing.length > 0) return workflowResult(params.projectId, "concept", "blocked", { blockers: [{ code: "ARCHITECTURE_WITHOUT_FOUNDATION", message: `foundation 缺失：${factsBefore.foundationMissing.join(", ")}` }], nextActions: [{ tool: "develop_story_bible", reason: "先建立 proposed foundation" }] });
+		const architecture = params.architecture as StoryArchitecture;
+		const blockers: WorkflowBlocker[] = [];
+		const warnings: string[] = [];
+		const movementIds = new Set(architecture.movements.map((movement) => movement.id));
+		if (movementIds.size !== architecture.movements.length) blockers.push({ code: "ARCHITECTURE_DUPLICATE_MOVEMENT_ID", message: "movement id 必须唯一" });
+		const allChapters = architecture.movements.flatMap((movement) => movement.chapters);
+		if (new Set(allChapters).size !== allChapters.length) blockers.push({ code: "ARCHITECTURE_CHAPTER_OVERLAP", message: "movement 的章节范围互相重叠" });
+		if (architecture.falseModel !== undefined && !movementIds.has(architecture.falseModel.collapsesAtMovementId)) blockers.push({ code: "ARCHITECTURE_FALSE_MODEL_TARGET_MISSING", message: "false model 的崩塌乐章不存在" });
+		for (const question of architecture.majorQuestions) {
+			if (!movementIds.has(question.movementId)) blockers.push({ code: "ARCHITECTURE_QUESTION_MOVEMENT_MISSING", message: `major question "${question.question}" 引用的乐章不存在` });
+		}
+		const relativePath = "outline/story-architecture.json";
+		const document = { version: 1, projectId: params.projectId, architecture, updatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		// Movement 单一事实源：architecture 的 movements 同步进 social suspense design（若存在），供既有 checker 复用。
+		const design = await this.readSocialSuspenseDesign(params.projectId, signal);
+		if (design !== undefined) {
+			const synced = { ...design, storyMovements: architecture.movements, ...(architecture.professionalDilemmas.length > 0 ? { professionalDilemmas: architecture.professionalDilemmas } : {}), ...(architecture.falseModel === undefined ? {} : { suspense: { ...design.suspense, falseModel: { statement: architecture.falseModel.statement, replacedByClaimIds: architecture.falseModel.replacedByClaimIds } } }), socialResolution: { ...design.socialResolution, personalResolution: architecture.endingSettlement.personalResolution, caseResolution: architecture.endingSettlement.caseResolution, ...(architecture.endingSettlement.institutionalChange === undefined ? {} : { institutionalChange: architecture.endingSettlement.institutionalChange }), ...(architecture.endingSettlement.institutionalResistance === undefined ? {} : { institutionalResistance: architecture.endingSettlement.institutionalResistance }), unresolvedResidue: architecture.endingSettlement.unresolvedResidue } };
+			await this.saveSocialSuspenseDesign({ projectId: params.projectId, design: synced }, signal);
+		}
+		// Architecture Gate：跑适用检查，P0 列出，P1 作为 structural risks（不阻止继续）。
+		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		if (isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense")) {
+			const designCheck = await this.checkSocialSuspenseDesign({ projectId: params.projectId }, signal);
+			for (const issue of designCheck.issues) {
+				if (issue.severity === "error") blockers.push({ code: issue.code, message: issue.message, source: "social-suspense-design" });
+				else warnings.push(`${issue.code}: ${issue.message}`);
+			}
+		}
+		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
+		await this.recordWorkflowOperation(params.projectId, "design_story_architecture", blockers.length === 0 ? "completed" : "needs-review", [relativePath], signal);
+		return workflowResult(params.projectId, phase, blockers.length > 0 ? "needs-review" : "completed", { createdArtifacts: [relativePath], updatedArtifacts: design === undefined ? [] : ["outline/genre/female-social-suspense-design.json"], blockers, warnings, nextActions: computeRecommendedNextActions({ ...facts, hasArchitecture: true }) });
+	}
+
+	async buildNarrativeEventGraph(params: BuildNarrativeEventGraphParams, signal?: AbortSignal): Promise<WorkflowResult> {
+		await this.ensureProject(params.projectId, signal);
+		const events = params.events;
+		const savedPaths: string[] = [];
+		// 按章分批保存到底层 unified map（不引入第二套全书事件事实）。
+		const chapters = [...new Set(events.map((event) => event.chapter))].sort((left, right) => left - right);
+		for (const chapter of chapters) {
+			await this.saveUnifiedEventMap({ projectId: params.projectId, chapter, events: events.filter((event) => event.chapter === chapter) }, signal);
+			savedPaths.push(`outline/unified/event-map.json`);
+		}
+		const report = await this.checkUnifiedEventMap({ projectId: params.projectId }, signal);
+		const blockers: WorkflowBlocker[] = [];
+		const warnings: string[] = [];
+		for (const issue of report.issues) {
+			if (issue.severity === "error") blockers.push({ code: issue.code, message: issue.message, source: "unified-event-map" });
+			else warnings.push(`${issue.code}: ${issue.message}`);
+		}
+		// 结构空洞：movement 必须有事件覆盖。
+		const architecture = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/story-architecture.json"), signal);
+		if (isJsonRecord(architecture) && isJsonRecord(architecture.architecture) && Array.isArray(architecture.architecture.movements)) {
+			const movements = architecture.architecture.movements as Array<{ id: string; chapters: number[] }>;
+			for (const movement of movements) {
+				const movementEvents = events.filter((event) => movement.chapters.includes(event.chapter));
+				if (movementEvents.length === 0) warnings.push(`MOVEMENT_COVERAGE_GAP: movement ${movement.id} 没有任何事件`);
+			}
+		}
+		const collision = report.metrics.collisionEvents ?? 0;
+		warnings.push(`事件图统计：${report.metrics.totalEvents ?? 0} 事件，${collision} 个跨引擎碰撞`);
+		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
+		const status = blockers.length > 0 ? "blocked" : "completed";
+		await this.recordWorkflowOperation(params.projectId, "build_narrative_event_graph", status, savedPaths, signal);
+		return workflowResult(params.projectId, phase, status, { createdArtifacts: [...new Set(savedPaths)], reports: ["continuity/reports/unified-event-map.json"], blockers, warnings, nextActions: blockers.length > 0 ? [{ tool: "develop_story_bible", reason: "事件图被阻塞：需先在引擎 ledger 显式补齐缺失引用（不得静默创建）" }] : computeRecommendedNextActions({ ...facts, hasEventGraph: true }) });
+	}
+	async planChapter(params: PlanChapterParams, signal?: AbortSignal): Promise<WorkflowResult & { chapterContext?: Record<string, unknown> }> {
+		await this.ensureProject(params.projectId, signal);
+		const blockers: WorkflowBlocker[] = [];
+		const warnings: string[] = [];
+		const map = await this.readUnifiedEventMap(params.projectId, signal);
+		const chapterEvents = map === undefined ? [] : map.events.filter((event) => event.chapter === params.chapter).sort((left, right) => left.eventId - right.eventId);
+		if (chapterEvents.length === 0) blockers.push({ code: "PLAN_WITHOUT_EVENTS", message: `第 ${params.chapter} 章在 unified 事件图中没有事件；先 build_narrative_event_graph` });
+		for (const eventId of params.plan.eventIds) {
+			if (!chapterEvents.some((event) => event.eventId === eventId)) blockers.push({ code: "PLAN_EVENT_MISSING", message: `plan 引用的事件 ${eventId} 不在本章 unified 事件图中` });
+		}
+		// 幂等：已有相同 plan 则返回已完成，不重复写入。
+		const planPath = `work/chapter-plans/${chapterName(params.chapter)}.md`;
+		const renderedPlan = [
+			`# 第${params.chapter}章计划`,
+			`章节目标：${params.plan.chapterGoal}`,
+			`开场状态：${params.plan.openingState}`,
+			`事件：${params.plan.eventIds.join(", ")}`,
+			`信息控制：${params.plan.informationControl}`,
+			`情绪走向：${params.plan.emotionalMovement}`,
+			`职业约束：${params.plan.professionalConstraints}`,
+			`关系走向：${params.plan.relationshipMovement}`,
+			`章尾出口压力：${params.plan.chapterExitPressure}`,
+			`目标长度：${params.plan.targetLength}`,
+			`不可逆原因：${params.plan.cannotRemoveBecause}`,
+		].join("\n");
+		const existingPlan = await this.readTextIfExists(this.projectFile(params.projectId, planPath), signal);
+		if (existingPlan === normalizeText(renderedPlan) && params.force !== true) {
+			const context = await this.buildChapterContext(params.projectId, params.chapter, chapterEvents, signal);
+			return workflowResult(params.projectId, (await this.workflowFactsFor(params.projectId, signal)).phase, "completed", { warnings: ["该章已有相同 plan；如需修订请传 force 或先 revise"], nextActions: [{ tool: "draft_chapter", reason: "plan 已存在且未变", chapter: params.chapter }] }) as WorkflowResult & { chapterContext?: Record<string, unknown> };
+		}
+		await this.writeAtomically(this.projectFile(params.projectId, planPath), normalizeText(renderedPlan), signal);
+		await this.saveSceneContract({ projectId: params.projectId, chapter: params.chapter, contracts: params.plan.sceneDesign.map((scene, index) => ({ sceneId: scene.sceneId, chapter: params.chapter, order: scene.order, pov: "heroine", time: "day", location: scene.location, goal: scene.goal, opposition: scene.opposition, stakes: scene.stakes, knowledgeBefore: [], informationReveal: scene.informationReveal, emotionalStateBefore: "uncertain", emotionalTurn: scene.emotionalTurn, emotionalStateAfter: "committed", stateChanges: ["knowledge"], setups: [], payoffs: [], exitHook: params.plan.chapterExitPressure })) }, signal);
+		const context = await this.buildChapterContext(params.projectId, params.chapter, chapterEvents, signal);
+		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
+		await this.recordWorkflowOperation(params.projectId, "plan_chapter", blockers.length === 0 ? "completed" : "blocked", [planPath], signal);
+		const result = workflowResult(params.projectId, phase, blockers.length > 0 ? "blocked" : "completed", { createdArtifacts: [planPath], blockers, warnings, nextActions: blockers.length > 0 ? [] : [{ tool: "draft_chapter", reason: "plan 与 scene contracts 已就绪", chapter: params.chapter }] });
+		return { ...result, chapterContext: context };
+	}
+
+	private async buildChapterContext(projectId: string, chapter: number, chapterEvents: UnifiedEvent[], signal?: AbortSignal): Promise<Record<string, unknown>> {
+		const architecture = await this.readJsonIfExists(this.projectFile(projectId, "outline/story-architecture.json"), signal);
+		const movements = isJsonRecord(architecture) && isJsonRecord(architecture.architecture) && Array.isArray(architecture.architecture.movements) ? architecture.architecture.movements.filter(isJsonRecord) : [];
+		const movement = movements.find((candidate) => Array.isArray(candidate.chapters) && candidate.chapters.includes(chapter));
+		const design = await this.readSocialSuspenseDesign(projectId, signal);
+		const previousSummary = chapter > 1 ? await this.readJsonIfExists(this.projectFile(projectId, `summaries/${chapterName(chapter - 1)}.json`), signal) : undefined;
+		const continuity = await this.readJsonIfExists(this.projectFile(projectId, `continuity/reports/${chapterName(chapter)}-integrity.json`), signal);
+		const clueIds = new Set<string>();
+		const claimIds = new Set<string>();
+		const marriageRefs = new Set<string>();
+		const professionalActionIds = new Set<string>();
+		const observationIds = new Set<string>();
+		const harmIds = new Set<string>();
+		const repairIds = new Set<string>();
+		for (const event of chapterEvents) {
+			if (event.mysteryDelta !== undefined) {
+				for (const id of [...event.mysteryDelta.discoveredClueIds, ...event.mysteryDelta.readerRevealedClueIds]) clueIds.add(id);
+				for (const change of event.mysteryDelta.claimKnowledgeChanges) claimIds.add(change.claimId);
+				for (const id of [...event.mysteryDelta.proofProgressClaimIds, ...event.mysteryDelta.revealClaimIds]) claimIds.add(id);
+			}
+			if (event.marriageDelta !== undefined) {
+				for (const id of [...event.marriageDelta.economicItemChanges, ...event.marriageDelta.responsibilityChanges, ...event.marriageDelta.decisionRightChanges, ...event.marriageDelta.socialTieChanges, ...event.marriageDelta.inertiaChanges, ...event.marriageDelta.exitConstraintChanges]) marriageRefs.add(id);
+			}
+			if (event.professionalDelta !== undefined) {
+				for (const id of event.professionalDelta.actionIds) professionalActionIds.add(id);
+				for (const id of event.professionalDelta.observationIds) observationIds.add(id);
+			}
+			if (event.chaseWifeDelta !== undefined) {
+				for (const id of event.chaseWifeDelta.harmRefs) harmIds.add(id);
+				for (const id of event.chaseWifeDelta.repairRefs) repairIds.add(id);
+			}
+		}
+		const patternIds = new Set(design?.marriagePatterns.filter((pattern) => pattern.breakingEventIds.some((id) => chapterEvents.some((event) => event.eventId === id))).map((pattern) => pattern.id) ?? []);
+		const mechanismIds = new Set(design?.socialArchitecture.systemMechanisms.filter((mechanism) => mechanism.eventIds.some((id) => chapterEvents.some((event) => event.eventId === id))).map((mechanism) => mechanism.id) ?? []);
+		const dilemmaIds = new Set(design?.professionalDilemmas.filter((dilemma) => dilemma.relatedEventIds.some((id) => chapterEvents.some((event) => event.eventId === id))).map((dilemma) => dilemma.id) ?? []);
+		return {
+			chapter,
+			movement: movement === undefined ? undefined : { id: movement.id, dominantQuestion: movement.dominantQuestion, exitCondition: movement.exitCondition },
+			events: chapterEvents.map((event) => ({ eventId: event.eventId, storyGoal: event.storyGoal, conflict: event.conflict, action: event.action, consequence: event.consequence })),
+			previousEnding: isJsonRecord(previousSummary) ? previousSummary : undefined,
+			relevantRefs: { clueIds: [...clueIds], claimIds: [...claimIds], marriageRefs: [...marriageRefs], professionalActionIds: [...professionalActionIds], observationIds: [...observationIds], harmIds: [...harmIds], repairIds: [...repairIds], patternIds: [...patternIds], mechanismIds: [...mechanismIds], dilemmaIds: [...dilemmaIds] },
+			unresolvedContinuity: isJsonRecord(continuity) && Array.isArray(continuity.issues) ? continuity.issues.filter((item: { severity?: string }) => item.severity === "error" || item.severity === "warning").map((item: { message?: string }) => item.message ?? "") : [],
+			characterState: undefined,
+			styleAndVoice: { voice: "克制、事实感、情绪通过选择与动作传递", constraints: ["不写教程腔", "不把社会议题讲成评论文章", "女主不持续发表金句"] },
+			chapterConstraints: { cannotRemoveBecause: "本章不可逆内容必须有正文后果" },
+		};
+	}
+	async draftChapter(params: DraftChapterParams, signal?: AbortSignal): Promise<WorkflowResult & { draftRevision?: number }> {
+		await this.ensureProject(params.projectId, signal);
+		const blockers: WorkflowBlocker[] = [];
+		const warnings: string[] = [];
+		const reports: string[] = [];
+		// 1. verify plan
+		const planPath = `work/chapter-plans/${chapterName(params.chapter)}.md`;
+		if ((await this.readTextIfExists(this.projectFile(params.projectId, planPath), signal)) === undefined) blockers.push({ code: "DRAFT_WITHOUT_PLAN", message: "本章没有 chapter plan；先 plan_chapter" });
+		const map = await this.readUnifiedEventMap(params.projectId, signal);
+		const chapterEvents = map === undefined ? [] : map.events.filter((event) => event.chapter === params.chapter).sort((left, right) => left.eventId - right.eventId);
+		// 2. 逐事件：draft → check → semantic report（失败即 blocker，不装配，不假装完成）
+		let assembled: { draftRevision: number } | undefined;
+		if (blockers.length === 0) {
+			for (const draftEntry of params.eventDrafts) {
+				if (!chapterEvents.some((event) => event.eventId === draftEntry.eventId)) {
+					blockers.push({ code: "DRAFT_EVENT_NOT_IN_CHAPTER", message: `事件 ${draftEntry.eventId} 不在本章 unified 事件图中` });
+					continue;
+				}
+				const saved = await this.saveUnifiedEventDraft({ projectId: params.projectId, chapter: params.chapter, eventId: draftEntry.eventId, content: draftEntry.content }, signal);
+				const checked = await this.checkUnifiedEventDraft({ projectId: params.projectId, chapter: params.chapter, eventId: draftEntry.eventId }, signal);
+				reports.push(checked.path);
+				if (checked.status !== "ok") {
+					blockers.push({ code: "DRAFT_MECHANICAL_FAIL", message: `事件 ${draftEntry.eventId} 机械检查未通过（修订 ${saved.revision}）：${checked.issues.join("; ")}`, source: "check_unified_event_draft" });
+					continue;
+				}
+				const semanticReport = params.semanticReports.find((report: { eventId: number }) => report.eventId === draftEntry.eventId);
+				if (semanticReport === undefined) {
+					blockers.push({ code: "DRAFT_WITHOUT_SEMANTIC_REPORT", message: `事件 ${draftEntry.eventId} 缺少 semantic report；无法装配` });
+					continue;
+				}
+				const semantic = await this.saveUnifiedEventSemanticReport({ projectId: params.projectId, chapter: params.chapter, eventId: draftEntry.eventId, actionShown: semanticReport.actionShown, consequenceShown: semanticReport.consequenceShown, deltaEvidence: semanticReport.deltaEvidence, chaseEvidence: semanticReport.chaseEvidence }, signal);
+				reports.push(semantic.path);
+				if (semantic.status !== "ok") {
+					blockers.push({ code: "DRAFT_SEMANTIC_FAIL", message: `事件 ${draftEntry.eventId} 语义报告未通过：${semantic.issues.join("; ")}`, source: "save_unified_event_semantic_report" });
+					continue;
+				}
+			}
+			if (blockers.length === 0) {
+				assembled = await this.assembleUnifiedChapter({ projectId: params.projectId, chapter: params.chapter }, signal);
+				reports.push(`work/unified-assemblies/${chapterName(params.chapter)}-r${String(assembled.draftRevision).padStart(2, "0")}.json`);
+			}
+		}
+		// 3. 章节级检查（continuity 完整性；不自动 finalize，不运行 pacing/score 门禁）
+		if (blockers.length === 0 && assembled !== undefined) {
+			const integrity = await this.checkContinuity({ projectId: params.projectId, chapter: params.chapter }, signal);
+			reports.push(`continuity/reports/${chapterName(params.chapter)}-integrity.json`);
+			if (integrity.status === "error") blockers.push({ code: "DRAFT_CONTINUITY_FAIL", message: `连续性检查未通过：${integrity.issues.map((issue) => issue.message).join("; ")}`, source: "check_continuity" });
+		}
+		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
+		const status = blockers.length > 0 ? "blocked" : "completed";
+		await this.recordWorkflowOperation(params.projectId, "draft_chapter", status, [`work/drafts/${chapterName(params.chapter)}-r${String(assembled?.draftRevision ?? 0).padStart(2, "0")}.md`], signal);
+		const result = workflowResult(params.projectId, phase, status, { createdArtifacts: assembled === undefined ? [] : [`work/drafts/${chapterName(params.chapter)}-r${String(assembled.draftRevision).padStart(2, "0")}.md`], reports, blockers, warnings, nextActions: blockers.length > 0 ? [{ tool: "draft_chapter", reason: "修复失败的事件草稿后重新起草（不得用 prose 掩盖 planning bug）", chapter: params.chapter }] : [{ tool: "diagnose_chapter", reason: "草稿可审阅；先诊断再定稿（draft ≠ approved prose，不自动 finalize）", chapter: params.chapter }] });
+		return { ...result, draftRevision: assembled?.draftRevision };
+	}
+	async diagnoseChapter(params: DiagnoseChapterParams, signal?: AbortSignal): Promise<ChapterDiagnosis & { reports: string[]; recommendedNextAction?: { tool: string; reason: string; chapter: number } }> {
+		await this.ensureProject(params.projectId, signal);
+		const sourceIssues: DiagnosisSourceIssue[] = [];
+		const reports: string[] = [];
+		const map = await this.readUnifiedEventMap(params.projectId, signal);
+		const chapterEvents = map === undefined ? [] : map.events.filter((event) => event.chapter === params.chapter);
+		// 统一事件图（本章）
+		const mapReport = await this.checkUnifiedEventMap({ projectId: params.projectId, chapter: params.chapter }, signal);
+		reports.push(mapReport.path);
+		for (const issue of mapReport.issues) sourceIssues.push({ code: issue.code, severity: issue.severity, message: issue.message });
+		// 每事件草稿机械检查
+		for (const event of chapterEvents) {
+			const draftReport = await this.checkUnifiedEventDraft({ projectId: params.projectId, chapter: params.chapter, eventId: event.eventId }, signal);
+			reports.push(draftReport.path);
+			for (const issue of draftReport.issues) sourceIssues.push({ code: "event-draft", severity: draftReport.status, message: `event ${event.eventId}: ${issue}`, eventId: event.eventId });
+			// 语义报告存在性与通过性
+			const semantics = await this.readJsonIfExists(this.projectFile(params.projectId, `continuity/reports/${chapterName(params.chapter)}-event-${padChapter(event.eventId)}-unified-semantics.json`), signal);
+			if (!isJsonRecord(semantics) || semantics.source !== "model" || semantics.status !== "ok") sourceIssues.push({ code: "semantic-report", severity: "error", message: `event ${event.eventId} 缺少当前通过的模型语义报告`, eventId: event.eventId });
+		}
+		// 连续性
+		const integrity = await this.checkContinuity({ projectId: params.projectId, chapter: params.chapter }, signal);
+		reports.push(`continuity/reports/${chapterName(params.chapter)}-integrity.json`);
+		for (const issue of integrity.issues) sourceIssues.push({ code: issue.code, severity: issue.severity, message: issue.message });
+		// AI 痕迹
+		const draft = await this.latestDraft(params.projectId, params.chapter, signal);
+		if (draft !== undefined) {
+			const ai = await this.checkAiArtifacts({ projectId: params.projectId, chapter: params.chapter, draftRevision: draft.revision }, signal);
+			reports.push(ai.path);
+			for (const finding of ai.findingRecords) sourceIssues.push({ code: finding.code, severity: finding.hardFail ? "error" : "warning", message: finding.code });
+		}
+		// Realization 门
+		const realization = await this.checkNarrativeRealizations({ projectId: params.projectId, chapter: params.chapter }, signal);
+		reports.push(realization.path);
+		for (const issue of realization.issues) sourceIssues.push({ code: issue.code, severity: issue.severity, message: issue.message });
+		// Chase Wife 收敛门（若本章有 chase 投影）
+		const projection = await this.projectChaseWifeChapter(params.projectId, params.chapter, signal);
+		if (projection !== undefined) {
+			const chaseMap = await this.checkChaseWifeEventMap({ projectId: params.projectId, chapter: params.chapter }, signal);
+			reports.push(chaseMap.path);
+			for (const issue of chaseMap.issues) sourceIssues.push({ code: "chase-wife-event-map", severity: chaseMap.status, message: issue });
+			const pacing = await this.checkChaseWifeChapterPacing({ projectId: params.projectId, chapter: params.chapter, draftRevision: draft?.revision }, signal);
+			reports.push(pacing.path);
+			for (const record of pacing.issueRecords) sourceIssues.push({ code: record.code, severity: record.severity, message: record.message });
+		}
+		// 全局垂直/人物/公平性（作为本章诊断的补充发现）
+		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		if (isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense")) {
+			const design = await this.checkSocialSuspenseDesign({ projectId: params.projectId }, signal);
+			reports.push(design.path);
+			for (const issue of design.issues) sourceIssues.push({ code: issue.code, severity: issue.severity, message: issue.message });
+			const complexity = await this.checkCharacterComplexity({ projectId: params.projectId }, signal);
+			reports.push(complexity.path);
+			for (const issue of complexity.issues) sourceIssues.push({ code: issue.code, severity: issue.severity, message: issue.message });
+			const fairness = await this.checkMysteryRealizedFairness({ projectId: params.projectId }, signal);
+			reports.push(fairness.path);
+			for (const issue of fairness.issues) sourceIssues.push({ code: issue.code, severity: issue.severity, message: issue.message });
+		}
+		const findings = aggregateDiagnosis(sourceIssues, params.chapter);
+		const hasP0 = findings.some((finding) => finding.priority === "P0");
+		const verdict = hasP0 ? "blocked" : findings.length > 0 ? "revision-recommended" : "clean";
+		const diagnosis: ChapterDiagnosis = { chapter: params.chapter, verdict, findings, revisionRecommended: findings.length > 0 };
+		const relativePath = `work/diagnosis/${chapterName(params.chapter)}.json`;
+		const document = { ...diagnosis, sourceIssueCount: sourceIssues.length, generatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		await this.recordWorkflowOperation(params.projectId, "diagnose_chapter", verdict === "blocked" ? "blocked" : "completed", [relativePath], signal);
+		return { ...diagnosis, reports, recommendedNextAction: verdict === "clean" ? { tool: "finalize_chapter", reason: "本章诊断干净，可定稿", chapter: params.chapter } : { tool: "revise_chapter", reason: "诊断发现需要修订的问题", chapter: params.chapter } };
+	}
+
+	async reviseChapter(params: ReviseChapterParams, signal?: AbortSignal): Promise<WorkflowResult & { draftRevision?: number }> {
+		await this.ensureProject(params.projectId, signal);
+		const blockers: WorkflowBlocker[] = [];
+		const warnings: string[] = [];
+		const reports: string[] = [];
+		// 修订计划落盘（先计划后修改）
+		const planPath = `work/revisions/${chapterName(params.chapter)}-plan.json`;
+		await this.writeAtomically(this.projectFile(params.projectId, planPath), `${JSON.stringify({ version: 1, projectId: params.projectId, plan: params.revisionPlan, generatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
+		const diagnosis = await this.readJsonIfExists(this.projectFile(params.projectId, `work/diagnosis/${chapterName(params.chapter)}.json`), signal);
+		if (isJsonRecord(diagnosis) && Array.isArray(diagnosis.findings)) {
+			const knownIds = new Set(diagnosis.findings.filter(isJsonRecord).map((finding) => String(finding.id)));
+			for (const goal of params.revisionPlan.goals) {
+				for (const sourceId of goal.sourceDiagnosisIds) {
+					if (!knownIds.has(sourceId)) warnings.push(`revision goal ${goal.id} 引用的诊断 ${sourceId} 不在最新诊断中；仍按计划执行`);
+				}
+			}
+		}
+		// 只改受影响事件（scoped revision），逐事件：新修订草稿 → 检查 → 语义报告
+		const map = await this.readUnifiedEventMap(params.projectId, signal);
+		const chapterEvents = map === undefined ? [] : map.events.filter((event) => event.chapter === params.chapter);
+		const affectedIds = new Set(params.revisionPlan.goals.flatMap((goal) => goal.affectedEventIds));
+		for (const draftEntry of params.eventDrafts) {
+			if (!chapterEvents.some((event) => event.eventId === draftEntry.eventId)) {
+				blockers.push({ code: "REVISE_EVENT_NOT_IN_CHAPTER", message: `事件 ${draftEntry.eventId} 不在本章事件图中` });
+				continue;
+			}
+			const saved = await this.saveUnifiedEventDraft({ projectId: params.projectId, chapter: params.chapter, eventId: draftEntry.eventId, content: draftEntry.content }, signal);
+			const checked = await this.checkUnifiedEventDraft({ projectId: params.projectId, chapter: params.chapter, eventId: draftEntry.eventId }, signal);
+			reports.push(checked.path);
+			if (checked.status !== "ok") {
+				blockers.push({ code: "REVISE_MECHANICAL_FAIL", message: `事件 ${draftEntry.eventId} 修订后机械检查未通过（修订 ${saved.revision}）：${checked.issues.join("; ")}`, source: "check_unified_event_draft" });
+				continue;
+			}
+			const semanticReport = params.semanticReports.find((report: { eventId: number }) => report.eventId === draftEntry.eventId);
+			if (semanticReport === undefined) {
+				blockers.push({ code: "REVISE_WITHOUT_SEMANTIC_REPORT", message: `事件 ${draftEntry.eventId} 修订后缺少语义报告` });
+				continue;
+			}
+			const semantic = await this.saveUnifiedEventSemanticReport({ projectId: params.projectId, chapter: params.chapter, eventId: draftEntry.eventId, actionShown: semanticReport.actionShown, consequenceShown: semanticReport.consequenceShown, deltaEvidence: semanticReport.deltaEvidence, chaseEvidence: semanticReport.chaseEvidence }, signal);
+			reports.push(semantic.path);
+			if (semantic.status !== "ok") blockers.push({ code: "REVISE_SEMANTIC_FAIL", message: `事件 ${draftEntry.eventId} 修订后语义报告未通过：${semantic.issues.join("; ")}`, source: "save_unified_event_semantic_report" });
+		}
+		// 重新装配 + 重跑受影响门禁
+		let draftRevision: number | undefined;
+		if (blockers.length === 0) {
+			const assembled = await this.assembleUnifiedChapter({ projectId: params.projectId, chapter: params.chapter }, signal);
+			draftRevision = assembled.draftRevision;
+			reports.push(`work/unified-assemblies/${chapterName(params.chapter)}-r${String(assembled.draftRevision).padStart(2, "0")}.json`);
+			const mapCheck = await this.checkUnifiedEventMap({ projectId: params.projectId, chapter: params.chapter }, signal);
+			reports.push(mapCheck.path);
+			for (const issue of mapCheck.issues) {
+				if (issue.severity === "error") blockers.push({ code: issue.code, message: issue.message, source: "unified-event-map" });
+			}
+			const ai = await this.checkAiArtifacts({ projectId: params.projectId, chapter: params.chapter, draftRevision: assembled.draftRevision }, signal);
+			reports.push(ai.path);
+			if (!ai.passed) warnings.push(`AI 痕迹检查未通过：${ai.findings.join("；")}`);
+		}
+		// Realization 不伪造：草稿已变，旧记录按 hash 自然 stale。
+		warnings.push("正文已修订：旧 semantic/realization/reader/review 记录按 hash 机制自然失效；realization 需在正文确认后重新保存");
+		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
+		const status = blockers.length > 0 ? "blocked" : "needs-review";
+		await this.recordWorkflowOperation(params.projectId, "revise_chapter", status, [planPath], signal);
+		const result = workflowResult(params.projectId, phase, status, { createdArtifacts: [planPath], reports, blockers, warnings, nextActions: blockers.length > 0 ? [{ tool: "revise_chapter", reason: "修订引入新的门禁失败；修正后重跑（每次 revise 是一次有界尝试，不做无界循环）", chapter: params.chapter }] : [{ tool: "diagnose_chapter", reason: "修订完成，重新诊断确认 P0/P1 已解决", chapter: params.chapter }] });
+		return { ...result, draftRevision };
+	}
+	async reviewManuscript(params: ReviewManuscriptParams, signal?: AbortSignal): Promise<WorkflowResult & { review: ManuscriptReview; diagnostics: string[] }> {
+		await this.ensureProject(params.projectId, signal);
+		const review = params.review as ManuscriptReview;
+		const diagnostics: string[] = [];
+		const map = await this.readUnifiedEventMap(params.projectId, signal);
+		const events = map?.events ?? [];
+		const maxChapter = events.reduce((max, event) => Math.max(max, event.chapter), 0);
+		const byChapter = new Map<number, typeof events>();
+		for (const event of events) {
+			const list = byChapter.get(event.chapter) ?? [];
+			list.push(event);
+			byChapter.set(event.chapter, list);
+		}
+		const chapters = [...byChapter.keys()].sort((left, right) => left - right);
+		// 确定性全书诊断：与 chapter diagnosis 不同，这里只看全书级结构。
+		let externalStall = 0;
+		let detachedRun = 0;
+		let professionalSeen = false;
+		let professionalSeenAfterTwoThirds = false;
+		for (const chapter of chapters) {
+			const chapterEvents = byChapter.get(chapter) ?? [];
+			const external = chapterEvents.some((event) => event.mysteryDelta !== undefined || event.professionalDelta !== undefined);
+			const relationship = chapterEvents.some((event) => event.marriageDelta !== undefined || event.chaseWifeDelta !== undefined);
+			externalStall = external ? 0 : externalStall + 1;
+			detachedRun = relationship ? 0 : detachedRun + 1;
+			if (chapterEvents.some((event) => event.professionalDelta !== undefined)) {
+				professionalSeen = true;
+				if (chapter > Math.ceil(maxChapter * 2 / 3)) professionalSeenAfterTwoThirds = true;
+			}
+		}
+		if (externalStall >= 2) diagnostics.push(`第 ${chapters.filter((chapter) => (byChapter.get(chapter) ?? []).every((event) => event.mysteryDelta === undefined && event.professionalDelta === undefined)).join("、") || "?"} 章起外部情节停滞（连续 ${externalStall} 章只有关系线）`);
+		if (detachedRun >= 3) diagnostics.push(`连续 ${detachedRun} 章只有案件线，婚姻关系像另一部小说（RELATIONSHIP_PLOT_DETACHED）`);
+		if (professionalSeen && !professionalSeenAfterTwoThirds) diagnostics.push("职业线在前两章之后消失，中后期职业沦为背景（PROFESSIONAL_PLOT_DISAPPEARS）");
+		const design = await this.readSocialSuspenseDesign(params.projectId, signal);
+		if (design !== undefined && design.commercialForm.chapterExits.length > 0) {
+			let weakRun = 0;
+			for (const chapter of chapters) {
+				const exit = design.commercialForm.chapterExits.find((entry) => entry.chapter === chapter);
+				weakRun = exit === undefined || exit.kind === "weak" ? weakRun + 1 : 0;
+				if (weakRun >= 3) { diagnostics.push(`连续 ${weakRun} 章出口压力弱（FORWARD_PRESSURE_WEAK）`); break; }
+			}
+		}
+		const architecture = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/story-architecture.json"), signal);
+		if (isJsonRecord(architecture) && isJsonRecord(architecture.architecture) && Array.isArray(architecture.architecture.movements)) {
+			const movements = architecture.architecture.movements.filter(isJsonRecord);
+			const last = movements.reduce((latest: JsonRecord, movement: JsonRecord) => Array.isArray(movement.chapters) && Array.isArray(latest.chapters) && Math.max(...movement.chapters) > Math.max(...latest.chapters) ? movement : latest);
+			const kinds = (list: typeof events): Set<string> => {
+				const set = new Set<string>();
+				for (const event of list) {
+					if (event.mysteryDelta !== undefined) set.add("mystery");
+					if (event.marriageDelta !== undefined) set.add("marriage");
+					if (event.chaseWifeDelta !== undefined) set.add("chase-wife");
+					if (event.professionalDelta !== undefined) set.add("professional");
+				}
+				return set;
+			};
+			const lastChapters = Array.isArray(last.chapters) ? last.chapters : [];
+			const earlierKinds = kinds(events.filter((event) => !lastChapters.includes(event.chapter)));
+			const lastKinds = kinds(events.filter((event) => lastChapters.includes(event.chapter)));
+			if (earlierKinds.size >= 2 && lastKinds.size === 1) diagnostics.push("高潮只解决一个引擎，而前面故事高度融合（CLIMAX_SINGLE_ENGINE）");
+		}
+		const mergedIssues = [...diagnostics];
+		for (const issue of [...review.structuralIssues, ...review.suspenseIssues, ...review.relationshipIssues, ...review.pacingIssues]) mergedIssues.push(`模型评审：${issue}`);
+		const relativePath = "evaluations/manuscript/review.json";
+		const document = { version: 1, projectId: params.projectId, review, deterministicDiagnostics: diagnostics, generatedAt: new Date().toISOString() };
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(document, null, 2)}\n`, signal);
+		const diagnosisPath = "work/diagnosis/manuscript.json";
+		await this.writeAtomically(this.projectFile(params.projectId, diagnosisPath), `${JSON.stringify({ projectId: params.projectId, verdict: review.verdict, issues: mergedIssues, generatedAt: new Date().toISOString() }, null, 2)}\n`, signal);
+		const { facts, phase } = await this.workflowFactsFor(params.projectId, signal);
+		const needsWork = review.verdict !== "ready-for-final-revision" || diagnostics.length > 0;
+		await this.recordWorkflowOperation(params.projectId, "review_manuscript", needsWork ? "needs-review" : "completed", [relativePath], signal);
+		const result = workflowResult(params.projectId, phase, needsWork ? "needs-review" : "completed", { createdArtifacts: [relativePath], warnings: needsWork ? ["全书结构需修订：先按 storyRevisionPlan 或 revisionPriorities 处理，再重新评审"] : [], nextActions: needsWork ? [{ tool: "review_manuscript", reason: "全书结构问题处理完成后重新评审" }] : computeRecommendedNextActions({ ...facts, hasManuscriptReview: true }) });
+		return { ...result, review, diagnostics };
+	}
+	async finalizeManuscriptUnified(params: FinalizeManuscriptUnifiedParams, signal?: AbortSignal): Promise<{ projectId: string; status: "finalized"; path: string; chapters: number; sealHash: string }> {
+		await this.ensureProject(params.projectId, signal);
+		if (params.confirmation !== "USER_CONFIRMED") throw new Error("Manuscript finalization requires confirmation=USER_CONFIRMED.");
+		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
+		const blockers: string[] = [];
+		const hasChase = isJsonRecord(project) && hasChaseWifeCapability(project);
+		const hasMystery = isJsonRecord(project) && hasPrimaryGenre(project, "female-social-suspense");
+		// 1. 所有章节已 finalized
+		const chapterPaths = (await this.listFiles(this.projectFile(params.projectId, "chapters"), signal)).filter((path) => /chapter-\d+\.md$/u.test(path)).sort();
+		if (chapterPaths.length === 0) throw new Error("A manuscript requires at least one finalized chapter.");
+		const projectStatus = await this.readJsonIfExists(this.projectFile(params.projectId, "status.json"), signal);
+		const finalizedChapters = isJsonRecord(projectStatus) && Array.isArray(projectStatus.finalizedChapters) ? projectStatus.finalizedChapters.filter(isPositiveInteger) : [];
+		if (chapterPaths.length !== finalizedChapters.length) blockers.push(`还有 ${chapterPaths.length - finalizedChapters.length} 个章节未定稿`);
+		// 2. Unified 事件绑定 current + realization current（按章）
+		const unifiedMap = await this.readUnifiedEventMap(params.projectId, signal);
+		if (unifiedMap === undefined) blockers.push("缺少 unified 事件图；无法封存 unified manuscript");
+		const eventMapHash = unifiedMap === undefined ? "missing" : hashJson(unifiedMap);
+		const realizationHashes: string[] = [];
+		for (const chapter of finalizedChapters) {
+			const name = chapterName(chapter);
+			const content = await this.readTextIfExists(this.projectFile(params.projectId, `chapters/${name}.md`), signal);
+			const summary = await this.readJsonIfExists(this.projectFile(params.projectId, `summaries/${name}.json`), signal);
+			if (content === undefined || !isJsonRecord(summary) || !isPositiveInteger(summary.draftRevision)) { blockers.push(`章节 ${chapter} 缺少定稿正文或摘要`); continue; }
+			const manifest = await this.readJsonIfExists(this.projectFile(params.projectId, `work/unified-assemblies/${name}-r${String(summary.draftRevision).padStart(2, "0")}.json`), signal);
+			if (!isJsonRecord(manifest) || manifest.draftRevision !== summary.draftRevision || manifest.assembledHash !== sha256(normalizeText(content))) blockers.push(`章节 ${chapter} 的 unified 装配绑定已过期`);
+			const realization = await this.checkNarrativeRealizations({ projectId: params.projectId, chapter }, signal);
+			realizationHashes.push(realization.status === "ok" ? `${chapter}:ok` : `${chapter}:${realization.status}`);
+			if (realization.status === "error") blockers.push(`章节 ${chapter} 的 realization 门未通过：${realization.issues.map((issue) => issue.message).join("; ")}`);
+		}
+		// 3. Realized Mystery Fairness（不得 unfair）
+		let fairnessHash = "n/a";
+		if (hasMystery) {
+			const fairness = await this.checkMysteryRealizedFairness({ projectId: params.projectId }, signal);
+			fairnessHash = fairness.verdict;
+			if (fairness.verdict === "unfair") blockers.push(`realized mystery fairness 失败：${fairness.issues.filter((issue) => issue.severity === "error").map((issue) => issue.message).join("; ")}`);
+		}
+		// 4. Chase Wife 门（ending eligibility + harm/repair progress）
+		let endingEligibilityHash = "n/a";
+		if (hasChase) {
+			const eligibility = await this.checkChaseWifeEndingEligibility({ projectId: params.projectId }, signal);
+			endingEligibilityHash = eligibility.status;
+			if (eligibility.status !== "ok") blockers.push(`chase-wife ending eligibility 未通过：${eligibility.issues.join("; ")}`);
+			const progress = await this.checkChaseWifeHarmRepairProgress({ projectId: params.projectId }, signal);
+			if (progress.status === "stalled") blockers.push(`harm-repair progress 停滞：${progress.issues.join("; ")}`);
+		}
+		// 5. Story Movement 完整性 + Vertical blocking checks + 评审 current
+		const architecture = await this.readJsonIfExists(this.projectFile(params.projectId, "outline/story-architecture.json"), signal);
+		if (isJsonRecord(architecture) && isJsonRecord(architecture.architecture) && Array.isArray(architecture.architecture.movements)) {
+			for (const movement of architecture.architecture.movements.filter(isJsonRecord)) {
+				if (Array.isArray(movement.chapters) && movement.chapters.some((chapter) => !finalizedChapters.includes(Number(chapter)))) blockers.push(`movement ${String(movement.id)} 有未定稿章节`);
+			}
+		}
+		if (hasMystery) {
+			const designCheck = await this.checkSocialSuspenseDesign({ projectId: params.projectId }, signal);
+			for (const issue of designCheck.issues) {
+				if (issue.severity === "error") blockers.push(`vertical blocking check ${issue.code}: ${issue.message}`);
+			}
+		}
+		const manuscriptReview = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/review.json"), signal);
+		if (!isJsonRecord(manuscriptReview)) blockers.push("缺少 manuscript review；先 review_manuscript");
+		const endingContract = hasChase ? await this.readJsonIfExists(this.projectFile(params.projectId, "outline/genre/chase-wife-ending-contract.json"), signal) : undefined;
+		if (blockers.length > 0) throw new Error(`Unified manuscript finalization blocked: ${blockers.join("; ")}`);
+		// Seal：绑定章节、摘要、unified 事件图、realization、fairness、ending eligibility、评审、架构哈希。
+		const sources = await Promise.all(finalizedChapters.map(async (chapter) => {
+			const name = chapterName(chapter);
+			const content = await this.readTextIfExists(this.projectFile(params.projectId, `chapters/${name}.md`), signal);
+			const summary = await this.readJsonIfExists(this.projectFile(params.projectId, `summaries/${name}.json`), signal);
+			return { chapter, chapterHash: sha256(content ?? ""), summaryHash: isJsonRecord(summary) ? hashJson(summary) : "missing" };
+		}));
+		const seal = {
+			version: 1,
+			projectId: params.projectId,
+			status: "finalized" as const,
+			unifiedEventMapHash: eventMapHash,
+			realizationStatus: realizationHashes,
+			mysteryRealizedFairness: fairnessHash,
+			endingEligibility: endingEligibilityHash,
+			manuscriptReviewHash: isJsonRecord(manuscriptReview) ? hashStableReport(manuscriptReview) : "missing",
+			storyArchitectureHash: isJsonRecord(architecture) ? hashJson(architecture) : "missing",
+			endingContractHash: isJsonRecord(endingContract) ? hashJson(endingContract) : "n/a",
+			sources,
+			finalizedAt: new Date().toISOString(),
+		};
+		const relativePath = "evaluations/manuscript/unified-seal.json";
+		await this.writeAtomically(this.projectFile(params.projectId, relativePath), `${JSON.stringify(seal, null, 2)}\n`, signal);
+		await this.recordWorkflowOperation(params.projectId, "finalize_manuscript", "completed", [relativePath], signal);
+		return { projectId: params.projectId, status: "finalized", path: relativePath, chapters: chapterPaths.length, sealHash: hashJson(seal) };
 	}
 	private async writeTransaction(projectId: string, chapter: number, entries: Array<{ relativePath: string; content: string }>, signal?: AbortSignal): Promise<string> {
 		const transactionId = randomUUID();
