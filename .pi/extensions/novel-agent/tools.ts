@@ -82,6 +82,9 @@ import type {
 	UpdateCharacterStateParams,
 	UpdateClueLedgerParams,
 	UpdateTimelineParams,
+	ExploreStoryDirectionsParams,
+	ReviewStoryDesignParams,
+	ReviseStoryArchitectureParams,
 } from "./schemas.ts";
 import {
 	CheckContinuitySchema,
@@ -110,6 +113,9 @@ import {
 	DiagnoseChapterSchema,
 	ReviseChapterSchema,
 	ReviewManuscriptSchema,
+	ExploreStoryDirectionsSchema,
+	ReviewStoryDesignSchema,
+	ReviseStoryArchitectureSchema,
 	FinalizeManuscriptUnifiedSchema,
 	CheckProfessionalCaseSchema,
 	CheckProfessionalDomainSchema,
@@ -859,6 +865,48 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 			executionMode: "sequential",
 			async execute(_toolCallId, params: SaveStoryConceptParams, signal, _onUpdate, ctx) {
 				const result = await getStore(ctx.cwd).developStoryConcept(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "explore_story_directions",
+			label: "Explore Story Directions",
+			description: "From a premise or seed only, generate multiple truly different story directions (logline, central mystery, social mechanism, relationship fault line, spouse core belief, professional dependency, dilemma, cost, climax idea, ending shape). Candidates must differ on several core dimensions; rename-only pseudo-candidates are rejected. Saves the candidate set and optional dimension comparison; system recommendation is never author confirmation.",
+			parameters: ExploreStoryDirectionsSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: ExploreStoryDirectionsParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).exploreStoryDirections(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "review_story_design",
+			label: "Review Story Design",
+			description: "Pre-draft design review (P0-P4): merges model findings with deterministic checks over the foundation link map, promise ledger, ending prerequisites, character decision models, mystery proof-first design, architecture candidates, and (when present) anchor spine / causal links / promise traces / questions / pressure. Writes work/authoring/story-design-review.json. Never mixes prose style into the design review.",
+			parameters: ReviewStoryDesignSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: ReviewStoryDesignParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).reviewStoryDesign(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+
+	pi.registerTool(
+		defineTool({
+			name: "revise_story_architecture",
+			label: "Revise Story Architecture",
+			description: "Apply a scoped ArchitectureRevisionPlan: modify target movements, anchors, reframes, ending prerequisites, or decision chains without regenerating the whole architecture. Versioned writes keep revision lineage. Any goal that changes Mystery Truth, Marriage Canon, the Professional Model, Chase Harm/Repair, or the Ending Contract is blocked with FOUNDATION_REVISION_REQUIRED: foundation authorities must go through develop_story_bible.",
+			parameters: ReviseStoryArchitectureSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: ReviseStoryArchitectureParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).reviseStoryArchitecture(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
 		}),

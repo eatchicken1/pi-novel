@@ -1,9 +1,13 @@
 // Author Workflow Service：编排能力层，不复制任何引擎事实。
+import type { RepairabilityInfo } from "./story-design.ts";
+
 export type AuthoringPhase =
 	| "idea"
+	| "direction"
 	| "concept"
 	| "foundation"
 	| "architecture"
+	| "design-review"
 	| "event-design"
 	| "chapter-planning"
 	| "drafting"
@@ -16,14 +20,14 @@ export type AuthoringPhase =
 export type WorkflowStatus = "ready" | "completed" | "blocked" | "needs-review";
 export interface WorkflowBlocker { code: string; message: string; source?: string }
 export interface WorkflowNextAction { tool: string; reason: string; chapter?: number }
-export interface WorkflowResult { projectId: string; workflowPhase: AuthoringPhase; status: WorkflowStatus; createdArtifacts: string[]; updatedArtifacts: string[]; reports: string[]; blockers: WorkflowBlocker[]; warnings: string[]; confirmationRequired?: boolean; awaitingConfirmation?: string[]; recommendedNextActions: WorkflowNextAction[]; }
-export interface WorkflowFacts { hasConcept: boolean; hasFoundation: boolean; hasArchitecture: boolean; hasEventGraph: boolean; hasPlanForNext: boolean; hasDraftForNext: boolean; hasDiagnosisForNext: boolean; diagnosisHasBlockers: boolean; allChaptersFinalized: boolean; hasManuscriptReview: boolean; hasUnifiedSeal: boolean; nextChapter: number; foundationMissing: string[]; foundationBlockers: string[]; eventGraphBlockers: string[]; chapterBlockers: number[]; }
+export interface WorkflowResult { projectId: string; workflowPhase: AuthoringPhase; status: WorkflowStatus; createdArtifacts: string[]; updatedArtifacts: string[]; reports: string[]; blockers: WorkflowBlocker[]; warnings: string[]; confirmationRequired?: boolean; awaitingConfirmation?: string[]; recommendedNextActions: WorkflowNextAction[]; repairability?: RepairabilityInfo; }
+export interface WorkflowFacts { hasConcept: boolean; hasDirections: boolean; hasFoundation: boolean; hasArchitecture: boolean; hasDesignReview: boolean; hasDesignBlockers: boolean; hasEventGraph: boolean; hasPlanForNext: boolean; hasDraftForNext: boolean; hasDiagnosisForNext: boolean; diagnosisHasBlockers: boolean; allChaptersFinalized: boolean; hasManuscriptReview: boolean; hasUnifiedSeal: boolean; nextChapter: number; foundationMissing: string[]; foundationBlockers: string[]; eventGraphBlockers: string[]; chapterBlockers: number[]; }
 
 export function computeAuthoringPhase(facts: WorkflowFacts): AuthoringPhase {
-	if (!facts.hasConcept) return "idea";
+	if (!facts.hasConcept) return facts.hasDirections ? "direction" : "idea";
 	if (!facts.hasFoundation || facts.foundationMissing.length > 0) return "concept";
 	if (!facts.hasArchitecture) return "foundation";
-	if (!facts.hasEventGraph) return "architecture";
+	if (!facts.hasEventGraph) return facts.hasDesignReview ? "design-review" : "architecture";
 	if (!facts.hasPlanForNext) return "event-design";
 	if (!facts.hasDraftForNext) return "chapter-planning";
 	if (facts.diagnosisHasBlockers) return "local-revision";
@@ -39,10 +43,13 @@ export function computeFoundationReadiness(facts: WorkflowFacts): { ready: boole
 
 export function computeRecommendedNextActions(facts: WorkflowFacts): WorkflowNextAction[] {
 	const actions: WorkflowNextAction[] = [];
-	if (!facts.hasConcept) return [{ tool: "develop_story_concept", reason: "先从一个模糊创意发展成可继续开发的故事概念" }];
+	if (!facts.hasConcept) return facts.hasDirections
+		? [{ tool: "develop_story_concept", reason: "方向已探索；从选定/推荐方向构建故事概念（作者确认选择或接受系统推荐）" }]
+		: [{ tool: "develop_story_concept", reason: "先从一个模糊创意发展成可继续开发的故事概念；只有一句 premise 时可先 explore_story_directions" }];
 	if (!facts.hasFoundation || facts.foundationMissing.length > 0 || facts.foundationBlockers.length > 0) return [{ tool: "develop_story_bible", reason: "故事概念需要发展成 proposed foundation（不会自动确认 canon）" }];
-	if (!facts.hasArchitecture) return [{ tool: "design_story_architecture", reason: "foundation 已就绪，设计全书宏观结构" }];
-	if (!facts.hasEventGraph) return [{ tool: "build_narrative_event_graph", reason: "架构已就绪，构建全书 unified 事件图" }];
+	if (!facts.hasArchitecture) return [{ tool: "design_story_architecture", reason: "foundation 已就绪，设计全书宏观结构（可先生成 2-3 个 candidate 再比较）" }];
+	if (facts.hasDesignReview && facts.hasDesignBlockers) return [{ tool: "revise_story_architecture", reason: "设计评审存在 P0 问题；按 ArchitectureRevisionPlan 局部修订架构" }];
+	if (!facts.hasEventGraph) return [{ tool: "build_narrative_event_graph", reason: "架构已就绪，构建全书 unified 事件图（先 Anchor Spine 再扩展）" }];
 	if (!facts.hasPlanForNext) return [{ tool: "plan_chapter", reason: "事件图已就绪，规划下一章", chapter: facts.nextChapter }];
 	if (!facts.hasDraftForNext) return [{ tool: "draft_chapter", reason: "章节计划已就绪，起草本章", chapter: facts.nextChapter }];
 	if (facts.chapterBlockers.includes(facts.nextChapter)) return [{ tool: "revise_chapter", reason: "本章存在 P0 阻塞问题，先修订", chapter: facts.nextChapter }];

@@ -5,6 +5,8 @@
 ## 全局规则
 
 - 作者拥有最终决策权。作者事实、AI 提案、未决方案、已否决方案和已确认正史必须分开保存。
+- Story Design 原则：先设计核心因果再扩展事件数量；Ending/Truth/Character Choice 反向约束前文；Mystery/Marriage/Chase/Professional/Social 从 Foundation 阶段建立交叉因果（Foundation Link Map），不是最后拼装；候选方案可以多份，最终 story authority 只有一份；系统推荐 ≠ 作者确认（USER_CONFIRMED 不得被伪造）；不写“好故事得分 92”——模型负责创意判断，deterministic checker 负责引用/因果/覆盖/一致性/状态/证据/生命周期。
+- 设计层产物（work/authoring/ 下的 directions/promises/links/ending/decisions/candidates/reviews/analysis）是 proposal 或 analysis，不是 authority；被淘汰候选不写入 canon。
 - 只有作者确认的内容才能进入 canon、Story Bible、人物状态、时间线和定稿正文。提案、草稿、评审报告和参考材料不是正史。
 - 先解决故事方向、因果结构、人物动机、场景功能和信息释放，再处理语言、标点和错字。
 - 工具负责确定性读写、路径安全、版本绑定、状态迁移、质量门和事务恢复；模型负责创意、正文、语义判断和修改建议。
@@ -15,15 +17,20 @@
 
 默认优先使用上层 Author Workflow Tools；底层 capability tools 是高级控制面（debugging / manual override / expert planning / workflow repair 时使用）。
 
-新故事：
+新故事（Story Design Intelligence，context-aware 可跳过已明确的步骤）：
 
 ```
 initialize_novel
-→ develop_story_concept        （模糊创意 → 可评审的故事概念）
-→ develop_story_bible           （proposed foundation：mystery/marriage/professional/chase/social design/人物画像；不自动确认 canon）
-→ design_story_architecture     （movements / reframes / false model / dilemmas / climax / ending）
-→ build_narrative_event_graph   （全书 unified 事件图；缺引擎引用必须显式补齐，不得静默创建）
+→ explore_story_directions        （只有 premise 时：多个真正不同的方向 + 比较；作者确认或系统推荐）
+→ develop_story_concept           （模糊创意 → 可评审的故事概念；可引用 selectedDirectionId）
+→ develop_story_bible             （proposed foundation：mystery/marriage/professional/chase/social design/人物画像；不自动确认 canon；同时可提交 Foundation Link Map / Promise Ledger / Ending Architecture / Character Decisions / Mystery candidates）
+→ design_story_architecture       （movements / reframes / false model / dilemmas / climax / ending；可先提交 2-3 个 candidate 再比较）
+→ review_story_design             （PRE-DRAFT 设计评审 P0-P4：Foundation 交叉因果 / Promise / Ending 回推 / 角色决策 / 因果与压力）
+→ revise_story_architecture       （如需要：局部修订 + 版本 lineage；改 Truth/Canon 会被 FOUNDATION_REVISION_REQUIRED 拦截）
+→ build_narrative_event_graph     （先 Anchor Spine 再扩展全书 unified 事件图；缺引擎引用必须显式补齐，不得静默创建）
 ```
+
+作者已明确人物/结局/案件时可以跳过 explore_story_directions 与评审。设计阶段不写正文（最多极短示意）。
 
 写章节：
 
@@ -48,7 +55,7 @@ review_manuscript   （全书级结构评审，不是逐章诊断之和）
 
 ## 三层 Tool Architecture
 
-- Layer A — Author Workflow Tools（默认）：initialize_novel / get_novel_status / develop_story_concept / develop_story_bible / design_story_architecture / build_narrative_event_graph / plan_chapter / draft_chapter / diagnose_chapter / revise_chapter / review_manuscript / finalize_chapter / finalize_manuscript / export_manuscript / read_story_context。
+- Layer A — Author Workflow Tools（默认）：initialize_novel / get_novel_status / explore_story_directions / develop_story_concept / develop_story_bible / design_story_architecture / review_story_design / revise_story_architecture / build_narrative_event_graph / plan_chapter / draft_chapter / diagnose_chapter / revise_chapter / review_manuscript / finalize_chapter / finalize_manuscript / export_manuscript / read_story_context。
 - Layer B — Capability / Expert Tools（全部保留，[ADVANCED] 语义）：save/check_mystery_*、save/check_mature_marriage_*、save/check_professional_*、chase-wife validators、save/check_social_suspense_design、check_character_complexity、check_vertical_story_quality、save/check_unified_*、save/check_narrative_realization、check_mystery_realized_fairness 等。专家调试时直接调用；上层 workflow tool 是 orchestrator，不是 bypass——不得绕过 Professional authority / Mystery fairness / Unified validation / USER_CONFIRMED。
 - Layer C — Primitive / Artifact Operations：write/read、revision、hash、assembly、context、canon、transaction。
 
