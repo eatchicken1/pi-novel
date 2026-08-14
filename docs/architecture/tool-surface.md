@@ -1,14 +1,17 @@
-# Tool Surface（Round 7）
+# Tool Surface（Round 8）
 
 ## DEFAULT AUTHOR TOOLS
 
 PROJECT: initialize_novel, get_novel_status
+DIRECT: explore_story_directions
 DEVELOP: develop_story_concept, develop_story_bible
-ARCHITECT: design_story_architecture, build_narrative_event_graph
+ARCHITECT: design_story_architecture, review_story_design, revise_story_architecture, build_narrative_event_graph
 WRITE: plan_chapter, draft_chapter
 REVISE: diagnose_chapter, revise_chapter, review_manuscript
 FINALIZE: finalize_chapter, finalize_manuscript, export_manuscript
 UTILITY: read_story_context
+
+Round 8 新增三个 Author Tool：explore_story_directions（premise → 多个真正不同的方向）、review_story_design（PRE-DRAFT 设计评审 P0-P4）、revise_story_architecture（局部架构修订 + 版本 lineage + foundation 保护）。其余为升级：develop_story_concept 支持 direction selection（作者确认与系统推荐严格区分）、develop_story_bible 支持 Foundation Link Map / Promise Ledger / Ending Architecture / Character Decisions / Mystery candidates、design_story_architecture 支持 2-3 个 architecture candidates、build_narrative_event_graph 走 Anchor Spine 管道、plan_chapter 消除占位、draft_chapter 输出 repairability 分类。
 
 ## ADVANCED CAPABILITY TOOLS
 

@@ -1,8 +1,10 @@
 # Final Story Engine（多引擎约束驱动的小说生成系统）
 
-> Round 7 状态：Vertical Reference Stack 当前围绕女性社会派悬疑（FSS × 熟龄婚姻 × Chase Wife × 保险反欺诈）深化。新的事件权威是 Unified Narrative Event；Chase Wife 事件流水线降级为 compatibility mode。垂直智能见 docs/genre/female-social-suspense-vertical-engine.md 与 docs/genre/female-social-suspense-quality-model.md。
+> Round 8 状态：Vertical Reference Stack 当前围绕女性社会派悬疑（FSS × 熟龄婚姻 × Chase Wife × 保险反欺诈）深化。新的事件权威是 Unified Narrative Event；Chase Wife 事件流水线降级为 compatibility mode。垂直智能见 docs/genre/female-social-suspense-vertical-engine.md 与 docs/genre/female-social-suspense-quality-model.md。
 >
 > 工具体系分为三层：Author Workflow Layer（默认创作流程，见 docs/authoring/ 与 docs/architecture/tool-surface.md）→ Capability Layer（各引擎专家工具，全部保留）→ Artifact / Runtime Layer（读写/修订/哈希/装配/上下文/canon/事务）。SYSTEM.md 已按作者工作流重构。
+>
+> Round 8 新增 Story Design Intelligence 层：从“会编排创作流程”升级为“真正会设计故事”。premise → 方向探索 → 概念 → Foundation 合成（交叉因果）→ Ending 反向设计 → 角色决策 → Anchor Spine → 架构候选与评审 → 因果事件图。详见 docs/authoring/story-design-intelligence.md 及 docs/authoring/{story-direction-exploration,ending-backward-design,causal-story-architecture,story-design-review}.md。设计层产物全部为 proposal/analysis（work/authoring/，作者私有），不构成新的 story authority。
 
 ## 架构总览
 
