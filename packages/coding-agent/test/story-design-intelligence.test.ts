@@ -1631,11 +1631,25 @@ describe("story design intelligence", () => {
 			const graph = await store.buildNarrativeEventGraph({
 				projectId,
 				events: eventGraph(),
+				causalLinks: [
+					{ fromEventId: 1, toEventId: 2, relation: "causes" },
+					{ fromEventId: 2, toEventId: 3, relation: "enables" },
+					{ fromEventId: 3, toEventId: 4, relation: "reveals" },
+					{ fromEventId: 4, toEventId: 5, relation: "escalates" },
+				],
 				narrativeQuestions: [],
 			});
 			expect(graph.status, JSON.stringify(graph)).toBe("completed");
 			expect(graph.warnings.some((warning) => warning.includes("EVENT_FILLER_RISK"))).toBe(true);
 			expect(graph.fillerRisks).toBeGreaterThan(0);
+			// Round 9：causalLinks 缺失时不再大量误报，只报 CAUSAL_ANALYSIS_INCOMPLETE。
+			const incomplete = await store.buildNarrativeEventGraph({
+				projectId,
+				events: eventGraph(),
+				narrativeQuestions: [],
+			});
+			expect(incomplete.warnings.some((warning) => warning.includes("CAUSAL_ANALYSIS_INCOMPLETE"))).toBe(true);
+			expect(incomplete.warnings.some((warning) => warning.includes("EVENT_FILLER_RISK"))).toBe(false);
 		});
 	});
 
