@@ -493,6 +493,19 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 	);
 	pi.registerTool(
 		defineTool({
+			name: "check_mystery_realized_fairness",
+			label: "Check Realized Mystery Fairness",
+			description: "Check fairness against actual prose realization: a claim is only fairly revealed when at least one proof path has every clue and prerequisite claim actually realized in prose (unified events or realization records) at or before the actual reveal chapter, per reader and heroine audience. Planned chapters are never used.",
+			parameters: CheckMysteryFairnessSchema,
+			executionMode: "sequential",
+			async execute(_toolCallId, params: CheckMysteryFairnessParams, signal, _onUpdate, ctx) {
+				const result = await getStore(ctx.cwd).checkMysteryRealizedFairness(params, signal);
+				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
 			name: "save_mature_marriage_structure",
 			label: "Save Mature Marriage Structure",
 			description: "Save the structural entanglement model of a mature marriage (economic unit, care responsibilities, decision rights, social ties, inertia, exit constraints) as proposed or user-confirmed canon. Only available for projects with the mature-marriage-crisis relationship mechanism; reader-sim never reads it.",

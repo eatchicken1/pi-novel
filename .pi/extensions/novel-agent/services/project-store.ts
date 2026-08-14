@@ -104,6 +104,7 @@ import { checkProfessionalCase, checkProfessionalDomain, isProfessionalPrivatePa
 import { checkUnifiedEventMap, collisionStats, isUnifiedPrivatePath, type UnifiedCapabilities, type UnifiedIssue, type UnifiedReferenceSets } from "./unified-event-checker.ts";
 import { checkNarrativeRealizations, collectPlannedRealizations, type PlannedRealization, type RealizationIssue } from "./realization-checker.ts";
 import { checkStoryDistinctiveness, distinctivenessStats, type DistinctivenessIssue } from "./distinctiveness-checker.ts";
+import { checkRealizedFairness, type RealizedFairnessIssue } from "./realized-fairness-checker.ts";
 
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DOCUMENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
@@ -3741,6 +3742,27 @@ export class NovelProjectStore {
 		const reportPath = `continuity/reports/distinctiveness-${scope}.json`;
 		await this.writeVersionedJsonReport(params.projectId, reportPath, report, signal);
 		return { projectId: params.projectId, chapter: params.chapter, status, issues, verdict: profile?.verdict, stats, path: reportPath };
+	}
+	async checkMysteryRealizedFairness(params: CheckMysteryFairnessParams, signal?: AbortSignal): Promise<{ projectId: string; verdict: "fair" | "needs-work" | "unfair"; status: "ok" | "warning" | "error"; issues: RealizedFairnessIssue[]; supportedFinalClaims: string[]; unsupportedFinalClaims: Array<{ claimId: string; reason: string }>; proofCoverage: Record<string, { audience: "reader" | "heroine"; revealChapter?: number; completePaths: number; totalPaths: number; blockedPaths: Array<{ pathId: string; reason: string }> }>; path: string }> {
+		await this.ensureMysteryProject(params.projectId, signal);
+		const caseData = await this.readMysteryCase(params.projectId, signal);
+		const clues = await this.readMysteryClues(params.projectId, signal);
+		const unifiedMap = await this.readUnifiedEventMap(params.projectId, signal);
+		const realizationPaths = (await this.listFiles(this.projectFile(params.projectId, "continuity/realizations"), signal)).filter((path) => /chapter-\d+\.json$/u.test(path));
+		const realizations: Array<{ chapter: number; records: NarrativeRealizationRecord[] }> = [];
+		for (const path of realizationPaths) {
+			const match = path.match(/chapter-(\d+)\.json$/u);
+			if (match === null) continue;
+			const value = await this.readJsonIfExists(path, signal);
+			if (!isJsonRecord(value) || !Array.isArray(value.records)) continue;
+			realizations.push({ chapter: Number(match[1]), records: value.records.filter(isJsonRecord) as unknown as NarrativeRealizationRecord[] });
+		}
+		const result = checkRealizedFairness({ caseData, clues, unifiedMap, realizations });
+		const status = (result.verdict === "fair" ? "ok" : result.verdict === "needs-work" ? "warning" : "error") as "ok" | "warning" | "error";
+		const report = { version: 1, projectId: params.projectId, verdict: result.verdict, status, issues: result.issues, supportedFinalClaims: result.supportedFinalClaims, unsupportedFinalClaims: result.unsupportedFinalClaims, proofCoverage: result.proofCoverage, sourceHashes: [caseData, clues, unifiedMap, realizations].map(hashJson), generatedAt: new Date().toISOString() };
+		const relativePath = "continuity/reports/mystery-realized-fairness.json";
+		await this.writeVersionedJsonReport(params.projectId, relativePath, report, signal);
+		return { projectId: params.projectId, ...result, status, path: relativePath };
 	}
 	private async writeTransaction(projectId: string, chapter: number, entries: Array<{ relativePath: string; content: string }>, signal?: AbortSignal): Promise<string> {
 		const transactionId = randomUUID();
