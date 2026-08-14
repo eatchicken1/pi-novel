@@ -9,6 +9,7 @@
 - Story Design 原则：先设计核心因果再扩展事件数量；Ending/Truth/Character Choice 反向约束前文；Mystery/Marriage/Chase/Professional/Social 从 Foundation 阶段建立交叉因果（Foundation Link Map），不是最后拼装；候选方案可以多份，最终 story authority 只有一份；系统推荐 ≠ 作者确认（USER_CONFIRMED 不得被伪造）；不写“好故事得分 92”——模型负责创意判断，deterministic checker 负责引用/因果/覆盖/一致性/状态/证据/生命周期。
 - 设计层产物（work/authoring/ 下的 directions/promises/links/ending/decisions/candidates/reviews/analysis）是 proposal 或 analysis，不是 authority；被淘汰候选不写入 canon。
 - 只有作者确认的内容才能进入 canon、Story Bible、人物状态、时间线和定稿正文。提案、草稿、评审报告和参考材料不是正史。
+- Narrative Memory 是派生视图，不是第二权威：全部台账（知识/关系/物件/线程/伏笔/事实/时间线/专业/谜题/弧光）由正史推导并带 sourceHashes，源一变即 stale；stale 只能 repair_narrative_memory 重建，禁止手改台账。finalize_chapter 提交章节内存；提交失败只标记 memoryOutOfDate，不回滚定稿。
 - 先解决故事方向、因果结构、人物动机、场景功能和信息释放，再处理语言、标点和错字。
 - 工具负责确定性读写、路径安全、版本绑定、状态迁移、质量门和事务恢复；模型负责创意、正文、语义判断和修改建议。
 - Reader Simulation 不得读取作者保密信息（mystery/marriage/professional/unified/vertical design/concept/architecture/诊断均不读取）。
@@ -40,8 +41,10 @@ plan_chapter      （自动选择相关 refs，生成 plan + scene contracts）
 → draft_chapter   （自动完成事件草稿 → 机械检查 → 语义报告 → 装配；绝不自动 finalize）
 → diagnose_chapter（编辑式 P0-P4 诊断，聚合去重）
 → revise_chapter  （RevisionPlan → 局部修订 → 重跑受影响门禁；不伪造 realization）
-→ realization → review → finalize_chapter
+→ realization → review → finalize_chapter（提交章节内存 delta + 重派生台账）
 ```
+
+跨章节写作先 compileAuthoringContext（任务感知 MUST/SHOULD/OPTIONAL + 预算 + 可解释 sourceRefs；读者模拟有硬边界，作者私密工件一律不进）；看到 CONTEXT_SOURCE_STALE 先 repair_narrative_memory 再写。
 
 全书：
 
@@ -52,11 +55,13 @@ review_manuscript   （全书级结构评审，不是逐章诊断之和）
 → export_manuscript
 ```
 
-`get_novel_status` 动态计算当前创作阶段与 recommended next actions；状态从实际 artifact 计算，不复制引擎事实。
+`continue_novel` 一次只走一步：遇需要确认的动作（canon/ending/重大结构）、P0 阻断、重大设计决策或权威变更立即停下返回；遇 finalize/export 而内存不 current 时先要求 repair。
+
+`get_novel_status` 动态计算当前创作阶段、内存状态（missing/current/stale）、连续性诊断与 recommended next actions；状态从实际 artifact 计算，不复制引擎事实。
 
 ## 三层 Tool Architecture
 
-- Layer A — Author Workflow Tools（默认）：initialize_novel / get_novel_status / explore_story_directions / develop_story_concept / develop_story_bible / design_story_architecture / review_story_design / revise_story_architecture / build_narrative_event_graph / plan_chapter / draft_chapter / diagnose_chapter / revise_chapter / review_manuscript / finalize_chapter / finalize_manuscript / export_manuscript / read_story_context。
+- Layer A — Author Workflow Tools（默认）：initialize_novel / get_novel_status / explore_story_directions / develop_story_concept / develop_story_bible / design_story_architecture / review_story_design / revise_story_architecture / build_narrative_event_graph / plan_chapter / draft_chapter / diagnose_chapter / revise_chapter / review_manuscript / finalize_chapter / finalize_manuscript / export_manuscript / read_story_context / compileAuthoringContext / continue_novel / repair_narrative_memory / analyze_revision_impact（后三者分别默认 / recovery / advanced）。
 - Layer B — Capability / Expert Tools（全部保留，[ADVANCED] 语义）：save/check_mystery_*、save/check_mature_marriage_*、save/check_professional_*、chase-wife validators、save/check_social_suspense_design、check_character_complexity、check_vertical_story_quality、save/check_unified_*、save/check_narrative_realization、check_mystery_realized_fairness 等。专家调试时直接调用；上层 workflow tool 是 orchestrator，不是 bypass——不得绕过 Professional authority / Mystery fairness / Unified validation / USER_CONFIRMED。
 - Layer C — Primitive / Artifact Operations：write/read、revision、hash、assembly、context、canon、transaction。
 
@@ -69,7 +74,8 @@ review_manuscript   （全书级结构评审，不是逐章诊断之和）
 - chase-wife → 加载 `genre-chase-wife` Skill。
 - insurance-fraud-investigation → 加载 `domain-insurance-fraud-investigation` Skill。
 - 写章节前 → `novel-chapter-planning` Skill（Goal/Obstacle/Change/Exit Pressure/Information Control/Scene Rhythm）。
-- 修订与诊断 → `novel-revision` Skill（structural/chapter/prose revision + diagnosis priority）。
+- 修订与诊断 → `novel-revision` Skill（structural/chapter/prose revision + diagnosis priority + 修订影响分析）。
+- 长篇连载 → `novel-long-form` Skill（Narrative Memory 派生台账 / 长文连续性检查 / 任务感知上下文 / 修订影响分析 / 定稿门禁）。
 
 SKILL = KNOWLEDGE / METHOD（方法论 + invariants + 资源导航）；TOOL = ACTION / STATE TRANSITION（取 context → 应用 skill → 产生 artifact → 验证 → 保存）。Skill 不承担 tool orchestration 教程。
 

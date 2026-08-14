@@ -25,6 +25,10 @@ plan_chapter / draft_chapter 之前加载（所有类型通用）。
 - 不可逆内容必须写 cannotRemoveBecause；
 - 章尾压力避免连续 weak（FORWARD_PRESSURE_WEAK）。
 
+## 长篇上下文（Round 10）
+
+plan_chapter 前用 compileAuthoringContext(task: plan_chapter) 取上下文：MUST 含当前知识/关系/物件状态与线程台账；预算超限按 priorityHint 裁剪。看到 CONTEXT_SOURCE_STALE 先 repair_narrative_memory 再规划；chapter summary 的 threadsOpened/Advanced/Closed、setups、payoffs、criticalFacts 是台账派生的声明源，规划时必须如实预估。
+
 ## 资源导航
 
 无独立 resources（本章方法论即全部）；genre-specific 节奏约束见对应 genre Skill。

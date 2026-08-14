@@ -40,3 +40,13 @@ review_manuscript 针对全书结构（movements / second act / professional 连
 - dialogue-revision.md：对话修订（Round 9）
 - exposition-revision.md：信息投放修订（Round 9）
 - voice-revision.md：声音修订（Round 9）
+- long-form-impact-analysis.md：修订影响分析（Round 10：analyze_revision_impact 四档 severity）
+- structural-surgery.md：结构手术（Round 10）
+- downstream-revision.md：下游重审（Round 10：knowledgeChanges 波及章节）
+- fact-preservation.md：事实保全（Round 10：criticalFacts / PROSE_REVISION_CHANGED_FACT）
+
+## 长篇修订流程（Round 10）
+
+1. 先 analyze_revision_impact（changedChapter / changedEventIds / knowledgeChanges / truthChanges）定 severity；
+2. safe-local → 直接 revise_chapter；downstream-review → 修订 + 重审 affectedChapters；structural-revision → 结构手术；authority-change → 修订后 repair_narrative_memory 全量重建；
+3. 修订后重跑 affected 门禁 + checkLongFormContinuity；定稿前 finalize_manuscript_unified 会审计内存状态与悬空线程/伏笔。

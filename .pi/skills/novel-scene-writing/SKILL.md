@@ -29,6 +29,10 @@ SceneDesign：scenePurpose（kind+description）/ eventIds / povCharacterId / lo
 - 场景结束必须改变 knowledge/belief/decision/relationship/risk/resource/authority/goal/strategy/emotion/question 之一；
 - 低价值事件用 compressed/summary，重大事件不得 summary（SCENE_UNDERDRAMATIZED）。
 
+## 长篇上下文（Round 10）
+
+draft 前读当前知识/关系/物件状态（KnowledgeLedger / RelationshipStateSnapshot / NarrativeObjectLedger，经 compileAuthoringContext 编译）：场景内"谁知道什么"必须与台账一致，物件持有者不得与 OBJECT_HOLDER_CONTRADICTION 冲突；场景内状态变化（knowledge/belief/relationship/resource/object）要在 chapter summary 中如实声明，否则台账派生会漏。
+
 ## 资源导航
 
 - scene-construction.md：目标/阻力/策略/beat
