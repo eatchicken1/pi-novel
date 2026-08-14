@@ -32,7 +32,11 @@ review_manuscript 针对全书结构（movements / second act / professional 连
 
 ## 资源导航
 
-- `resources/diagnosis-priority.md`：P0-P4 分类与聚合规则。
-- `resources/structural-revision.md`：全书级结构修订。
-- `resources/chapter-revision.md`：章节级局部修订。
-- `resources/prose-revision.md`：文面修订与 AI 痕迹。
+- diagnosis-priority.md：P0-P4 优先级
+- structural-revision.md：结构修订
+- chapter-revision.md：章节修订
+- prose-revision.md：正文修订
+- scene-revision.md：场景修订（Round 9：Beat → Scene → Event → Chapter 范围）
+- dialogue-revision.md：对话修订（Round 9）
+- exposition-revision.md：信息投放修订（Round 9）
+- voice-revision.md：声音修订（Round 9）

@@ -1,4 +1,4 @@
-# Chapter Workflow（plan_chapter / draft_chapter）
+# Chapter Workflow（Round 9）（plan_chapter / draft_chapter）
 
 ## plan_chapter
 
@@ -17,3 +17,7 @@
 ## 上下文
 
 chapter-planning / chapter-drafting / chapter-diagnosis / chapter-revision 任务优先当前章事件与上一章结尾（Local > Global），并在预算内保留 CURRENT-EVENT 内容。
+
+## Round 9：Scene Design 展开层
+
+plan_chapter 内部：Chapter Plan → Scene Designs（`work/scene-designs/chapter-NNN.json`）→ Scene Contracts。场景有 mode（full/compressed/summary）、beat plan、turn/state change/exit pressure；draft_chapter 接受 scene semantic reports（`work/scene-semantics/`），diagnose_chapter 聚合 scene+prose 检查。详见 scene-intelligence.md / dialogue-and-subtext.md / emotional-rendering.md / information-delivery.md / prose-intelligence.md / prose-revision.md。

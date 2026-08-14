@@ -1,4 +1,4 @@
-# Revision Workflow（diagnose_chapter / revise_chapter）
+# Revision Workflow（Round 9）（diagnose_chapter / revise_chapter）
 
 ## diagnose_chapter
 
@@ -11,3 +11,7 @@
 - 重跑受影响门禁（机械检查 + 语义报告 + 装配 + 章节检查 + AI 痕迹）；
 - 不伪造 realization：草稿一变，旧记录按 hash 自然 stale，需在正文确认后重新保存；
 - 每次调用是有界尝试，不做无界循环。
+
+## Round 9：Scoped Prose Revision
+
+默认 Beat → Scene → Event → Chapter；proseGoal 驱动（tighten-scene / increase-subtext / reduce-exposition / strengthen-opposition / restore-voice / dramatize-professional-detail / strengthen-emotional-action / fix-dialogue-specificity / improve-scene-turn）。修订稿删除关键引用 → PROSE_REVISION_CHANGED_FACT（block）。详见 prose-revision.md。

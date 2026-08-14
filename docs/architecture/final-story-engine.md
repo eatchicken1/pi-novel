@@ -4,6 +4,8 @@
 >
 > 工具体系分为三层：Author Workflow Layer（默认创作流程，见 docs/authoring/ 与 docs/architecture/tool-surface.md）→ Capability Layer（各引擎专家工具，全部保留）→ Artifact / Runtime Layer（读写/修订/哈希/装配/上下文/canon/事务）。SYSTEM.md 已按作者工作流重构。
 >
+> Round 9 新增 Scene & Prose Intelligence 层：从“故事设计得好”升级为“写出来也好看”。Event ≠ Scene；Scene Design 是 planning 展开层（目标/阻力/策略/turn/状态变化/出口），正文由 Scene Semantic Report（带证据锚点）与 prose 诊断（对话/情绪/信息投放/职业细节/声音/POV）把关；prose 修订默认 Beat → Scene → Event → Chapter 且不得改变 story facts。详见 docs/authoring/{scene-intelligence,dialogue-and-subtext,emotional-rendering,information-delivery,prose-intelligence,prose-revision}.md。
+>
 > Round 8 新增 Story Design Intelligence 层：从“会编排创作流程”升级为“真正会设计故事”。premise → 方向探索 → 概念 → Foundation 合成（交叉因果）→ Ending 反向设计 → 角色决策 → Anchor Spine → 架构候选与评审 → 因果事件图。详见 docs/authoring/story-design-intelligence.md 及 docs/authoring/{story-direction-exploration,ending-backward-design,causal-story-architecture,story-design-review}.md。设计层产物全部为 proposal/analysis（work/authoring/，作者私有），不构成新的 story authority。
 
 ## 架构总览

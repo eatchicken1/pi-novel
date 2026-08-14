@@ -1,4 +1,4 @@
-# Authoring Workflow（Round 8）
+# Authoring Workflow（Round 9）
 
 ## 定位
 
@@ -11,6 +11,10 @@
 - Layer A — Author Workflow Tools（默认）：initialize_novel / get_novel_status / explore_story_directions / develop_story_concept / develop_story_bible / design_story_architecture / review_story_design / revise_story_architecture / build_narrative_event_graph / plan_chapter / draft_chapter / diagnose_chapter / revise_chapter / review_manuscript / finalize_chapter / finalize_manuscript / export_manuscript / read_story_context。
 - Layer B — Capability / Expert Tools（全部保留）：save/check_mystery_*、save/check_mature_marriage_*、save/check_professional_*、chase-wife validators、save/check_social_suspense_design、check_character_complexity、check_vertical_story_quality、save/check_unified_*、save/check_narrative_realization、check_mystery_realized_fairness 等。
 - Layer C — Primitive / Artifact Operations：write/read、revision、hash、assembly、context、canon、transaction。
+
+## Round 9：Scene & Prose Intelligence
+
+plan_chapter（Scene Designs → Scene Contracts）→ draft_chapter（Scene Semantic Reports）→ diagnose_chapter（Scene + Prose P1-P4 聚合；模型语义发现经 modelFindings）→ revise_chapter（scoped scene prose revision + fact preservation）。工具面不变：没有新增默认顶层工具（scene 检查集成进 plan_chapter / diagnose_chapter）。
 
 ## 生命周期（Round 8）
 
