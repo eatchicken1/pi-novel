@@ -20,14 +20,15 @@ PROOF / REVELATION：从怀疑升级到证明与最终揭示（finalAnswerClaimI
 
 `MysteryCase`：centralQuestion + truthSummary + truthClaims[] + finalAnswerClaimIds[] + socialCore。每条 `TruthClaim`：id、statement、category（identity/event/timeline/motive/method/access/concealment/institutional/relationship/other）、dependsOnClaimIds（允许空，不得成环）、proofRequirement、supportingClueIds、plannedRevealChapter（可选）、importance（1—5）。
 
-- claim id 唯一；dependsOn 无环（TRUTH_CLAIM_CYCLE 是 error）；finalAnswerClaimIds 必须存在（INVALID_FINAL_ANSWER_CLAIM）；最终答案或 importance ≥ 4 必须有支撑线索（UNSUPPORTED_CRITICAL_TRUTH）；
+- claim id 唯一；dependsOn 无环（TRUTH_CLAIM_CYCLE 是 error）；finalAnswerClaimIds 必须存在（INVALID_FINAL_ANSWER_CLAIM）；最终答案或 importance ≥ 4 必须有证明路径（UNSUPPORTED_CRITICAL_TRUTH）；
 - 揭示顺序由 plannedRevealChapter 表达但不机械锁死；依赖声明不应晚于其上层证明（CLUE_APPEARS_AFTER_CLAIM_REVEAL 为 warning）。
 
 ## 3. Red Herring 公平性
 
 Red Herring = 真实 observable fact + 合理但错误的 interpretation + actualImplication。
 
-- RED_HERRING_WITHOUT_FACTUAL_BASIS（error）：red-herring 缺少错误解释或实际含义（schema 已要求 observableFact 非空）；
+- RED_HERRING_WITHOUT_FACTUAL_BASIS（error）：red-herring 缺少错误解释、misleadingInterpretation 或实际含义（schema 已要求 observableFact 非空）；
+- RED_HERRING_INTERPRETATION_EQUALS_ACTUAL（error）：misleadingInterpretation 与 actualImplication 完全相同（“误导解释”实际不是误导）；
 - DEUS_EX_MACHINA_CLUE（error）：最终答案的全部支撑线索在揭示章才第一次出现（公平性要求 firstAvailableChapter < revealChapter）；结局允许 confirmation evidence，但核心推断事实不能全部最后才给。
 
 ## 4. Suspect Model
@@ -41,8 +42,9 @@ Red Herring = 真实 observable fact + 合理但错误的 interpretation + actua
 
 `MysteryInformationCheckpoint`（按章）：heroine/reader/characterKnowledge 各自的 knows/suspects/believes + newlyAvailableClueIds。
 
-- KNOW ≠ SUSPECT ≠ BELIEVE：checker 只对 knows 检查证据来源（M8 场景通过）；
-- INFO_KNOWLEDGE_BEFORE_SOURCE（error）：在最早支撑线索可用前知道声明；
+- KNOW ≠ SUSPECT ≠ BELIEVE：checker 只对 knows 检查可证明性（M8 场景通过）；
+- INFO_KNOWLEDGE_BEFORE_SOURCE（error）：heroine/reader 在“任何一条完整证明路径对该受众可见”之前知道声明（direct clue 不是唯一知识来源，派生声明经前置声明推导合法）；
+- 角色私有知识（characterKnowledge）只验证引用与顺序，不套用 heroine/reader 的证据门禁——凶手可以因亲自实施行为而提前知道真相（P4 场景）；
 - INFO_IMPLAUSIBLE_CHRONOLOGY（error）：检查点章节回退；
 - 语义合理性（解释是否合理、动机是否可信）留给后续模型语义报告，不用关键词正则伪装。
 
@@ -55,7 +57,7 @@ Red Herring = 真实 observable fact + 合理但错误的 interpretation + actua
 
 ## 7. Author Secret Boundary
 
-作者秘密 = truth model、suspect 的 actualRole/privateSecret、clue 的 actualImplication。
+作者秘密 = truth model（truthSummary/truthClaims/proofPaths）、suspect 的 actualRole/privateSecret、clue 的 actualImplication。
 
 - 文件：canon/mystery/truth-model.json、canon/mystery/suspect-model.json（confirmed）；work/mystery/*-proposed.json（候选）；
 - read_story_context：planning/chapter-writing/continuity-review 可读；reader-sim 默认只读 project + summaries，绝不读取 canon/mystery（M9 测试固化）；
@@ -77,8 +79,8 @@ Mystery 项目允许两个 ledger 并存：mystery ledger 管真相支撑语义�
 
 本轮只实现 **planned** 公平性：checker 检查设计图（线索可用章、揭示章、信息检查点）是否公平，不检查正文是否真的兑现。
 
-- MysteryClue.realizedChapter 已预留（线索真正落地正文的章）；
-- finalized prose evidence lifecycle（正文锚点绑定、realized 检查）为 Round 3 TODO，文档明确不做，不伪造没有正文锚点的 finalized fairness。
+- MysteryClue.plannedRealizationChapter 表达“计划落地正文的章”（计划语义）；
+- 真正的正文兑现必须使用 MysteryClueRealizationEvidence（chapter/eventId?/draftRevision/startChar/endChar/excerpt/contentHash），属 Phase 5 Unified Narrative Event Integration；本轮不实现 finalized fairness，不伪造没有正文锚点的兑现。
 
 ## 10. 与 Chase Wife 的组合边界
 
@@ -95,6 +97,42 @@ Mystery 项目允许两个 ledger 并存：mystery ledger 管真相支撑语义�
 - 未做多样性检查器（Phase 6）与基准作品（Phase 7）；
 - 未修改 Chase Wife 弧线与 API 命名。
 
+
+## 13. Round 2.5：Proof Path 与读者公平性硬化
+
+### Proof Path（证明路径）
+
+TruthClaim 的证明不再用 supportingClueIds.length > 0 近似，而是结构化 TruthProofPath：
+
+- Claim 的证明 = 多条 Proof Path 的 OR；
+- 单条 Path = 所有 clue AND 所有前置 claim 的 AND；
+- 例：T5 可被 P1 = C1 AND C2 AND C3 AND T2 或 P2 = C8 AND C9 证明；
+- legacy supportingClueIds（+ dependsOnClaimIds）在读取时归一化为单条路径；proofPaths 存在时是权威（兼容策略见下）。
+
+### 可见性三态（world / heroine / reader）
+
+- firstAvailableChapter：证据在故事世界里最早可能被取得；
+- heroineDiscoveryChapter（legacy：intendedDiscoveryChapter）：女主实际获得此线索的时间；
+- readerRevealChapter：读者第一次看到此线索的章节；缺失时回退到 heroine 可见章（heroine-first-person 默认，文档化）。
+
+### 公平性算法（reader proof availability）
+
+final claim 在揭示前公平 ⟺ 至少一条完整 Proof Path 的：
+
+- 所有 clue 在 readerRevealChapter 维度对读者可见（visible < revealChapter）；
+- 所有前置 claim 在该时间点也可证明（递归 isClaimProvable，环由 design checker 报告）。
+
+禁止用 firstAvailableChapter 冒充 reader 时间；揭示章缺失时输出 FAIRNESS_UNVERIFIABLE（warning，verdict = needs-work），不再猜测 latestCheckpointChapter。
+
+### 兼容策略
+
+- proofPaths 是证明的权威来源；supportingClueIds 保留为 legacy 兼容字段；
+- checker 内部统一转换为 NormalizedProofPath[]，之后只使用 Proof Path 计算；
+- 双向引用一致性：claim 证明引用不在 clue.truthClaimIds 里的线索 → CLAIM_CLUE_LINK_MISMATCH（error）；clue 声称支撑但无任何 proof path 引用的 claim → 同 code warning（red-herring 豁免）。
+
+### planned 边界
+
+本轮仍只做 planned fairness；finalized（正文锚点兑现）属 Phase 5。
 ## 12. Phase 3 接口
 
 Phase 3（Mature Marriage Crisis Engine）将新增 mechanism 值 mature-marriage-crisis 及其台账/门禁，复用：

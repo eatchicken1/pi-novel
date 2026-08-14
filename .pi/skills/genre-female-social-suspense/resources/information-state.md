@@ -15,11 +15,12 @@ newlyAvailableClueIds（本章新增可用的线索）
 
 ## 规则
 
-1. KNOW ≠ SUSPECT ≠ BELIEVE：怀疑一个声明不是知道它；checker 只对 knows 检查证据来源。
-2. 知识不能凭空出现：角色 knows 一个声明时，其最早支撑线索必须已可用（或由其他已成立声明推导）。
-3. 读者不因 Truth Model 存在而自动获得作者秘密：reader 的 knows 必须来自可观察线索。
-4. heroine 可以比 reader 多知道，也可以反过来，但必须在信息状态里说明设计依据。
-5. 检查点按章单调递增；同一声明在“可用前知道”是 error，在“怀疑但未知道”是合法状态。
+1. KNOW ≠ SUSPECT ≠ BELIEVE：怀疑一个声明不是知道它；checker 只对 knows 检查可证明性。
+2. 知识必须可证明：heroine/reader knows 一个声明时，必须存在一条完整 Proof Path 对该受众可见（direct clue 不是唯一来源——派生声明经前置声明推导合法）。
+3. 读者不因 Truth Model 存在而自动获得作者秘密：reader 的 knows 必须来自已向读者曝光的可观察线索。
+4. 角色私有知识（characterKnowledge）只验证引用与顺序，不套用 heroine/reader 的证据门禁：凶手可以因亲自实施行为而提前知道真相。
+5. heroine 可以比 reader 多知道，也可以反过来，但必须在信息状态里说明设计依据。
+6. 检查点按章单调递增；同一声明在“可用前知道”是 error，在“怀疑但未知道”是合法状态。
 
 ## Author Secret 边界
 

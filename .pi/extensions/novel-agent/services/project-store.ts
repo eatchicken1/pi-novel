@@ -920,6 +920,12 @@ export class NovelProjectStore {
 		const added = new Set<string>();
 		const addFile = async (relativePath: string, label: string): Promise<void> => {
 			if (added.has(relativePath)) return;
+			// reader-sim 硬隔离（defense-in-depth）：任何 mystery 作者规划路径都不得进入 reader 上下文，
+			// 即使未来有人修改 sections 或目录扫描逻辑，也不能泄漏 truthSummary/actualRole/privateSecret/actualImplication/proofPaths。
+			if ((params.task ?? "chapter-writing") === "reader-sim" && relativePath.includes("/mystery/")) {
+				excludedFiles.push(relativePath);
+				return;
+			}
 			const content = await this.readTextIfExists(this.projectFile(params.projectId, relativePath), signal);
 			if (content === undefined) {
 				excludedFiles.push(relativePath);

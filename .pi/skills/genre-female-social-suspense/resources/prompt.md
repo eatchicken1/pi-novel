@@ -6,7 +6,7 @@
 
 1. primaryGenre 是否为 female-social-suspense（mystery 工具只对该主题材可用）；项目是否同时含 chase-wife mechanism（正文走 chase-wife 事件级流水线，mystery 与 relationship 正交）。
 2. centralQuestion 是否具体到“时间与数字证据矛盾”这一层，而不是“谁杀了人”。
-3. 每个最终答案声明是否都有前置线索；线索是否区分 observableFact 与 interpretation。
+3. 每个最终答案声明是否都有至少一条完整 Proof Path（proofPaths 权威，supportingClueIds 仅 legacy）；线索是否区分 observableFact 与 interpretation。
 4. 红鲱鱼是否有真实事实基础 + 合理错误解释 + actualImplication。
 5. heroine/reader 的 knows 是否有证据来源；suspicion 是否被写成 knowledge。
 6. socialCore 是否在关系线之外还有独立的受益人、代价承担者与制度问题。
@@ -39,6 +39,7 @@ read_story_context(task="reader-sim") → 绝不包含作者秘密
 ## 写作约束
 
 1. 线索进入正文时是“事实落地的场景”，不是名词列表；不要用旁白宣布“这是线索”。
-2. 揭示前读者必须见过所有核心推断事实（可以误读，不能缺席）。
+2. 揭示前读者必须已经看到（readerRevealChapter 维度）所有核心推断事实（可以误读，不能缺席）；线索第 1 章存在于世界不等于读者第 1 章知道。
 3. 社会问题通过制度动作呈现：谁批了流程、谁沉默、谁担责，而不是角色嘴里的口号。
-4. 本轮不要求每章固定线索数量、固定嫌疑人数量或固定反转次数；这些是写作选择，不是门禁。
+4. 凶手等角色可以拥有私有知识（亲自实施即知道），不需要为每个角色铺设线索证据链。
+5. 本轮不要求每章固定线索数量、固定嫌疑人数量或固定反转次数；这些是写作选择，不是门禁。

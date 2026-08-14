@@ -4,10 +4,17 @@ import type {
 	MysteryInformationCheckpoint,
 	MysterySuspect,
 	TruthClaim,
+	TruthProofPath,
 } from "../schemas.ts";
 
 // Mystery Engine 确定性检查：只做逻辑、引用、因果、信息边界与公平性；
 // 不做审美偏好（嫌疑人数量、反转次数、章节线索密度等）硬性要求。
+//
+// Round 2.5 语义升级：
+// - Claim 的证明 = 多条 Proof Path 的 OR；单条 Path 内 = Clue AND 前置 Claim 的 AND；
+// - reader 公平性基于 readerRevealChapter（读者曝光），不是 firstAvailableChapter（世界存在）；
+// - 角色私有知识（含凶手）不经过 heroine/reader 的证据门禁；
+// - 派生声明（proof path 只有前置 claim）允许在无 direct clue 时被证明。
 
 export type MysteryIssueSeverity = "error" | "warning";
 
@@ -44,6 +51,74 @@ function clueMap(clues: MysteryClue[]): Map<string, MysteryClue> {
 	return new Map(clues.map((clue) => [clue.id, clue]));
 }
 
+// ---- Proof Path 归一化 ----
+// 权威来源：claim.proofPaths。若不存在，legacy supportingClueIds + dependsOnClaimIds 归一化为单一路径。
+// 空路径（既无 clue 也无前置 claim）不构成证明，直接丢弃。
+export interface NormalizedProofPath {
+	id: string;
+	clueIds: string[];
+	prerequisiteClaimIds: string[];
+}
+
+export function normalizeProofPaths(claim: TruthClaim): NormalizedProofPath[] {
+	if (claim.proofPaths !== undefined && claim.proofPaths.length > 0) {
+		return claim.proofPaths
+			.map((path) => ({ id: path.id, clueIds: path.clueIds, prerequisiteClaimIds: path.prerequisiteClaimIds }))
+			.filter((path) => path.clueIds.length > 0 || path.prerequisiteClaimIds.length > 0);
+	}
+	const clues = claim.supportingClueIds ?? [];
+	const prereqs = claim.dependsOnClaimIds ?? [];
+	return clues.length > 0 || prereqs.length > 0
+		? [{ id: `${claim.id}-legacy`, clueIds: clues, prerequisiteClaimIds: prereqs }]
+		: [];
+}
+
+// ---- 可见性模型 ----
+// world：firstAvailableChapter（证据在世界中最早存在）
+// heroine：heroineDiscoveryChapter ?? intendedDiscoveryChapter(legacy) ?? firstAvailableChapter，且不小于 firstAvailable
+// reader：readerRevealChapter ?? heroine 可见章（heroine-first-person 默认回退，文档化）
+export function resolveClueVisibility(clue: MysteryClue): { heroine: number; reader: number } {
+	const heroineDiscovery = clue.heroineDiscoveryChapter ?? clue.intendedDiscoveryChapter ?? clue.firstAvailableChapter;
+	const heroine = Math.max(clue.firstAvailableChapter, heroineDiscovery);
+	const reader = clue.readerRevealChapter ?? heroine;
+	return { heroine, reader };
+}
+
+export type MysteryAudience = "reader" | "heroine";
+
+// 递归证明解析：Claim 可证明 ⟺ 存在一条完整 Proof Path（strict=false 时 visible <= chapter；strict=true 时 visible < chapter）。
+// 环由 design checker 负责报告；解析器遇到环保守返回不可证明。
+export function isClaimProvable(
+	claimId: string,
+	chapter: number,
+	audience: MysteryAudience,
+	claimsById: Map<string, TruthClaim>,
+	cluesById: Map<string, MysteryClue>,
+	strict: boolean,
+): boolean {
+	const resolve = (id: string, visiting: Set<string>): boolean => {
+		if (visiting.has(id)) return false;
+		const claim = claimsById.get(id);
+		if (claim === undefined) return false;
+		const paths = normalizeProofPaths(claim);
+		if (paths.length === 0) return false;
+		const nextVisiting = new Set(visiting).add(id);
+		for (const path of paths) {
+			const cluesVisible = path.clueIds.every((clueId) => {
+				const clue = cluesById.get(clueId);
+				if (clue === undefined) return false;
+				const visible = audience === "reader" ? resolveClueVisibility(clue).reader : resolveClueVisibility(clue).heroine;
+				return strict ? visible < chapter : visible <= chapter;
+			});
+			if (!cluesVisible) continue;
+			const prereqsProvable = path.prerequisiteClaimIds.every((prereqId) => resolve(prereqId, nextVisiting));
+			if (prereqsProvable) return true;
+		}
+		return false;
+	};
+	return resolve(claimId, new Set());
+}
+
 function hasCycle(claims: TruthClaim[]): boolean {
 	const ids = new Set(claims.map((claim) => claim.id));
 	const visited = new Set<string>();
@@ -76,6 +151,11 @@ function checkTruthGraph(caseData: MysteryCase, claimsById: Map<string, TruthCla
 		for (const dependency of claim.dependsOnClaimIds) {
 			if (!claimsById.has(dependency)) issues.push(issue("MISSING_CLAIM_DEPENDENCY", "error", `claim "${claim.id}" depends on missing claim "${dependency}"`));
 		}
+		for (const path of claim.proofPaths ?? []) {
+			for (const prereqId of path.prerequisiteClaimIds) {
+				if (!claimsById.has(prereqId)) issues.push(issue("MISSING_CLAIM_DEPENDENCY", "error", `proof path "${path.id}" of claim "${claim.id}" references missing claim "${prereqId}"`));
+			}
+		}
 	}
 	if (hasCycle(caseData.truthClaims)) issues.push(issue("TRUTH_CLAIM_CYCLE", "error", "truth claim dependency graph contains a cycle"));
 	for (const finalId of caseData.finalAnswerClaimIds) {
@@ -84,10 +164,43 @@ function checkTruthGraph(caseData: MysteryCase, claimsById: Map<string, TruthCla
 	for (const claim of caseData.truthClaims) {
 		const isFinal = caseData.finalAnswerClaimIds.includes(claim.id);
 		const isCritical = claim.importance >= 4 || isFinal;
-		if (isCritical && claim.supportingClueIds.length === 0) {
-			issues.push(issue("UNSUPPORTED_CRITICAL_TRUTH", "error", `claim "${claim.id}" is a final answer or critical truth but has no supporting clue`));
-		} else if (!isCritical && claim.supportingClueIds.length === 0) {
-			issues.push(issue("UNSUPPORTED_TRUTH", "warning", `claim "${claim.id}" has no supporting clue; reveal must be justified by another claim`));
+		const hasProofPath = normalizeProofPaths(claim).length > 0;
+		if (isCritical && !hasProofPath) {
+			issues.push(issue("UNSUPPORTED_CRITICAL_TRUTH", "error", `claim "${claim.id}" is a final answer or critical truth but has no proof path (no clue and no prerequisite claim)`));
+		} else if (!isCritical && !hasProofPath) {
+			issues.push(issue("UNSUPPORTED_TRUTH", "warning", `claim "${claim.id}" has no proof path; reveal must be justified by another claim`));
+		}
+	}
+	return issues;
+}
+
+// ---- Claim / Clue 双向引用一致性 ----
+// source of truth：claim 侧 proofPaths（证明）；clue.truthClaimIds 是元数据。
+// 方向 1（error）：proof 引用了不在 clue.truthClaimIds 里的线索；
+// 方向 2（warning）：clue 声称支撑某 claim，但该 claim 的任何 proof path 都不引用它（red-herring 豁免：误导性线索故意指向错误方向）。
+function checkClaimClueLinks(caseData: MysteryCase, claimsById: Map<string, TruthClaim>, cluesById: Map<string, MysteryClue>): MysteryIssue[] {
+	const issues: MysteryIssue[] = [];
+	const proofClueIds = new Map<string, Set<string>>();
+	for (const claim of caseData.truthClaims) {
+		const clueIds = new Set<string>();
+		for (const path of normalizeProofPaths(claim)) for (const clueId of path.clueIds) clueIds.add(clueId);
+		proofClueIds.set(claim.id, clueIds);
+		for (const clueId of clueIds) {
+			const clue = cluesById.get(clueId);
+			if (clue === undefined) {
+				issues.push(issue("CLAIM_REFERENCES_MISSING_CLUE", "error", `claim "${claim.id}" proof references missing clue "${clueId}"`));
+			} else if (!clue.truthClaimIds.includes(claim.id)) {
+				issues.push(issue("CLAIM_CLUE_LINK_MISMATCH", "error", `claim "${claim.id}" proof uses clue "${clueId}" but the clue does not list claim "${claim.id}" in truthClaimIds`));
+			}
+		}
+	}
+	for (const clue of cluesById.values()) {
+		if (clue.clueRole === "red-herring") continue;
+		for (const claimId of clue.truthClaimIds) {
+			const proofIds = proofClueIds.get(claimId);
+			if (proofIds !== undefined && !proofIds.has(clue.id)) {
+				issues.push(issue("CLAIM_CLUE_LINK_MISMATCH", "warning", `clue "${clue.id}" lists claim "${claimId}" but no proof path of that claim references the clue`));
+			}
 		}
 	}
 	return issues;
@@ -103,8 +216,9 @@ function checkClueIntegrity(caseData: MysteryCase, claimsById: Map<string, Truth
 		for (const claimId of clue.truthClaimIds) {
 			if (!claimsById.has(claimId)) issues.push(issue("CLUE_REFERENCES_MISSING_CLAIM", "error", `clue "${clue.id}" references missing claim "${claimId}"`));
 		}
-		if (clue.firstAvailableChapter > clue.intendedDiscoveryChapter) {
-			issues.push(issue("INVALID_REVEAL_TIMING", "error", `clue "${clue.id}" becomes available in chapter ${clue.firstAvailableChapter} but is expected to be discovered in chapter ${clue.intendedDiscoveryChapter}`));
+		const discoveryChapter = clue.heroineDiscoveryChapter ?? clue.intendedDiscoveryChapter ?? clue.firstAvailableChapter;
+		if (clue.firstAvailableChapter > discoveryChapter) {
+			issues.push(issue("INVALID_REVEAL_TIMING", "error", `clue "${clue.id}" becomes available in chapter ${clue.firstAvailableChapter} before it can be discovered (chapter ${discoveryChapter})`));
 		}
 		for (const claimId of clue.truthClaimIds) {
 			const claim = claimsById.get(claimId);
@@ -112,8 +226,14 @@ function checkClueIntegrity(caseData: MysteryCase, claimsById: Map<string, Truth
 				issues.push(issue("CLUE_APPEARS_AFTER_CLAIM_REVEAL", "warning", `clue "${clue.id}" becomes available in chapter ${clue.firstAvailableChapter} after claim "${claimId}" is planned to be revealed in chapter ${claim.plannedRevealChapter}`));
 			}
 		}
-		if (clue.clueRole === "red-herring" && (clue.interpretationOptions.length === 0 || clue.actualImplication.trim().length === 0)) {
-			issues.push(issue("RED_HERRING_WITHOUT_FACTUAL_BASIS", "error", `red-herring clue "${clue.id}" must have a real observable fact, a plausible wrong interpretation, and an actual implication`));
+		if (clue.clueRole === "red-herring") {
+			const misleading = (clue.misleadingInterpretation ?? "").trim();
+			if (clue.interpretationOptions.length === 0 || clue.actualImplication.trim().length === 0 || misleading.length === 0) {
+				issues.push(issue("RED_HERRING_WITHOUT_FACTUAL_BASIS", "error", `red-herring clue "${clue.id}" must have a real observable fact, a plausible wrong interpretation (interpretationOptions / misleadingInterpretation), and an actual implication`));
+			}
+			if (misleading.length > 0 && misleading === clue.actualImplication.trim()) {
+				issues.push(issue("RED_HERRING_INTERPRETATION_EQUALS_ACTUAL", "error", `red-herring clue "${clue.id}" declares a misleading interpretation identical to its actual implication`));
+			}
 		}
 	}
 	return issues;
@@ -141,14 +261,8 @@ function checkSuspectIntegrity(caseData: MysteryCase, claimsById: Map<string, Tr
 }
 
 // ---- Information state 检查 ----
-function earliestClueAvailability(claim: TruthClaim, cluesById: Map<string, MysteryClue>): number | undefined {
-	const chapters = claim.supportingClueIds
-		.map((clueId) => cluesById.get(clueId))
-		.filter((clue): clue is MysteryClue => clue !== undefined)
-		.map((clue) => clue.firstAvailableChapter);
-	return chapters.length === 0 ? undefined : Math.min(...chapters);
-}
-
+// heroine/reader 的 knows 必须可证明（含派生推导）；
+// 任意角色（characterKnowledge）只验证引用与顺序，不要求通过故事线索获得知识（凶手可以因为亲自实施而提前知道）。
 function checkInformationState(claimsById: Map<string, TruthClaim>, cluesById: Map<string, MysteryClue>, checkpoints: MysteryInformationCheckpoint[]): MysteryIssue[] {
 	const issues: MysteryIssue[] = [];
 	let previousChapter = 0;
@@ -160,24 +274,24 @@ function checkInformationState(claimsById: Map<string, TruthClaim>, cluesById: M
 		for (const clueId of checkpoint.newlyAvailableClueIds) {
 			if (!cluesById.has(clueId)) issues.push(issue("INFO_INVALID_ID", "error", `checkpoint "${checkpoint.id}" references missing clue "${clueId}"`));
 		}
-		const states = [
-			{ label: `checkpoint ${checkpoint.id} heroine`, state: checkpoint.heroine },
-			{ label: `checkpoint ${checkpoint.id} reader`, state: checkpoint.reader },
-			...checkpoint.characterKnowledge.map((item) => ({ label: `checkpoint ${checkpoint.id} character ${item.characterId}`, state: item })),
+		const audienceStates = [
+			{ label: `checkpoint ${checkpoint.id} heroine`, audience: "heroine" as const, state: checkpoint.heroine },
+			{ label: `checkpoint ${checkpoint.id} reader`, audience: "reader" as const, state: checkpoint.reader },
 		];
-		for (const { label, state } of states) {
+		for (const { label, audience, state } of audienceStates) {
 			for (const claimId of [...state.knowsClaimIds, ...state.suspectsClaimIds, ...state.believesClaimIds]) {
 				if (!claimsById.has(claimId)) issues.push(issue("INFO_INVALID_ID", "error", `${label} references missing claim "${claimId}"`));
 			}
 			for (const claimId of state.knowsClaimIds) {
-				const claim = claimsById.get(claimId);
-				if (claim === undefined) continue;
-				const earliest = earliestClueAvailability(claim, cluesById);
-				if (earliest !== undefined && checkpoint.afterChapter < earliest) {
-					issues.push(issue("INFO_KNOWLEDGE_BEFORE_SOURCE", "error", `${label} knows claim "${claimId}" at chapter ${checkpoint.afterChapter} before its earliest supporting clue is available at chapter ${earliest}`));
-				} else if (earliest === undefined && claim.supportingClueIds.length === 0) {
-					issues.push(issue("INFO_KNOWLEDGE_BEFORE_SOURCE", "error", `${label} knows claim "${claimId}" but the claim has no supporting clue anywhere in the plan`));
+				if (!claimsById.has(claimId)) continue;
+				if (!isClaimProvable(claimId, checkpoint.afterChapter, audience, claimsById, cluesById, false)) {
+					issues.push(issue("INFO_KNOWLEDGE_BEFORE_SOURCE", "error", `${label} knows claim "${claimId}" at chapter ${checkpoint.afterChapter} but no complete proof path is available to the ${audience} by then (direct clues or derived claims)`));
 				}
+			}
+		}
+		for (const item of checkpoint.characterKnowledge) {
+			for (const claimId of [...item.knowsClaimIds, ...item.suspectsClaimIds, ...item.believesClaimIds]) {
+				if (!claimsById.has(claimId)) issues.push(issue("INFO_INVALID_ID", "error", `checkpoint ${checkpoint.id} character ${item.characterId} references missing claim "${claimId}"`));
 			}
 		}
 	}
@@ -205,6 +319,7 @@ export function checkMysteryDesign(
 	const cluesById = clueMap(clues);
 	return [
 		...checkTruthGraph(caseData, claimsById),
+		...checkClaimClueLinks(caseData, claimsById, cluesById),
 		...checkClueIntegrity(caseData, claimsById, clues),
 		...checkSuspectIntegrity(caseData, claimsById, cluesById, suspects),
 		...checkInformationState(claimsById, cluesById, checkpoints),
@@ -213,6 +328,8 @@ export function checkMysteryDesign(
 }
 
 // ---- Fairness 检查 ----
+// 揭示章：claim.plannedRevealChapter；缺失时取读者最早知道该 final claim 的检查点章节；两者都缺失 → FAIRNESS_UNVERIFIABLE（不猜测 latestCheckpoint）。
+// 公平性 = 至少一条完整 Proof Path 在揭示前对 reader 可见（strict：visible < revealChapter）。
 export function checkMysteryFairness(
 	caseData: MysteryCase | undefined,
 	clues: MysteryClue[],
@@ -224,38 +341,50 @@ export function checkMysteryFairness(
 	const issues: MysteryIssue[] = [];
 	const claimsById = claimMap(caseData);
 	const cluesById = clueMap(clues);
-	const latestCheckpointChapter = checkpoints.reduce((max, checkpoint) => Math.max(max, checkpoint.afterChapter), 0);
 	const supportedFinalClaims: string[] = [];
 	const unsupportedFinalClaims: UnsupportedFinalClaim[] = [];
 	const clueCoverage: Record<string, { available: number; total: number }> = {};
+	let unverifiableCount = 0;
 	for (const finalId of caseData.finalAnswerClaimIds) {
 		const claim = claimsById.get(finalId);
 		if (claim === undefined) continue;
-		const supporting = claim.supportingClueIds.map((clueId) => cluesById.get(clueId)).filter((clue): clue is MysteryClue => clue !== undefined);
-		const revealChapter = claim.plannedRevealChapter ?? latestCheckpointChapter;
-		// 公平性要求证据在揭示章之前就可用：揭示章第一次出现的证据对读者没有推断时间，视为 deus ex machina。
-		const available = supporting.filter((clue) => clue.firstAvailableChapter < revealChapter);
-		clueCoverage[finalId] = { available: available.length, total: supporting.length };
-		if (supporting.length === 0) {
-			unsupportedFinalClaims.push({ claimId: finalId, reason: "no supporting clue exists anywhere in the plan" });
-		} else if (available.length === 0) {
-			unsupportedFinalClaims.push({ claimId: finalId, reason: `all supporting clues appear no earlier than the reveal chapter ${revealChapter}` });
-			issues.push(issue("DEUS_EX_MACHINA_CLUE", "error", `final answer claim "${finalId}" can only be proven by evidence that first appears at or after the reveal chapter ${revealChapter}`));
+		const paths = normalizeProofPaths(claim);
+		const allClueIds = new Set<string>();
+		for (const path of paths) for (const clueId of path.clueIds) allClueIds.add(clueId);
+		const revealChapter = claim.plannedRevealChapter ?? checkpoints.find((checkpoint) => checkpoint.reader.knowsClaimIds.includes(finalId))?.afterChapter;
+		if (revealChapter === undefined) {
+			unverifiableCount += 1;
+			unsupportedFinalClaims.push({ claimId: finalId, reason: "no plannedRevealChapter and no checkpoint reveals this claim to the reader; fairness is unverifiable" });
+			issues.push(issue("FAIRNESS_UNVERIFIABLE", "warning", `final answer claim "${finalId}" has no planned reveal chapter and no reader-knows checkpoint; planned fairness cannot be verified`));
+			clueCoverage[finalId] = { available: 0, total: allClueIds.size };
+			continue;
+		}
+		const provableBeforeReveal = isClaimProvable(finalId, revealChapter, "reader", claimsById, cluesById, true);
+		const availableClues = [...allClueIds].filter((clueId) => {
+			const clue = cluesById.get(clueId);
+			return clue !== undefined && resolveClueVisibility(clue).reader < revealChapter;
+		}).length;
+		clueCoverage[finalId] = { available: availableClues, total: allClueIds.size };
+		if (paths.length === 0) {
+			unsupportedFinalClaims.push({ claimId: finalId, reason: "no proof path exists anywhere in the plan" });
+		} else if (!provableBeforeReveal) {
+			unsupportedFinalClaims.push({ claimId: finalId, reason: `no complete proof path is reader-visible before the reveal chapter ${revealChapter}` });
+			issues.push(issue("DEUS_EX_MACHINA_CLUE", "error", `final answer claim "${finalId}" cannot be proven by the reader before the reveal chapter ${revealChapter}; core evidence is not exposed in time`));
 		} else {
 			supportedFinalClaims.push(finalId);
 		}
-		// reveal-before-proof：检查点里出现“知道最终答案”时，证据必须已经可用
+		// reveal-before-proof：heroine/reader 在检查点知道 final claim 时必须可证明（角色私有知识豁免）
 		for (const checkpoint of checkpoints) {
-			const knowsFinal = [checkpoint.heroine, checkpoint.reader, ...checkpoint.characterKnowledge.map((item) => item)].some((state) => state.knowsClaimIds.includes(finalId));
+			const knowsFinal = [checkpoint.heroine, checkpoint.reader].some((state) => state.knowsClaimIds.includes(finalId));
 			if (!knowsFinal) continue;
-			const earliest = supporting.length === 0 ? undefined : Math.min(...supporting.map((clue) => clue.firstAvailableChapter));
-			if (earliest !== undefined && checkpoint.afterChapter < earliest) {
-				issues.push(issue("REVEAL_BEFORE_PROOF", "error", `final answer claim "${finalId}" is known at chapter ${checkpoint.afterChapter} but its earliest evidence is only available at chapter ${earliest}`));
+			const provableByCheckpoint = isClaimProvable(finalId, checkpoint.afterChapter, "reader", claimsById, cluesById, false) || isClaimProvable(finalId, checkpoint.afterChapter, "heroine", claimsById, cluesById, false);
+			if (!provableByCheckpoint) {
+				issues.push(issue("REVEAL_BEFORE_PROOF", "error", `final answer claim "${finalId}" is known at chapter ${checkpoint.afterChapter} before any complete proof path is available`));
 			}
 		}
 	}
-	const invalidRedHerrings = clues.filter((clue) => clue.clueRole === "red-herring" && (clue.interpretationOptions.length === 0 || clue.actualImplication.trim().length === 0));
-	if (invalidRedHerrings.length > 0) issues.push(issue("RED_HERRING_WITHOUT_FACTUAL_BASIS", "error", `${invalidRedHerrings.length} red-herring clue(s) lack a real factual basis or actual implication`));
-	const verdict = issues.some((item) => item.severity === "error") ? "unfair" : issues.length > 0 ? "needs-work" : "fair";
+	const invalidRedHerrings = clues.filter((clue) => clue.clueRole === "red-herring" && (clue.interpretationOptions.length === 0 || clue.actualImplication.trim().length === 0 || (clue.misleadingInterpretation ?? "").trim().length === 0));
+	if (invalidRedHerrings.length > 0) issues.push(issue("RED_HERRING_WITHOUT_FACTUAL_BASIS", "error", `${invalidRedHerrings.length} red-herring clue(s) lack a real factual basis, a plausible wrong interpretation, or an actual implication`));
+	const verdict = issues.some((item) => item.severity === "error") ? "unfair" : issues.length > 0 || unverifiableCount > 0 ? "needs-work" : "fair";
 	return { verdict, issues, supportedFinalClaims, unsupportedFinalClaims, clueCoverage };
 }

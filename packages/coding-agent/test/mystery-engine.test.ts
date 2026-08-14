@@ -118,6 +118,7 @@ function validClues(extra: MysteryClue[] = []): MysteryClue[] {
 			truthClaimIds: ["T2"],
 			reliability: "low",
 			interpretationOptions: ["证人看清了死者", "证人在昏暗灯光下看错"],
+			misleadingInterpretation: "证词证明死者当晚离开过小区",
 			actualImplication: "证词不能单独证明在场",
 			clueRole: "red-herring",
 		},
@@ -252,10 +253,12 @@ describe("mystery engine", () => {
 		try {
 			const store = new NovelProjectStore(cwd);
 			await initFssProject(store, "m3");
+			// 旧 fixture 让 T3 依赖 T1；Round 2.5 语义下“仅靠前置声明推导”是合法证明（P3），
+			// 因此 M3 改为真正没有任何证明来源（无 clue 也无前置声明）的 final claim。
 			const unsupported = validCase({
 				truthClaims: [
 					claim("T1", "死亡发生在等待期内", "timeline", [], ["C1"], 5, 5),
-					claim("T3", "理赔材料被逆向修改", "institutional", ["T1"], [], 6, 5),
+					claim("T3", "理赔材料被逆向修改", "institutional", [], [], 6, 5),
 				],
 				finalAnswerClaimIds: ["T3"],
 			});

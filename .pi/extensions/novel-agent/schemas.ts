@@ -154,13 +154,22 @@ export const MysteryTruthCategorySchema = Type.Union([
 
 const MysteryClaimIdSchema = Type.String({ minLength: 1, maxLength: 80 });
 
+export const TruthProofPathSchema = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: 80 }),
+	clueIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	prerequisiteClaimIds: Type.Array(MysteryClaimIdSchema),
+});
+
 export const TruthClaimSchema = Type.Object({
 	id: MysteryClaimIdSchema,
 	statement: Type.String({ minLength: 1 }),
 	category: MysteryTruthCategorySchema,
 	dependsOnClaimIds: Type.Array(MysteryClaimIdSchema),
 	proofRequirement: Type.String({ minLength: 1 }),
-	supportingClueIds: Type.Array(Type.String({ minLength: 1, maxLength: 80 })),
+	// legacy 字段：证明的权威来源是 proofPaths；supportingClueIds 仅用于兼容 Round 2 旧 artifact，save/checker 归一化为单条 proof path。
+	supportingClueIds: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }))),
+	// 权威证明路径：Claim 的证明 = 多条路径 OR；单条路径内 = clue AND 前置 claim。
+	proofPaths: Type.Optional(Type.Array(TruthProofPathSchema, { maxItems: 8 })),
 	plannedRevealChapter: Type.Optional(Type.Integer({ minimum: 1 })),
 	importance: Type.Integer({ minimum: 1, maximum: 5 }),
 });
@@ -217,16 +226,35 @@ export const MysteryClueSchema = Type.Object({
 	observableFact: Type.String({ minLength: 1 }),
 	sourceType: MysteryClueSourceTypeSchema,
 	sourceDescription: Type.String({ minLength: 1 }),
+	// world availability：证据在故事世界里最早可能被取得。
 	firstAvailableChapter: Type.Integer({ minimum: 1 }),
-	intendedDiscoveryChapter: Type.Integer({ minimum: 1 }),
+	// legacy 字段：intendedDiscoveryChapter 保持可读；heroineDiscoveryChapter 是权威发现章。
+	intendedDiscoveryChapter: Type.Optional(Type.Integer({ minimum: 1 })),
+	heroineDiscoveryChapter: Type.Optional(Type.Integer({ minimum: 1 })),
+	// reader exposure：读者第一次真正看到这条 observable fact 的章节；缺失时回退到 heroine 可见章（heroine-first-person 默认，文档化）。
+	readerRevealChapter: Type.Optional(Type.Integer({ minimum: 1 })),
 	truthClaimIds: Type.Array(MysteryClaimIdSchema),
 	reliability: MysteryReliabilitySchema,
 	// interpretationOptions 只对 red-herring 强制（checker 校验）；普通线索允许为空。
 	interpretationOptions: Type.Array(Type.String({ minLength: 1 }), { maxItems: 8 }),
+	// red-herring 指定的误导解释；不得与 actualImplication 相同（RED_HERRING_INTERPRETATION_EQUALS_ACTUAL）。
+	misleadingInterpretation: Type.Optional(Type.String({ minLength: 1 })),
 	actualImplication: Type.String({ minLength: 1 }),
 	clueRole: MysteryClueRoleSchema,
-	// realizedChapter：线索真正在正文落地的章节。本轮只做 planned 公平性；realized 证据生命周期为 Round 3 TODO。
-	realizedChapter: Type.Optional(Type.Integer({ minimum: 1 })),
+	// plannedRealizationChapter：计划线索落地正文的章（计划语义，不代表正文已兑现）。
+	// 真正的正文兑现必须使用 MysteryClueRealizationEvidence（Phase 5 Unified Narrative Event Integration），本轮不伪造。
+	plannedRealizationChapter: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
+// Phase 5 契约：正文兑现证据（与 Chase Wife 正文锚点生命周期同思想）。本轮只定义类型，不实现 finalized fairness。
+export const MysteryClueRealizationEvidenceSchema = Type.Object({
+	chapter: Type.Integer({ minimum: 1 }),
+	eventId: Type.Optional(Type.Integer({ minimum: 1 })),
+	draftRevision: Type.Integer({ minimum: 1 }),
+	startChar: Type.Integer({ minimum: 0 }),
+	endChar: Type.Integer({ minimum: 1 }),
+	excerpt: Type.String({ minLength: 1 }),
+	contentHash: Type.String({ minLength: 1 }),
 });
 
 export const MysterySuspectActualRoleSchema = Type.Union([
@@ -1026,6 +1054,8 @@ export const FinalizeManuscriptSchema = Type.Object({
 export type InitializeNovelParams = Static<typeof InitializeNovelSchema>;
 export type StoryProfileParams = Static<typeof StoryProfileSchema>;
 export type TruthClaim = Static<typeof TruthClaimSchema>;
+export type TruthProofPath = Static<typeof TruthProofPathSchema>;
+export type MysteryClueRealizationEvidence = Static<typeof MysteryClueRealizationEvidenceSchema>;
 export type MysteryCase = Static<typeof MysteryCaseSchema>;
 export type MysterySocialCore = Static<typeof MysterySocialCoreSchema>;
 export type MysteryClue = Static<typeof MysteryClueSchema>;

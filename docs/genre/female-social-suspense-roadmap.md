@@ -15,20 +15,30 @@ Mystery Engine 已落地，见 `docs/genre/female-social-suspense-mystery-engine
 - Social Core（socialQuestion / institutionalContext / beneficiaries / costBearers / stakesBeyondRelationship）；
 - 确定性 checker：`check_mystery_design`（引用/环/时序/红鲱鱼/信息边界/社会派根基）与 `check_mystery_fairness`（supported/unsupported final claims、clue coverage、DEUS_EX_MACHINA_CLUE、REVEAL_BEFORE_PROOF）；
 - author-secret 隔离：reader-sim 不读取 canon/mystery（测试固化）；
-- 本轮为 planned 公平性；realized（正文锚点）证据生命周期留待 Round 3。
+- 本轮为 planned 公平性。
+
+## Round 2.5 完成（Proof & Fairness Hardening）
+
+- Proof Path：TruthClaim 证明 = 多条路径 OR，单条路径 = clue AND 前置 claim；supportingClueIds 降为 legacy 兼容字段，checker 统一按 NormalizedProofPath 计算；
+- 可见性三态：firstAvailableChapter（世界）/ heroineDiscoveryChapter（女主发现，legacy intendedDiscoveryChapter）/ readerRevealChapter（读者曝光）；fairness 只认读者曝光；
+- 派生声明：仅依赖前置 claim 的证明路径合法，direct clue 不是唯一知识来源；
+- 角色私有知识：characterKnowledge 不再套用 heroine/reader 证据门禁（凶手可因参与而提前知道）；
+- 双向引用一致性：CLAIM_REFERENCES_MISSING_CLUE / CLAIM_CLUE_LINK_MISMATCH；
+- RED_HERRING_INTERPRETATION_EQUALS_ACTUAL；FAIRNESS_UNVERIFIABLE 真实实现（揭示章不可确定 → needs-work，不再猜测）；
+- reader-sim 硬隔离：addFile 层过滤 canon/work/outline 的 mystery 路径；
+- plannedRealizationChapter 仅表计划；真正正文兑现证据（MysteryClueRealizationEvidence）属 Phase 5。
 
 ## 当前状态
 
 - female-social-suspense + chase-wife 组合可用：mystery 与关系机制两组工具并行，正文仍走 Chase Wife event-level pipeline；
 - 尚未实现：realized/finalized fairness、Mature Marriage Engine、职业写实库、双引擎事件流水线、多样性检查器、基准作品。
 
-## Phase 2（主体完成，剩余 realized 证据）
+## Phase 2（主体 + Round 2.5 硬化完成）
 
-Mystery Engine 主体已实现（见上）。剩余：
+Mystery Engine 的 planned 层已完整（truth/proof/clue/red-herring/suspect/information/fairness）。剩余：
 
-- realized 证据生命周期：clue 正文锚点绑定、`realizedChapter` 落地检查、finalized fairness（正文是否真正兑现 planned 线索）；
-- 调查因果工具：调查动作 → 信息/风险变化（可并入 Phase 5 双引擎事件）；
-- 模型语义层：解释合理性、动机可信度的语义报告。
+- 模型语义层：解释合理性、动机可信度的语义报告；
+- 调查因果工具：调查动作 → 信息/风险变化（并入 Phase 5 双引擎事件）。
 
 ## Phase 3：Mature Marriage Engine
 
@@ -46,12 +56,13 @@ Mystery Engine 主体已实现（见上）。剩余：
 - 职业动作 → 信息/风险变化工具；
 - 专业术语与行业事实的可验证性检查。
 
-## Phase 5：Dual-engine Story Structure
+## Phase 5：Unified Narrative Event Integration
 
-目标：主题材引擎（mystery）与关系机制引擎（chase-wife / mature-marriage）在同一事件地图上的编排。
+目标：主题材引擎（mystery）与关系机制引擎（chase-wife / mature-marriage）在同一事件地图上的编排，并落地 finalized 线索兑现。
 
 - 事件同时携带 mystery delta 与 relationship delta；
 - 双引擎门禁组合：真相揭示顺序与关系结局资格互不绕过；
+- planned clue → event → prose evidence → finalized clue realization（MysteryClueRealizationEvidence 正文锚点绑定）→ finalized fairness；
 - 章节/全篇 pacing 扩展为双维度。
 
 ## Phase 6：Distinctiveness Checker
