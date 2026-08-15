@@ -15,6 +15,7 @@ import type {
 	StoryFoundation,
 	UnifiedEvent,
 } from "../../../.pi/extensions/novel-agent/schemas.ts";
+import { NovelProjectStore } from "../../../.pi/extensions/novel-agent/services/project-store.ts";
 import { createHarness, getMessageText, type Harness } from "./suite/harness.ts";
 
 const PROJECT = "acceptance";
@@ -1548,6 +1549,10 @@ describe("natural-language acceptance flow (scripted router, no real LLM)", () =
 			expect(finalizeAttempt?.text).toContain("MANUSCRIPT_DANGLING_MAJOR_THREAD");
 			expect(snapshot.calls.some((call) => call.name === "export_manuscript")).toBe(false);
 			expect(existsSync(projectFile(cwd, "evaluations/manuscript/unified-seal.json"))).toBe(false);
+			// 守卫：finalization 被阻断时导出必须被拒绝（不能绕过审计）
+			await expect(new NovelProjectStore(cwd).exportManuscript({ projectId: PROJECT })).rejects.toThrow(
+				"requires a current finalized manuscript seal",
+			);
 
 			// ---- 修复后完稿并导出：第5章结算线程 -> 重新评审 -> seal + export ----
 			snapshot = await runTurn(h2, "现在完稿并导出。");
