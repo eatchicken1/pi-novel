@@ -72,6 +72,8 @@ export interface HarnessOptions {
 	extensionFactories?: Array<InlineExtension | CreateTestExtensionsResultInput>;
 	withConfiguredAuth?: boolean;
 	modelsJson?: Record<string, unknown>;
+	/** Working directory for the session; defaults to a fresh temp dir. */
+	cwd?: string;
 }
 
 export interface Harness {
@@ -99,7 +101,8 @@ function createTempDir(): string {
 }
 
 export async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
-	const tempDir = createTempDir();
+	const tempDir = options.cwd ?? createTempDir();
+	const ownsTempDir = options.cwd === undefined;
 	const fauxProvider: FauxProviderRegistration = registerFauxProvider({
 		models: options.models,
 	});
@@ -217,7 +220,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		cleanup() {
 			session.dispose();
 			fauxProvider.unregister();
-			if (existsSync(tempDir)) {
+			if (ownsTempDir && existsSync(tempDir)) {
 				rmSync(tempDir, { recursive: true });
 			}
 		},
