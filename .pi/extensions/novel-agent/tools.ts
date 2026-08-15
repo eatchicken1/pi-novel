@@ -1111,7 +1111,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 		defineTool({
 			name: "export_manuscript",
 			label: "Export Manuscript",
-			description: "Export finalized chapters in deterministic chapter order; chase-wife projects require a current finalized manuscript seal.",
+			description: "Export the finalized manuscript in deterministic chapter order. Requires a current finalized unified manuscript seal (finalize_manuscript_unified) for every project; a stale or missing seal blocks export.",
 			parameters: ExportManuscriptSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, params: ExportManuscriptParams, signal, _onUpdate, ctx) {

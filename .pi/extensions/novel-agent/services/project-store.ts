@@ -1933,6 +1933,9 @@ export class NovelProjectStore {
 		const project = await this.readJsonIfExists(this.projectFile(params.projectId, "project.json"), signal);
 		// Unified Seal 校验（所有项目）：chapter/summary hash + Seal V2 memory hashes；chase 项目继续走 ending 校验。
 		const genericSeal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/unified-seal.json"), signal);
+		if (!isJsonRecord(genericSeal) || genericSeal.status !== "finalized") {
+			throw new Error("Unified manuscript export requires a current finalized manuscript seal; run finalize_manuscript_unified first.");
+		}
 		if (isJsonRecord(genericSeal) && genericSeal.status === "finalized") {
 			const sealedSources = Array.isArray(genericSeal.sources) ? genericSeal.sources.filter(isJsonRecord) : [];
 			let staleSeal = sealedSources.length !== chapterPaths.length;
@@ -1958,6 +1961,9 @@ export class NovelProjectStore {
 			for (const [key, now] of memoryChecks) {
 				if (typeof genericSeal[key] === "string" && genericSeal[key] !== now) throw new Error(`Unified manuscript seal is stale: ${key} changed after the manuscript gate.`);
 			}
+		}
+		if (!isJsonRecord(genericSeal) || genericSeal.status !== "finalized") {
+			throw new Error("Unified manuscript export requires a current finalized manuscript seal; run finalize_manuscript_unified first.");
 		}
 		if (isJsonRecord(project) && hasChaseWifeCapability(project)) {
 			// Converged 优先：unified manuscript seal（不要求旧 chase-wife 独立 event map）。
