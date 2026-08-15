@@ -971,7 +971,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 				const result = await getStore(ctx.cwd).planChapter(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
-		)),
+		}),
 	);
 
 	pi.registerTool(
@@ -999,7 +999,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 				const result = await getStore(ctx.cwd).diagnoseChapter(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
-		)),
+		}),
 	);
 
 	pi.registerTool(
@@ -1013,7 +1013,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 				const result = await getStore(ctx.cwd).reviseChapter(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
-		)),
+		}),
 	);
 
 	pi.registerTool(
@@ -1027,7 +1027,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 				const result = await getStore(ctx.cwd).reviewManuscript(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
-		)),
+		}),
 	);
 
 	pi.registerTool(
@@ -1041,7 +1041,7 @@ export function registerNovelTools(pi: ExtensionAPI, getStore: NovelStoreProvide
 				const result = await getStore(ctx.cwd).finalizeManuscriptUnified(params, signal);
 				return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
 			},
-		)),
+		}),
 	);
 	const confirmedUpdateTool = (
 		name: string,
