@@ -81,6 +81,35 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 				currentMovement: status.currentMovement ?? null,
 			};
 		} catch {
+			// store 不可用时降级：从 project.json 读基础字段（legacy 兼容，规格 106 节）。
+			return this.fallbackStatus(workspaceRoot, projectId);
+		}
+	}
+
+	private fallbackStatus(workspaceRoot: string, projectId: string): NovelEngineStatus | null {
+		try {
+			const project = safeParse(join(workspaceRoot, "novels", projectId, "project.json"));
+			if (!isRecord(project)) return null;
+			const nextChapter = typeof project.nextChapter === "number" ? project.nextChapter : null;
+			const finalizedChapters = Array.isArray(project.finalizedChapters)
+				? project.finalizedChapters.filter((value): value is number => typeof value === "number")
+				: [];
+			const memory = project.memoryStatus;
+			const continuity = project.continuityStatus;
+			const movement = project.currentMovement;
+			const threads = project.openThreads;
+			return {
+				nextChapter,
+				finalizedChapters,
+				memoryStatus: memory === "missing" || memory === "current" || memory === "stale" ? memory : null,
+				continuityStatus: continuity === "ok" || continuity === "warning" || continuity === "error" ? continuity : null,
+				openThreads: typeof threads === "number" ? threads : null,
+				overdueThreads: typeof project.overdueThreads === "number" ? project.overdueThreads : null,
+				unresolvedSetups: typeof project.unresolvedSetups === "number" ? project.unresolvedSetups : null,
+				downstreamReviewRequired: typeof project.downstreamReviewRequired === "boolean" ? project.downstreamReviewRequired : null,
+				currentMovement: typeof movement === "string" ? movement : null,
+			};
+		} catch {
 			return null;
 		}
 	}
