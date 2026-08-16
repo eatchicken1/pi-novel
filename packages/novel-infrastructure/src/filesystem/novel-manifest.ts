@@ -1,29 +1,39 @@
 import { readFile } from "node:fs/promises";
-import { isRecord, type ProjectManifest, stringValue } from "@earendil-works/pi-novel-contracts";
+import { isRecord, type ProjectManifest, ProjectManifestSchema } from "@earendil-works/pi-novel-contracts";
+import { Check } from "typebox/value";
 import { parse } from "yaml";
 
-export async function readNativeProjectManifest(
-	path: string,
-	fallbackProjectId: string,
-	fallbackTitle: string,
-): Promise<ProjectManifest> {
-	const source = await readFile(path, "utf8");
-	const parsed: unknown = parse(source);
-	const record = isRecord(parsed) ? parsed : {};
-	return {
-		schemaVersion: numberValue(record.schema_version ?? record.schemaVersion, 1),
-		projectId: stringValue(record.project_id ?? record.projectId, fallbackProjectId),
-		title: stringValue(record.title, fallbackTitle),
-		language: stringValue(record.language, "zh-CN"),
-		createdAt: nullableString(record.created_at ?? record.createdAt),
-		updatedAt: nullableString(record.updated_at ?? record.updatedAt),
-	};
+export class ProjectManifestValidationError extends Error {
+	readonly code = "INVALID_MANIFEST" as const;
+
+	constructor(message: string, options?: ErrorOptions) {
+		super(message, options);
+		this.name = "ProjectManifestValidationError";
+	}
 }
 
-function numberValue(value: unknown, fallback: number): number {
-	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function nullableString(value: unknown): string | null {
-	return typeof value === "string" && value.length > 0 ? value : null;
+export async function readNativeProjectManifest(path: string): Promise<ProjectManifest> {
+	try {
+		const source = await readFile(path, "utf8");
+		const parsed: unknown = parse(source);
+		const record = isRecord(parsed) ? parsed : {};
+		const manifest: unknown = {
+			schemaVersion: record.schema_version ?? record.schemaVersion ?? 1,
+			projectId: record.project_id ?? record.projectId,
+			title: record.title,
+			language:
+				typeof record.language === "string" && record.language.trim().length > 0 ? record.language.trim() : "zh-CN",
+			createdAt: record.created_at ?? record.createdAt ?? null,
+			updatedAt: record.updated_at ?? record.updatedAt ?? null,
+		};
+		if (!Check(ProjectManifestSchema, manifest)) {
+			throw new ProjectManifestValidationError(`Native project manifest is invalid: ${path}`);
+		}
+		return manifest;
+	} catch (error) {
+		if (error instanceof ProjectManifestValidationError) throw error;
+		throw new ProjectManifestValidationError(`Native project manifest could not be parsed: ${path}`, {
+			cause: error,
+		});
+	}
 }

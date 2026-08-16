@@ -1,7 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { ProjectRecord, WorkspaceManifest } from "@earendil-works/pi-novel-contracts";
+import {
+	type ProjectRecord,
+	ProjectRecordSchema,
+	type WorkspaceManifest,
+	WorkspaceManifestSchema,
+} from "@earendil-works/pi-novel-contracts";
+import { Check } from "typebox/value";
+import { WorkspaceManifestValidationError } from "../filesystem/workspace-files.ts";
 import { applyWorkspaceMigrations } from "./workspace-migrations.ts";
 
 interface WorkspaceRow {
@@ -46,10 +53,26 @@ export class WorkspaceDatabase {
 	readWorkspace(): { manifest: WorkspaceManifest; lastScanAt: string | null } | null {
 		const row = this.db.prepare("SELECT * FROM workspace_metadata LIMIT 1").get() as WorkspaceRow | undefined;
 		if (!row) return null;
-		return { manifest: JSON.parse(row.manifest_json) as WorkspaceManifest, lastScanAt: row.last_scan_at };
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(row.manifest_json);
+		} catch (error) {
+			throw new WorkspaceManifestValidationError("Workspace manifest in SQLite is not valid JSON", { cause: error });
+		}
+		if (!Check(WorkspaceManifestSchema, parsed)) {
+			throw new WorkspaceManifestValidationError("Workspace manifest in SQLite is invalid");
+		}
+		return { manifest: parsed, lastScanAt: row.last_scan_at };
 	}
 
 	replaceProjects(projects: ProjectRecord[]): void {
+		const projectIds = new Set<string>();
+		for (const project of projects) {
+			const projectId = project.projectId;
+			if (!Check(ProjectRecordSchema, project)) throw new Error(`Invalid project record: ${projectId}`);
+			if (projectIds.has(project.projectId)) throw new Error(`Duplicate project ID: ${project.projectId}`);
+			projectIds.add(project.projectId);
+		}
 		this.db.exec("BEGIN IMMEDIATE");
 		try {
 			this.db.exec("DELETE FROM projects");

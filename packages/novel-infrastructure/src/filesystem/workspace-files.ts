@@ -1,8 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { WorkspaceManifest } from "@earendil-works/pi-novel-contracts";
+import { type WorkspaceManifest, WorkspaceManifestSchema } from "@earendil-works/pi-novel-contracts";
+import { Check } from "typebox/value";
 import { resolveWorkspacePaths, type WorkspacePaths } from "./workspace-path.ts";
+
+export class WorkspaceManifestValidationError extends Error {
+	readonly code = "WORKSPACE_MANIFEST_INVALID" as const;
+
+	constructor(message: string, options?: ErrorOptions) {
+		super(message, options);
+		this.name = "WorkspaceManifestValidationError";
+	}
+}
 
 export class WorkspaceFiles {
 	readonly paths: WorkspacePaths;
@@ -19,9 +29,19 @@ export class WorkspaceFiles {
 	async readManifest(): Promise<WorkspaceManifest | null> {
 		try {
 			const content = await readFile(this.paths.manifest, "utf8");
-			return JSON.parse(content) as WorkspaceManifest;
+			const parsed: unknown = JSON.parse(content);
+			if (!Check(WorkspaceManifestSchema, parsed)) {
+				throw new WorkspaceManifestValidationError(`Workspace manifest is invalid: ${this.paths.manifest}`);
+			}
+			return parsed;
 		} catch (error) {
 			if (isMissingFile(error)) return null;
+			if (error instanceof WorkspaceManifestValidationError) throw error;
+			if (error instanceof SyntaxError) {
+				throw new WorkspaceManifestValidationError(`Workspace manifest is not valid JSON: ${this.paths.manifest}`, {
+					cause: error,
+				});
+			}
 			throw error;
 		}
 	}

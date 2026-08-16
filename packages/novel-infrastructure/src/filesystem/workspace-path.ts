@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export interface WorkspacePaths {
 	root: string;
@@ -9,11 +9,21 @@ export interface WorkspacePaths {
 
 export function resolveWorkspacePaths(rootPath: string): WorkspacePaths {
 	const root = resolve(rootPath);
-	const controlDirectory = resolve(root, ".pi-novel");
+	const controlDirectory = resolveWorkspacePath(root, ".pi-novel");
 	return {
 		root,
 		controlDirectory,
-		manifest: resolve(controlDirectory, "workspace.json"),
-		database: resolve(controlDirectory, "workspace.sqlite"),
+		manifest: resolveWorkspacePath(root, ".pi-novel", "workspace.json"),
+		database: resolveWorkspacePath(root, ".pi-novel", "workspace.sqlite"),
 	};
+}
+
+export function resolveWorkspacePath(rootPath: string, ...segments: string[]): string {
+	const root = resolve(rootPath);
+	const candidate = resolve(root, ...segments);
+	const relativePath = relative(root, candidate);
+	if (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(`..${sep}`)) {
+		throw new Error("Resolved path escapes the Workspace root");
+	}
+	return candidate;
 }
