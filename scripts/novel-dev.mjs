@@ -1,7 +1,14 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-const spawnOptions = { stdio: "inherit" };
+const localToken = process.env.PI_NOVEL_LOCAL_TOKEN ?? randomBytes(32).toString("hex");
+const childEnv = {
+	...process.env,
+	PI_NOVEL_LOCAL_TOKEN: localToken,
+	VITE_PI_NOVEL_LOCAL_TOKEN: localToken,
+};
+const spawnOptions = { stdio: "inherit", env: childEnv };
 function spawnNpm(args) {
 	if (process.platform === "win32") {
 		return spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `${npmCommand} ${args.join(" ")}`], spawnOptions);

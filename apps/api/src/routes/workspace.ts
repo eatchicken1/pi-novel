@@ -1,24 +1,44 @@
 import type { FastifyInstance } from "fastify";
-import { isRecord, stringValue } from "@earendil-works/pi-novel-contracts";
+import {
+	ApiErrorResponseSchema,
+	InitializeWorkspaceInputSchema,
+	WorkspaceResponseSchema,
+	type InitializeWorkspaceInput,
+} from "@earendil-works/pi-novel-contracts";
 import type { WorkspaceService } from "@earendil-works/pi-novel-application";
 
 export function registerWorkspaceRoutes(app: FastifyInstance, service: WorkspaceService): void {
-	app.get("/api/workspace", async () => ({ workspace: await service.getOverview() }));
+	app.get("/api/workspace", { schema: { response: { 200: WorkspaceResponseSchema } } }, async () => ({ workspace: await service.getOverview() }));
 
-	app.post("/api/workspace/initialize", async (request, reply) => {
-		const body = isRecord(request.body) ? request.body : {};
-		const path = stringValue(body.path);
-		if (!path) return reply.code(400).send({ error: { code: "INVALID_PATH", message: "Workspace path is required" } });
-		return { workspace: await service.initialize(path) };
-	});
+	app.post<{ Body: InitializeWorkspaceInput }>(
+		"/api/workspace/initialize",
+		{
+			schema: {
+				body: InitializeWorkspaceInputSchema,
+				response: { 200: WorkspaceResponseSchema, 400: ApiErrorResponseSchema },
+			},
+		},
+		async (request) => {
+			request.log.info({ event: "workspace.initialize" }, "workspace.initialize");
+			const overview = await service.initialize(request.body.path);
+			logScanWarnings(request, overview.warnings);
+			return { workspace: overview };
+		},
+	);
 
-	app.post("/api/workspace/rescan", async (_request, reply) => {
+	app.post("/api/workspace/rescan", { schema: { response: { 200: WorkspaceResponseSchema, 409: ApiErrorResponseSchema } } }, async (request, reply) => {
 		try {
-			return { workspace: await service.rescan() };
+			const overview = await service.rescan();
+			logScanWarnings(request, overview.warnings);
+			return { workspace: overview };
 		} catch (error) {
 			return reply.code(409).send({ error: { code: "WORKSPACE_NOT_OPEN", message: errorMessage(error) } });
 		}
 	});
+}
+
+function logScanWarnings(request: { log: { warn: (data: unknown, message: string) => void } }, warnings: readonly unknown[]): void {
+	if (warnings.length > 0) request.log.warn({ event: "workspace.scan.warning", warningCount: warnings.length }, "workspace.scan.warning");
 }
 
 function errorMessage(error: unknown): string {
