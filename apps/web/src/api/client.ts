@@ -19,8 +19,21 @@ export class ApiClientError extends Error {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-	const response = await fetch(url, { headers: { "Content-Type": "application/json" }, ...init });
-	if (!response.ok) throw new ApiClientError(`API request failed: ${response.status}`, response.status);
+	const headers = new Headers(init?.headers);
+	headers.set("Content-Type", "application/json");
+	const token = import.meta.env.VITE_PI_NOVEL_LOCAL_TOKEN;
+	if (token) headers.set("X-Pi-Novel-Token", token);
+	const response = await fetch(url, { ...init, headers });
+	if (!response.ok) {
+		let message = `API request failed: ${response.status}`;
+		try {
+			const payload = (await response.json()) as { error?: { message?: string } };
+			if (payload.error?.message) message = payload.error.message;
+		} catch {
+			// Preserve the status-based error when the server did not return JSON.
+		}
+		throw new ApiClientError(message, response.status);
+	}
 	return (await response.json()) as T;
 }
 
