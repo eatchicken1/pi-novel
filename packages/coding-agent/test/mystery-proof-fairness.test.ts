@@ -638,7 +638,7 @@ describe("mystery proof and fairness hardening", () => {
 			});
 			const fairness = await store.checkMysteryFairness({ projectId: "c9" });
 			expect(fairness.supportedFinalClaims).toContain("T3");
-			const coverage = fairness.proofCoverage["T3"];
+			const coverage = fairness.proofCoverage.T3;
 			expect(coverage).toBeDefined();
 			expect(coverage.completePaths).toBe(1);
 			expect(coverage.totalPaths).toBe(1);
