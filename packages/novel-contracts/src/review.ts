@@ -85,3 +85,5 @@ export const ReviewListResponseSchema = Type.Object(
 	{ issues: Type.Array(ReviewIssueSchema), summary: ReviewSummarySchema },
 	{ additionalProperties: false },
 );
+
+export type ReviewListResponse = Static<typeof ReviewListResponseSchema>;

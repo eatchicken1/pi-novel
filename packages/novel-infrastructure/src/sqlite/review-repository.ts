@@ -145,13 +145,16 @@ export class ReviewRepository {
 	}
 
 	markResolvedBySource(projectId: string, sourceCodes: string[], now: string): number {
-		const placeholders = sourceCodes.map(() => "?").join(", ");
-		if (sourceCodes.length === 0) return 0;
-		const result = this.db
-			.prepare(
-				`UPDATE review_issues SET status = 'resolved', resolved_at = ? WHERE project_id = ? AND source_code IN (${placeholders}) AND status IN ('open', 'acknowledged')`,
-			)
-			.run(now, projectId, ...sourceCodes);
+		// 本次投影中已消失的来源 → resolved（不在 seen 列表中的 open/acknowledged issue）。
+		const result = sourceCodes.length === 0
+			? this.db
+					.prepare("UPDATE review_issues SET status = 'resolved', resolved_at = ? WHERE project_id = ? AND status IN ('open', 'acknowledged')")
+					.run(now, projectId)
+			: this.db
+					.prepare(
+						`UPDATE review_issues SET status = 'resolved', resolved_at = ? WHERE project_id = ? AND source_code NOT IN (${sourceCodes.map(() => "?").join(", ")}) AND status IN ('open', 'acknowledged')`,
+					)
+					.run(now, projectId, ...sourceCodes);
 		return Number(result.changes);
 	}
 

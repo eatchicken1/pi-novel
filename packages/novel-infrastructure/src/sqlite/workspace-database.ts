@@ -31,9 +31,11 @@ interface ProjectRow {
 
 export class WorkspaceDatabase {
 	readonly db: DatabaseSync;
+	readonly databasePath: string;
 
 	constructor(databasePath: string) {
 		mkdirSync(dirname(databasePath), { recursive: true });
+		this.databasePath = databasePath;
 		this.db = new DatabaseSync(databasePath);
 		applyWorkspaceMigrations(this.db);
 	}

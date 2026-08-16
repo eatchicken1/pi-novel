@@ -27,6 +27,20 @@ export function loadWorkspaceMigrations(): WorkspaceMigration[] {
 				"utf8",
 			),
 		},
+		{
+			id: "004_agent_runtime.sql",
+			sql: readFileSync(
+				fileURLToPath(new URL("./migrations/004_agent_runtime.sql", import.meta.url)),
+				"utf8",
+			),
+		},
+		{
+			id: "005_materialization_journal.sql",
+			sql: readFileSync(
+				fileURLToPath(new URL("./migrations/005_materialization_journal.sql", import.meta.url)),
+				"utf8",
+			),
+		},
 	];
 }
 

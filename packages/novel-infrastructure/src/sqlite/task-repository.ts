@@ -1,4 +1,5 @@
-import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
+import { applyWorkspaceMigrations } from "./workspace-migrations.ts";
 import {
 	type AgentRun,
 	AgentRunSchema,
@@ -67,9 +68,20 @@ function parseTask(row: TaskRow): NovelTask {
 // Task / AgentRun / TaskEvent 全在 workspace DB（task 生命周期跨 project 与 forge）。
 export class TaskRepository {
 	private readonly db: DatabaseSync;
+	private readonly path: string;
 
-	constructor(db: DatabaseSync) {
-		this.db = db;
+	constructor(databasePath: string) {
+		this.path = databasePath;
+		this.db = new DatabaseSync(databasePath);
+		applyWorkspaceMigrations(this.db);
+	}
+
+	close(): void {
+		this.db.close();
+	}
+
+	get databasePath(): string {
+		return this.path;
 	}
 
 	createTask(task: NovelTask): void {
