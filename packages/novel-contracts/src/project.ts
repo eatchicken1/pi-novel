@@ -50,3 +50,36 @@ export const ProjectListResponseSchema = Type.Object(
 );
 
 export const ProjectResponseSchema = Type.Object({ project: ProjectRecordSchema }, { additionalProperties: false });
+
+
+export const ProjectReadModelSchema = Type.Object(
+	{
+		projectId: ProjectIdSchema,
+		title: Type.String({ minLength: 1 }),
+		path: Type.String({ minLength: 1 }),
+		kind: ProjectKindSchema,
+		status: ProjectStatusSchema,
+		currentChapter: Type.Union([Type.Null(), Type.Integer({ minimum: 1 })]),
+		chapterCount: Type.Integer({ minimum: 0 }),
+		wordCount: Type.Integer({ minimum: 0 }),
+		primaryGenre: Type.Union([Type.Null(), Type.String({ minLength: 1 })]),
+		relationshipMechanisms: Type.Array(Type.String({ minLength: 1 })),
+		pendingChangeCount: Type.Integer({ minimum: 0 }),
+		blockingIssueCount: Type.Integer({ minimum: 0 }),
+		currentMovement: Type.Union([Type.Null(), Type.String({ minLength: 1 })]),
+		memoryStatus: Type.Union([
+			Type.Null(),
+			Type.Literal("missing"),
+			Type.Literal("current"),
+			Type.Literal("stale"),
+		]),
+		updatedAt: ISODateStringSchema,
+	},
+	{ additionalProperties: false },
+);
+export type ProjectReadModel = Static<typeof ProjectReadModelSchema>;
+
+export const ProjectReadModelListResponseSchema = Type.Object(
+	{ projects: Type.Array(ProjectReadModelSchema) },
+	{ additionalProperties: false },
+);
