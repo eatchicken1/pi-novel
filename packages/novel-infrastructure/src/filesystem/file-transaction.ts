@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
 	AppliedChange,
@@ -16,6 +16,21 @@ function projectPath(projectRoot: string, relativePath: string): string {
 		throw new Error("PATH_ESCAPE: operation target escapes the project root");
 	}
 	return resolved;
+}
+
+// symlink 逃逸防护：词法校验之外，对真实路径做 realpath 校验（Windows 同样生效）。
+function assertInsideRealRoot(projectRoot: string, target: string): void {
+	const realRoot = realpathSync(projectRoot);
+	let realTarget: string;
+	try {
+		realTarget = realpathSync(target);
+	} catch {
+		// 目标不存在（新建文件）：校验其父目录
+		realTarget = realpathSync(dirname(target));
+	}
+	if (realTarget !== realRoot && !realTarget.startsWith(realRoot + "\\") && !realTarget.startsWith(realRoot + "/")) {
+		throw new Error("PATH_ESCAPE: operation target escapes the project root via symlink");
+	}
 }
 
 function sha256(content: string): string {
@@ -93,6 +108,7 @@ export class FileTransaction implements FileTransactionPort {
 		try {
 			for (const operation of input.operations) {
 				const target = projectPath(input.projectRoot, operation.target);
+				assertInsideRealRoot(input.projectRoot, target);
 				const relativeTarget = operation.target;
 				const expectedHash = operation.baseHash ?? input.baseHashes[relativeTarget];
 				let current: string;
@@ -131,13 +147,19 @@ export class FileTransaction implements FileTransactionPort {
 
 	async finalize(input: { projectRoot: string; staged: StagedFileChange[] }): Promise<void> {
 		for (const entry of input.staged) {
-			renameSync(projectPath(input.projectRoot, entry.tempPath), projectPath(input.projectRoot, entry.relativePath));
+			const temp = projectPath(input.projectRoot, entry.tempPath);
+			assertInsideRealRoot(input.projectRoot, temp);
+			renameSync(temp, projectPath(input.projectRoot, entry.relativePath));
 		}
 	}
 
 	async rollback(input: { projectRoot: string; staged: StagedFileChange[] }): Promise<void> {
 		for (const entry of input.staged) {
-			try { rmSync(projectPath(input.projectRoot, entry.tempPath), { force: true }); } catch {}
+			try {
+				const temp = projectPath(input.projectRoot, entry.tempPath);
+				assertInsideRealRoot(input.projectRoot, temp);
+				rmSync(temp, { force: true });
+			} catch {}
 		}
 	}
 
@@ -145,7 +167,9 @@ export class FileTransaction implements FileTransactionPort {
 		const result: Record<string, string> = {};
 		for (const relativePath of relativePaths) {
 			try {
-				result[relativePath] = sha256(readFileSync(projectPath(projectRoot, relativePath), "utf8"));
+				const target = projectPath(projectRoot, relativePath);
+				assertInsideRealRoot(projectRoot, target);
+				result[relativePath] = sha256(readFileSync(target, "utf8"));
 			} catch {
 				result[relativePath] = "";
 			}

@@ -12,7 +12,7 @@ interface Harness {
 	service: ChangeSetService;
 	projectRoot: string;
 	registry: ProjectDatabaseRegistryPort;
-	invalidateCalls: number;
+	invalidateCalls: number[];
 	cleanup(): void;
 }
 
