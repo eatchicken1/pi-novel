@@ -38,23 +38,30 @@ describe("Novel API", () => {
 		expect(missing.json()).toEqual({ error: { code: "PROJECT_NOT_FOUND", message: "Project not found" } });
 	});
 
-	it("exposes the same OAuth provider catalog used by the CLI", async () => {
+	it("exposes OAuth and API-key providers from the CLI runtime", async () => {
 		const app = await createNovelApi({ localToken: token });
 		apps.push(app);
 		const response = await app.inject({ method: "GET", url: "/api/models/catalog", headers: { "x-pi-novel-token": token } });
 
 		expect(response.statusCode).toBe(200);
-		const payload = response.json() as { providers: Array<{ providerId: string; cliLoginCommand: string }> };
-		expect(payload.providers.map((provider) => provider.providerId)).toEqual([
-			"anthropic",
-			"github-copilot",
-			"kimi-coding",
-			"openai-codex",
-			"openrouter",
-			"radius",
-			"xai",
-		]);
-		expect(payload.providers[3]?.cliLoginCommand).toBe("npx @earendil-works/pi-ai login openai-codex");
+		const payload = response.json() as { providers: Array<{ providerId: string; cliLoginCommand?: string; authMethods: string[]; models: Array<{ modelId: string }> }> };
+		const deepseek = payload.providers.find((provider) => provider.providerId === "deepseek");
+		const codex = payload.providers.find((provider) => provider.providerId === "openai-codex");
+		expect(deepseek?.authMethods).toContain("api_key");
+		expect(deepseek?.models.some((model) => model.modelId === "deepseek-v4-flash")).toBe(true);
+		expect(codex?.cliLoginCommand).toBe("npx @earendil-works/pi-ai login openai-codex");
+	});
+
+	it("configures an API key through the local API without returning the secret", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-novel-api-credentials-"));
+		const app = await createNovelApi({ localToken: token });
+		apps.push(app);
+		const initialized = await app.inject({ method: "POST", url: "/api/workspace/initialize", headers: { "x-pi-novel-token": token }, payload: { path: root } });
+		expect(initialized.statusCode).toBe(200);
+		const response = await app.inject({ method: "POST", url: "/api/models/providers/deepseek/api-key", headers: { "x-pi-novel-token": token }, payload: { providerId: "deepseek", apiKey: "sk-test-secret" } });
+		expect(response.statusCode).toBe(200);
+		expect(response.body).not.toContain("sk-test-secret");
+		expect(response.json().providers.find((provider: { providerId: string }) => provider.providerId === "deepseek").apiKeyConfigured).toBe(true);
 	});
 
 	it("leaves health public and rejects protected requests without the local token", async () => {

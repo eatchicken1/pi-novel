@@ -1,4 +1,4 @@
-import type { ModelCatalog } from "@earendil-works/pi-novel-contracts";
+import type { ConfigureModelApiKeyInput, ModelCatalog } from "@earendil-works/pi-novel-contracts";
 import type { ModelRuntimePort } from "../ports.ts";
 
 export class ModelCatalogService {
@@ -8,7 +8,19 @@ export class ModelCatalogService {
 		this.runtime = runtime;
 	}
 
-	getCatalog(): Promise<ModelCatalog> {
-		return this.runtime.getCatalog();
+	getCatalog(workspaceRoot?: string): Promise<ModelCatalog> {
+		return this.runtime.getCatalog(workspaceRoot);
+	}
+
+	configureApiKey(workspaceRoot: string, input: ConfigureModelApiKeyInput): Promise<ModelCatalog> {
+		return this.runtime.configureApiKey(workspaceRoot, input);
+	}
+
+	clearApiKey(workspaceRoot: string, providerId: string): Promise<ModelCatalog> {
+		return this.runtime.clearApiKey(workspaceRoot, providerId);
+	}
+
+	generateText(workspaceRoot: string, modelId: string, prompt: string, signal?: AbortSignal): Promise<string> {
+		return this.runtime.generateText(workspaceRoot, modelId, prompt, signal);
 	}
 }

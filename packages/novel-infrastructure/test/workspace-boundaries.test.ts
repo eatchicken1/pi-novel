@@ -143,9 +143,15 @@ describe("workspace files and persistence", () => {
 		reopened.close();
 
 		const raw = new DatabaseSync(databasePath);
-		expect(raw.prepare("SELECT id FROM schema_migrations ORDER BY id").all()).toEqual([{ id: "001_initial.sql" }]);
+		expect(raw.prepare("SELECT id FROM schema_migrations ORDER BY id").all()).toEqual([
+			{ id: "001_initial.sql" },
+			{ id: "002_forge_vertical_slice.sql" },
+		]);
 		raw.close();
-		expect(loadWorkspaceMigrations().map((migration) => migration.id)).toEqual(["001_initial.sql"]);
+		expect(loadWorkspaceMigrations().map((migration) => migration.id)).toEqual([
+			"001_initial.sql",
+			"002_forge_vertical_slice.sql",
+		]);
 	});
 
 	it("rejects a corrupted stored workspace manifest", async () => {

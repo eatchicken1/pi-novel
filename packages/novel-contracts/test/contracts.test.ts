@@ -1,6 +1,11 @@
 import { Check } from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { ProjectManifestSchema, WorkspaceManifestSchema } from "../src/index.ts";
+import {
+	ConfigureModelApiKeyInputSchema,
+	ForgeSessionSchema,
+	ProjectManifestSchema,
+	WorkspaceManifestSchema,
+} from "../src/index.ts";
 
 describe("novel runtime contracts", () => {
 	it("accepts a valid workspace manifest", () => {
@@ -48,5 +53,31 @@ describe("novel runtime contracts", () => {
 				updatedAt: null,
 			}),
 		).toBe(false);
+	});
+
+	it("keeps Forge state and provider credentials runtime validated", () => {
+		expect(Check(ConfigureModelApiKeyInputSchema, { providerId: "deepseek", apiKey: "sk-test" })).toBe(true);
+		expect(Check(ConfigureModelApiKeyInputSchema, { providerId: "deepseek", apiKey: "" })).toBe(false);
+		expect(
+			Check(ForgeSessionSchema, {
+				forgeSessionId: "session-1",
+				workspaceId: "workspace-1",
+				status: "draft",
+				seed: "island",
+				titleCandidate: null,
+				narrativeDNA: null,
+				hardConstraints: [],
+				preferences: [],
+				createdAt: "2026-08-16T10:00:00.000Z",
+				updatedAt: "2026-08-16T10:00:00.000Z",
+				selectedCandidateId: null,
+				committedAt: null,
+				materializedProjectId: null,
+				currentTaskId: null,
+				runtimeRelativePath: ".pi-novel/sessions/session-1",
+				failureCode: null,
+				failureMessage: null,
+			}),
+		).toBe(true);
 	});
 });

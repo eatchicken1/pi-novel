@@ -2,12 +2,17 @@ import { randomBytes } from "node:crypto";
 import cors from "@fastify/cors";
 import fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import {
+	ForgeService,
 	ModelCatalogService,
 	ProjectQueryService,
 	WorkspaceService,
 } from "@earendil-works/pi-novel-application";
 import {
 	PiModelRuntimeAdapter,
+	ForgeArtifactStore,
+	ForgeRepository,
+	LegacyStoryExplorationAdapter,
+	ProjectMaterializer,
 	ProjectScanner,
 	WorkspaceDatabase,
 	WorkspaceFiles,
@@ -16,6 +21,7 @@ import { registerHealthRoute } from "./routes/health.ts";
 import { registerProjectRoutes } from "./routes/projects.ts";
 import { registerWorkspaceRoutes } from "./routes/workspace.ts";
 import { registerModelRoutes } from "./routes/models.ts";
+import { registerForgeRoutes } from "./routes/forge.ts";
 
 export interface NovelApiOptions {
 	workspaceRoot?: string;
@@ -27,12 +33,20 @@ export interface NovelApiOptions {
 export async function createNovelApi(options: NovelApiOptions = {}): Promise<FastifyInstance> {
 	const app = fastify({ logger: options.logger ?? false });
 	const localToken = options.localToken ?? process.env.PI_NOVEL_LOCAL_TOKEN ?? randomBytes(32).toString("hex");
+	const modelRuntime = new PiModelRuntimeAdapter();
 	const workspaceService = new WorkspaceService({
 		createFileSystem: (rootPath) => new WorkspaceFiles(rootPath),
 		createRepository: (databasePath) => new WorkspaceDatabase(databasePath),
 		scanner: new ProjectScanner(),
+		createForgeRepository: (databasePath) => new ForgeRepository(databasePath),
 	});
-	const modelCatalogService = new ModelCatalogService(new PiModelRuntimeAdapter());
+	const modelCatalogService = new ModelCatalogService(modelRuntime);
+	const forgeService = new ForgeService({
+		workspace: workspaceService,
+		exploration: new LegacyStoryExplorationAdapter(modelRuntime),
+		artifactStoreFor: (workspaceRoot) => new ForgeArtifactStore(workspaceRoot),
+		materializer: new ProjectMaterializer(),
+	});
 	if (options.workspaceRoot) {
 		const overview = await workspaceService.open(options.workspaceRoot);
 		if (overview) app.log.info({ event: "workspace.open" }, "workspace.open");
@@ -71,7 +85,8 @@ export async function createNovelApi(options: NovelApiOptions = {}): Promise<Fas
 	registerHealthRoute(app);
 	registerWorkspaceRoutes(app, workspaceService);
 	registerProjectRoutes(app, new ProjectQueryService(workspaceService));
-	registerModelRoutes(app, modelCatalogService);
+	registerModelRoutes(app, modelCatalogService, workspaceService);
+	registerForgeRoutes(app, forgeService);
 	app.addHook("onClose", async () => workspaceService.close());
 	return app;
 }

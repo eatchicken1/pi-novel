@@ -1,9 +1,9 @@
-import { BookOpen, ChevronDown, Compass, Cpu, FileText, Search, Settings2, Sparkles, UserRound } from "lucide-react";
+import { BookOpen, ChevronDown, Compass, Cpu, FileText, Search, Sparkles, UserRound } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, Outlet, useOutletContext } from "react-router-dom";
-import type { ModelCatalog, ModelCatalogEntry, ProjectRecord, WorkspaceOverview } from "@earendil-works/pi-novel-contracts";
-import { getModelCatalog, getProjects, getWorkspace, initializeWorkspace, rescanWorkspace } from "../api/client.ts";
+import type { ConfigureModelApiKeyInput, CreateForgeSessionInput, ModelCatalog, ModelCatalogEntry, ProjectRecord, WorkspaceOverview } from "@earendil-works/pi-novel-contracts";
+import { clearModelApiKey, configureModelApiKey, createForgeSession, getModelCatalog, getProjects, getWorkspace, initializeWorkspace, rescanWorkspace } from "../api/client.ts";
 import { novelQueryKeys } from "../api/query-keys.ts";
 import { AuthModelPanel, type RuntimePanelMode } from "../features/settings/AuthModelPanel.tsx";
 import { WorkspaceOnboarding } from "../features/workspace/WorkspaceOnboarding.tsx";
@@ -18,6 +18,9 @@ export interface AppShellContext {
 	onNavigate(path: string): void;
 	onRescan(): Promise<void>;
 	onSelectModel(model: ModelCatalogEntry): void;
+	onConfigureApiKey(input: ConfigureModelApiKeyInput): Promise<void>;
+	onClearApiKey(providerId: string): Promise<void>;
+	onCreateForgeSession(input: CreateForgeSessionInput): Promise<void>;
 }
 
 export function useAppShellContext(): AppShellContext {
@@ -61,11 +64,27 @@ export function AppShell() {
 			queryClient.setQueryData(novelQueryKeys.projects, workspace.projects);
 		},
 	});
+	const configureApiKeyMutation = useMutation({
+		mutationFn: configureModelApiKey,
+		onSuccess: (catalog) => queryClient.setQueryData(novelQueryKeys.models, catalog),
+	});
+	const clearApiKeyMutation = useMutation({
+		mutationFn: clearModelApiKey,
+		onSuccess: (catalog) => queryClient.setQueryData(novelQueryKeys.models, catalog),
+	});
+	const createForgeMutation = useMutation({
+		mutationFn: createForgeSession,
+		onSuccess: (session) => navigate(`/forge/${session.forgeSessionId}`),
+	});
 
 	const workspace = workspaceQuery.data;
 	const catalog = catalogQuery.data ?? EMPTY_CATALOG;
 	const overview = workspace ? { ...workspace, projects: projectsQuery.data ?? workspace.projects } : null;
 	const selectedModel = findModel(catalog, selectedModelId);
+	const connectedProviderCount = catalog.providers.filter((provider) => provider.status === "connected").length;
+	useEffect(() => {
+		if (workspace?.manifest.rootPath) void queryClient.invalidateQueries({ queryKey: novelQueryKeys.models });
+	}, [queryClient, workspace?.manifest.rootPath]);
 
 	useEffect(() => {
 		if (selectedModelId || !catalog.defaultModelId) return;
@@ -98,6 +117,9 @@ export function AppShell() {
 		onNavigate: navigate,
 		onRescan: () => rescanMutation.mutateAsync().then(() => undefined),
 		onSelectModel: selectModel,
+		onConfigureApiKey: (input) => configureApiKeyMutation.mutateAsync(input).then(() => undefined),
+		onClearApiKey: (providerId) => clearApiKeyMutation.mutateAsync(providerId).then(() => undefined),
+		onCreateForgeSession: (input) => createForgeMutation.mutateAsync(input).then(() => undefined),
 	};
 	const isLibrary = location.pathname.startsWith("/library");
 	return (
@@ -105,15 +127,15 @@ export function AppShell() {
 			<div className="shell-body">
 				<aside className="app-rail">
 					<div className="rail-workspace"><div className="rail-brand"><Sparkles size={15} /> Pi-Novel</div><div className="rail-path"><span>工作区</span><strong>{compactPath(overview.manifest.rootPath)}</strong><Compass size={14} /></div></div>
-					<nav className="rail-nav"><NavItem icon={<FileText size={16} />} label="起笔" active={location.pathname === "/"} onClick={() => navigate("/")} /><NavItem icon={<BookOpen size={16} />} label="作品" active={isLibrary} onClick={() => navigate("/library")} /><NavItem icon={<Search size={16} />} label="搜索" active={false} onClick={() => navigate("/library")} /><NavItem icon={<Settings2 size={16} />} label="设置" active={location.pathname === "/settings"} onClick={() => navigate("/settings")} /></nav>
-					<button className="rail-user" onClick={() => setRuntimePanelMode("auth")}><div className="avatar"><UserRound size={15} /></div><div><strong>本地作者</strong><span>供应商与模型</span></div></button>
+					<nav className="rail-nav"><NavItem icon={<FileText size={16} />} label="起笔" active={location.pathname === "/"} onClick={() => navigate("/")} /><NavItem icon={<BookOpen size={16} />} label="作品" active={isLibrary} onClick={() => navigate("/library")} /><NavItem icon={<Search size={16} />} label="搜索" active={false} onClick={() => navigate("/library")} /></nav>
+					<div className="rail-user"><div className="avatar"><UserRound size={15} /></div><div><strong>本地作者</strong><span>运行时统一入口</span></div></div>
 				</aside>
 				<main className="main-content">
-					<div className="workspace-toolbar"><div className="toolbar-context"><span className="toolbar-kicker">PI-NOVEL WORKSPACE</span><strong>{compactPath(overview.manifest.rootPath)}</strong></div><div className="toolbar-actions"><span className="policy-note"><span className="status-dot green" /> 作者为权威</span><button className="model-trigger" onClick={() => setRuntimePanelMode("models")}><span className="toolbar-action-icon"><Cpu size={15} /></span><span><small>当前模型</small><strong>{selectedModel?.name ?? "选择模型"}</strong></span><ChevronDown size={14} /></button><button className="auth-trigger" onClick={() => setRuntimePanelMode("auth")}><UserRound size={15} /><span>供应商登录</span><em>0/{catalog.providers.length || 7}</em></button></div></div>
+					<div className="workspace-toolbar"><div className="toolbar-context"><span className="toolbar-kicker">PI-NOVEL WORKSPACE</span><strong>{compactPath(overview.manifest.rootPath)}</strong></div><div className="toolbar-actions"><span className="policy-note"><span className="status-dot green" /> 作者为权威</span><button className="model-trigger" onClick={() => setRuntimePanelMode("models")}><span className="toolbar-action-icon"><Cpu size={15} /></span><span><small>运行时</small><strong>{selectedModel?.name ?? "选择模型"}</strong></span><em>{connectedProviderCount}/{catalog.providers.length}</em><ChevronDown size={14} /></button></div></div>
 					<Outlet context={context} />
 				</main>
 			</div>
-			{runtimePanelMode && <AuthModelPanel mode={runtimePanelMode} catalog={catalog} selectedModel={selectedModel} onModeChange={setRuntimePanelMode} onSelectModel={selectModel} onClose={() => setRuntimePanelMode(null)} />}
+			{runtimePanelMode && <AuthModelPanel mode={runtimePanelMode} catalog={catalog} selectedModel={selectedModel} onModeChange={setRuntimePanelMode} onSelectModel={selectModel} onConfigureApiKey={(input) => configureApiKeyMutation.mutateAsync(input).then(() => undefined)} onClearApiKey={(providerId) => clearApiKeyMutation.mutateAsync(providerId).then(() => undefined)} onClose={() => setRuntimePanelMode(null)} />}
 		</div>
 	);
 }

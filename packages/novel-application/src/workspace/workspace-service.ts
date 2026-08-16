@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-novel-contracts";
 import { createWorkspaceManifest, sortProjects, touchWorkspaceManifest } from "@earendil-works/pi-novel-domain";
 import type {
+	ForgePersistencePort,
 	WorkspaceFileSystemPort,
 	WorkspacePathSet,
 	WorkspaceRepository,
@@ -19,6 +20,7 @@ import type {
 export class WorkspaceService {
 	private files: WorkspaceFileSystemPort | null = null;
 	private database: WorkspaceRepository | null = null;
+	private forgeRepository: ForgePersistencePort | null = null;
 	private manifest: WorkspaceManifest | null = null;
 	private warnings: ProjectScanWarning[] = [];
 	private readonly dependencies: WorkspaceServiceDependencies;
@@ -37,8 +39,10 @@ export class WorkspaceService {
 		const previous = await files.readManifest();
 		const manifest = previous ?? createWorkspaceManifest(randomUUID(), normalizedRoot);
 		const database = this.dependencies.createRepository(files.paths.database);
+		const forgeRepository = this.dependencies.createForgeRepository?.(files.paths.database) ?? null;
 		this.files = files;
 		this.database = database;
+		this.forgeRepository = forgeRepository;
 		this.manifest = manifest;
 		this.warnings = [];
 		await files.writeManifest(manifest);
@@ -54,6 +58,7 @@ export class WorkspaceService {
 		this.close();
 		this.files = files;
 		this.database = this.dependencies.createRepository(files.paths.database);
+		this.forgeRepository = this.dependencies.createForgeRepository?.(files.paths.database) ?? null;
 		this.manifest = manifest;
 		this.warnings = [];
 		return this.rescanLoadedWorkspace();
@@ -73,7 +78,9 @@ export class WorkspaceService {
 	}
 
 	close(): void {
+		this.forgeRepository?.close();
 		this.database?.close();
+		this.forgeRepository = null;
 		this.database = null;
 		this.files = null;
 		this.manifest = null;
@@ -81,6 +88,14 @@ export class WorkspaceService {
 
 	getWorkspacePaths(): WorkspacePathSet | null {
 		return this.files?.paths ?? null;
+	}
+
+	getWorkspaceManifest(): WorkspaceManifest | null {
+		return this.manifest;
+	}
+
+	getForgeRepository(): ForgePersistencePort | null {
+		return this.forgeRepository;
 	}
 
 	private async rescanLoadedWorkspace(): Promise<WorkspaceOverview> {

@@ -13,6 +13,13 @@ export function loadWorkspaceMigrations(): WorkspaceMigration[] {
 			id: "001_initial.sql",
 			sql: readFileSync(fileURLToPath(new URL("./migrations/001_initial.sql", import.meta.url)), "utf8"),
 		},
+		{
+			id: "002_forge_vertical_slice.sql",
+			sql: readFileSync(
+				fileURLToPath(new URL("./migrations/002_forge_vertical_slice.sql", import.meta.url)),
+				"utf8",
+			),
+		},
 	];
 }
 
