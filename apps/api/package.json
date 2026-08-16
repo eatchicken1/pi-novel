@@ -1,0 +1,15 @@
+{
+	"name": "@earendil-works/pi-novel-api",
+	"version": "0.0.3",
+	"private": true,
+	"type": "module",
+	"main": "./src/server.ts",
+	"scripts": {"dev": "tsx src/bootstrap.ts", "test": "vitest --run"},
+	"dependencies": {
+		"@earendil-works/pi-novel-application": "0.0.3",
+		"@earendil-works/pi-novel-contracts": "0.0.3",
+		"fastify": "5.12.0",
+		"@fastify/cors": "11.3.0"
+	},
+	"devDependencies": {"tsx": "4.22.1", "vitest": "4.1.10"}
+}

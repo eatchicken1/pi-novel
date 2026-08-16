@@ -1,0 +1,14 @@
+{
+	"name": "@earendil-works/pi-novel-infrastructure",
+	"version": "0.0.3",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"scripts": {"test": "vitest --run"},
+	"dependencies": {
+		"@earendil-works/pi-novel-contracts": "0.0.3",
+		"yaml": "2.9.0"
+	},
+	"devDependencies": {"vitest": "4.1.10"}
+}
