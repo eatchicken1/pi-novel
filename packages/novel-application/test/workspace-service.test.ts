@@ -52,6 +52,7 @@ class FakeFileSystem implements WorkspaceFileSystemPort {
 }
 
 class FakeRepository implements WorkspaceRepository {
+	readonly databasePath = ":memory:";
 	private workspace: { manifest: WorkspaceManifest; lastScanAt: string | null } | null = null;
 	private projects: ProjectRecord[] = [];
 

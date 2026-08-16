@@ -206,7 +206,7 @@ describe("product repositories", () => {
 	it("T1: TaskRepository stores tasks, ordered events and agent runs", () => {
 		const path = tempDbPath("t1");
 		const db = new WorkspaceDatabase(path);
-		const repo = new TaskRepository(db.db);
+		const repo = new TaskRepository(path);
 		repo.createTask({
 			taskId: "t-1",
 			projectId: "p-1",
