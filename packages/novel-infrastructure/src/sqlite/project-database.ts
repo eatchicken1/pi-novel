@@ -1,37 +1,20 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { applyProjectMigrations } from "./project-migrations.ts";
 
-const PROJECT_MIGRATION = {
-	id: "001_project_initial.sql",
-	sql: `
-CREATE TABLE IF NOT EXISTS project_metadata (project_id TEXT PRIMARY KEY, title TEXT NOT NULL, language TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS story_commitments (commitment_id TEXT PRIMARY KEY, candidate_id TEXT NOT NULL, payload_json TEXT NOT NULL, committed_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS forge_provenance (provenance_id TEXT PRIMARY KEY, forge_session_id TEXT NOT NULL, source_artifact_id TEXT NOT NULL, created_at TEXT NOT NULL);
-`,
-} as const;
-
+// ProjectDatabase 只负责：连接生命周期 + 迁移 + 基础写入。
+// 业务访问通过 domain repository（changeset/commit/review/story-graph）共享 db 句柄，
+// 避免巨型数据库类。
 export class ProjectDatabase {
-	private readonly db: DatabaseSync;
+	readonly db: DatabaseSync;
+	readonly path: string;
 
 	constructor(databasePath: string) {
 		mkdirSync(dirname(databasePath), { recursive: true });
+		this.path = databasePath;
 		this.db = new DatabaseSync(databasePath);
-		this.db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
-		const applied = this.db.prepare("SELECT id FROM schema_migrations").all() as Array<{ id: string }>;
-		if (!applied.some((entry) => entry.id === PROJECT_MIGRATION.id)) {
-			this.db.exec("BEGIN IMMEDIATE");
-			try {
-				this.db.exec(PROJECT_MIGRATION.sql);
-				this.db
-					.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)")
-					.run(PROJECT_MIGRATION.id, new Date().toISOString());
-				this.db.exec("COMMIT");
-			} catch (error) {
-				this.db.exec("ROLLBACK");
-				throw error;
-			}
-		}
+		applyProjectMigrations(this.db);
 	}
 
 	writeFoundation(input: {

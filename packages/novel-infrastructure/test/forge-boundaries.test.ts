@@ -32,7 +32,10 @@ describe("Forge persistence boundaries", () => {
 			expect.arrayContaining(["manuscript", "notes", "assets", "exports", "novel.yaml"]),
 		);
 		const database = new DatabaseSync(join(root, "fog-harbor", ".pi-novel", "project.sqlite"));
-		expect(database.prepare("SELECT id FROM schema_migrations").all()).toEqual([{ id: "001_project_initial.sql" }]);
+		expect(database.prepare("SELECT id FROM schema_migrations ORDER BY id").all()).toEqual([
+			{ id: "001_project_initial.sql" },
+			{ id: "003_project_product.sql" },
+		]);
 		expect(database.prepare("SELECT project_id FROM project_metadata").get()).toEqual({
 			project_id: result.projectId,
 		});

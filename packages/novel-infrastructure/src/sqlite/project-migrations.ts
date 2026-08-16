@@ -2,40 +2,30 @@ import { readFileSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
-export interface WorkspaceMigration {
+export interface ProjectMigration {
 	id: string;
 	sql: string;
 }
 
-export function loadWorkspaceMigrations(): WorkspaceMigration[] {
+export function loadProjectMigrations(): ProjectMigration[] {
 	return [
 		{
-			id: "001_initial.sql",
-			sql: readFileSync(fileURLToPath(new URL("./migrations/001_initial.sql", import.meta.url)), "utf8"),
+			id: "001_project_initial.sql",
+			sql: readFileSync(fileURLToPath(new URL("./migrations/001_project_initial.sql", import.meta.url)), "utf8"),
 		},
 		{
-			id: "002_forge_vertical_slice.sql",
-			sql: readFileSync(
-				fileURLToPath(new URL("./migrations/002_forge_vertical_slice.sql", import.meta.url)),
-				"utf8",
-			),
-		},
-		{
-			id: "003_task_product.sql",
-			sql: readFileSync(
-				fileURLToPath(new URL("./migrations/003_task_product.sql", import.meta.url)),
-				"utf8",
-			),
+			id: "003_project_product.sql",
+			sql: readFileSync(fileURLToPath(new URL("./migrations/003_project_product.sql", import.meta.url)), "utf8"),
 		},
 	];
 }
 
-export function applyWorkspaceMigrations(db: DatabaseSync): void {
+export function applyProjectMigrations(db: DatabaseSync): void {
 	db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
 	const applied = new Set(
 		(db.prepare("SELECT id FROM schema_migrations ORDER BY id").all() as Array<{ id: string }>).map((row) => row.id),
 	);
-	for (const migration of loadWorkspaceMigrations()) {
+	for (const migration of loadProjectMigrations()) {
 		if (applied.has(migration.id)) continue;
 		db.exec("BEGIN IMMEDIATE");
 		try {

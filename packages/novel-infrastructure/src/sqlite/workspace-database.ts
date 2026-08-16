@@ -30,7 +30,7 @@ interface ProjectRow {
 }
 
 export class WorkspaceDatabase {
-	private readonly db: DatabaseSync;
+	readonly db: DatabaseSync;
 
 	constructor(databasePath: string) {
 		mkdirSync(dirname(databasePath), { recursive: true });

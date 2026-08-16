@@ -146,11 +146,13 @@ describe("workspace files and persistence", () => {
 		expect(raw.prepare("SELECT id FROM schema_migrations ORDER BY id").all()).toEqual([
 			{ id: "001_initial.sql" },
 			{ id: "002_forge_vertical_slice.sql" },
+			{ id: "003_task_product.sql" },
 		]);
 		raw.close();
 		expect(loadWorkspaceMigrations().map((migration) => migration.id)).toEqual([
 			"001_initial.sql",
 			"002_forge_vertical_slice.sql",
+			"003_task_product.sql",
 		]);
 	});
 
