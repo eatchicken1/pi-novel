@@ -904,10 +904,20 @@ export class NovelProjectStore {
 		const basePath = relativePath.endsWith(".json") ? relativePath.slice(0, -5) : relativePath;
 		const directory = this.projectFile(projectId, dirname(relativePath));
 		const entries = await this.listFiles(directory, signal);
-		const revisions = entries.map((path) => path.match(new RegExp(`${basePath.split(/[\\/]/u).at(-1)}-r(\\d+)\\.json$`))?.[1]).filter((value): value is string => value !== undefined).map(Number);
-		const reportRevision = (revisions.length > 0 ? Math.max(...revisions) : 0) + 1;
-		const versionedPath = `${basePath}-r${String(reportRevision).padStart(2, "0")}.json`;
+		const revisions = entries.map((path) => path.match(new RegExp(`${basePath.split(/[\\/]/u).at(-1)}-r(\d+)\.json$`))?.[1]).filter((value): value is string => value !== undefined).map(Number);
+		const latestRevision = revisions.length > 0 ? Math.max(...revisions) : 0;
+		const reportRevision = latestRevision + 1;
 		const payload = `${JSON.stringify({ ...report, reportRevision }, null, 2)}\n`;
+		// 内容去重：与最新版本内容一致（忽略 generatedAt / reportRevision 时间戳字段）时不再追加新版本，
+		// 避免 diagnose/check 重复调用产生成百上千份字节级相同的 rNN 报告。
+		if (latestRevision > 0) {
+			const latestVersionedPath = `${basePath}-r${String(latestRevision).padStart(2, "0")}.json`;
+			const latestContent = await this.readTextIfExists(this.projectFile(projectId, latestVersionedPath), signal);
+			if (latestContent !== undefined && normalizeReportForDedup(latestContent) === normalizeReportForDedup(payload)) {
+				return { reportRevision: latestRevision, versionedPath: latestVersionedPath, latestPath: relativePath };
+			}
+		}
+		const versionedPath = `${basePath}-r${String(reportRevision).padStart(2, "0")}.json`;
 		await this.writeAtomically(this.projectFile(projectId, versionedPath), payload, signal);
 		await this.writeAtomically(this.projectFile(projectId, relativePath), payload, signal);
 		return { reportRevision, versionedPath, latestPath: relativePath };
@@ -1934,7 +1944,8 @@ export class NovelProjectStore {
 		// Unified Seal 校验（所有项目）：chapter/summary hash + Seal V2 memory hashes；chase 项目继续走 ending 校验。
 		const genericSeal = await this.readJsonIfExists(this.projectFile(params.projectId, "evaluations/manuscript/unified-seal.json"), signal);
 		if (!isJsonRecord(genericSeal) || genericSeal.status !== "finalized") {
-			throw new Error("Unified manuscript export requires a current finalized manuscript seal; run finalize_manuscript_unified first.");
+			if (chapterPaths.length > 0) throw new Error("Unified manuscript export requires a current finalized manuscript seal; run finalize_manuscript_unified first.");
+			// 空项目（无定稿章节）：保留 legacy 预览导出（返回 0 章）。
 		}
 		if (isJsonRecord(genericSeal) && genericSeal.status === "finalized") {
 			const sealedSources = Array.isArray(genericSeal.sources) ? genericSeal.sources.filter(isJsonRecord) : [];
@@ -1963,7 +1974,8 @@ export class NovelProjectStore {
 			}
 		}
 		if (!isJsonRecord(genericSeal) || genericSeal.status !== "finalized") {
-			throw new Error("Unified manuscript export requires a current finalized manuscript seal; run finalize_manuscript_unified first.");
+			if (chapterPaths.length > 0) throw new Error("Unified manuscript export requires a current finalized manuscript seal; run finalize_manuscript_unified first.");
+			// 空项目（无定稿章节）：保留 legacy 预览导出（返回 0 章）。
 		}
 		if (isJsonRecord(project) && hasChaseWifeCapability(project)) {
 			// Converged 优先：unified manuscript seal（不要求旧 chase-wife 独立 event map）。
@@ -5364,7 +5376,17 @@ export class NovelProjectStore {
 			for (const issue of complexity.issues) sourceIssues.push({ code: issue.code, severity: issue.severity, message: issue.message });
 			const fairness = await this.checkMysteryRealizedFairness({ projectId: params.projectId }, signal);
 			reports.push(fairness.path);
-			for (const issue of fairness.issues) sourceIssues.push({ code: issue.code, severity: issue.severity, message: issue.message });
+			// 全书级 realized-fairness 问题按「修复落点」分流：落点不在本章的 P0 会卡死本章诊断
+			// （模型反复 revise 本章正文永远修不好），降级为 warning 并写明落点章；落点在本章才保留原级别。
+			for (const issue of fairness.issues) {
+				const landing = fairnessLandingChapter(issue.code, issue.message, fairness);
+				if (landing === undefined || landing === params.chapter) {
+					sourceIssues.push({ code: issue.code, severity: issue.severity, message: issue.message });
+				} else {
+					// 换用非 P0 代码（priorityFor 命中 P0_CODES 即 P0，severity 不参与）；原 code 保留在 message 中。
+					sourceIssues.push({ code: "GLOBAL_FAIRNESS_" + issue.code, severity: "warning", message: issue.message + "（修复落点 ch" + landing + "，非本章可修；属全书评审范围，应在事件图/兑现层修订，或先 review_manuscript）" });
+				}
+			}
 		}
 		// Scene & Prose Intelligence（Round 9）：Scene Design 检查 + 正文确定性检查 + 模型语义发现。
 		const sceneDesigns = await this.readJsonIfExists(this.projectFile(params.projectId, `work/scene-designs/${chapterName(params.chapter)}.json`), signal);
@@ -5994,3 +6016,34 @@ export class NovelProjectStore {
 		});
 	}
 }
+
+// 版本化报告去重：内容一致（忽略 generatedAt / reportRevision 时间戳字段）时不追加新版本。
+function normalizeReportForDedup(content: string): string {
+	return content.replace(/"generatedAt":\s*"[^"]*"/gu, '"generatedAt": "<ts>"').replace(/"reportRevision":\s*\d+/gu, '"reportRevision": <n>');
+}
+
+// 全书级 realized-fairness 问题的修复落点章：
+// - REALIZED_REVEAL_BEFORE_PROOF：落点 = 实际揭示章（把 reveal 推迟或在其前补证明）；
+// - REALIZED_CLUE_NEVER_REALIZED：落点 = 依赖该 clue 的 claim 的实际揭示章（clue 须在揭示前兑现）。
+// 无法定位时返回 undefined（保守：保留原级别）。
+function fairnessLandingChapter(
+	code: string,
+	message: string,
+	fairness: {
+		unsupportedFinalClaims?: Array<{ claimId: string; reason: string }>;
+		proofCoverage?: Record<string, { revealChapter?: number }>;
+	},
+): number | undefined {
+	const revealMatch = message.match(/claim (\w+) is actually revealed in chapter (\d+)/u);
+	if (revealMatch !== null) return Number(revealMatch[2]);
+	const clueMatch = message.match(/clue (\w+) is required by path (\w+)/u);
+	if (clueMatch === null) return undefined;
+	const pathId = clueMatch[2];
+	const entry = (fairness.unsupportedFinalClaims ?? []).find((candidate) => candidate.reason.includes(`: ${pathId}:`));
+	if (entry === undefined) return undefined;
+	const heroineCoverage = fairness.proofCoverage?.[`${entry.claimId}:heroine`];
+	if (heroineCoverage?.revealChapter !== undefined) return heroineCoverage.revealChapter;
+	const readerCoverage = fairness.proofCoverage?.[`${entry.claimId}:reader`];
+	return readerCoverage?.revealChapter;
+}
+
