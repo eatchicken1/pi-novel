@@ -1,26 +1,43 @@
-export type ProviderConnectionStatus = "connected" | "not_connected";
+import { type Static, Type } from "typebox";
 
-export interface ModelCatalogEntry {
-	providerId: string;
-	modelId: string;
-	name: string;
-	reasoning: boolean;
-	contextWindow: number;
-	maxTokens: number;
-	input: Array<"text" | "image">;
-}
+export const ProviderConnectionStatusSchema = Type.Union([Type.Literal("connected"), Type.Literal("not_connected")]);
+export type ProviderConnectionStatus = Static<typeof ProviderConnectionStatusSchema>;
 
-export interface ProviderCatalogEntry {
-	providerId: string;
-	name: string;
-	authLabel: string;
-	isSubscription: boolean;
-	status: ProviderConnectionStatus;
-	cliLoginCommand: string;
-	models: ModelCatalogEntry[];
-}
+export const ModelInputSchema = Type.Union([Type.Literal("text"), Type.Literal("image")]);
 
-export interface ModelCatalog {
-	providers: ProviderCatalogEntry[];
-	defaultModelId: string | null;
-}
+export const ModelCatalogEntrySchema = Type.Object(
+	{
+		providerId: Type.String({ minLength: 1 }),
+		modelId: Type.String({ minLength: 1 }),
+		name: Type.String({ minLength: 1 }),
+		reasoning: Type.Boolean(),
+		contextWindow: Type.Integer({ minimum: 1 }),
+		maxTokens: Type.Integer({ minimum: 1 }),
+		input: Type.Array(ModelInputSchema, { minItems: 1 }),
+	},
+	{ additionalProperties: false },
+);
+export type ModelCatalogEntry = Static<typeof ModelCatalogEntrySchema>;
+
+export const ProviderCatalogEntrySchema = Type.Object(
+	{
+		providerId: Type.String({ minLength: 1 }),
+		name: Type.String({ minLength: 1 }),
+		authLabel: Type.String({ minLength: 1 }),
+		isSubscription: Type.Boolean(),
+		status: ProviderConnectionStatusSchema,
+		cliLoginCommand: Type.String({ minLength: 1 }),
+		models: Type.Array(ModelCatalogEntrySchema),
+	},
+	{ additionalProperties: false },
+);
+export type ProviderCatalogEntry = Static<typeof ProviderCatalogEntrySchema>;
+
+export const ModelCatalogSchema = Type.Object(
+	{
+		providers: Type.Array(ProviderCatalogEntrySchema),
+		defaultModelId: Type.Union([Type.Null(), Type.String({ minLength: 1 })]),
+	},
+	{ additionalProperties: false },
+);
+export type ModelCatalog = Static<typeof ModelCatalogSchema>;
