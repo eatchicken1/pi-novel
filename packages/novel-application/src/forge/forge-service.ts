@@ -64,6 +64,7 @@ export class ForgeService {
 			workspaceId: context.workspaceId,
 			status: input.narrativeDNA ? "ready" : "draft",
 			seed: input.seed.trim(),
+			...(input.genreHint ? { genreHint: input.genreHint.trim() } : {}),
 			titleCandidate: input.titleCandidate ?? null,
 			narrativeDNA: input.narrativeDNA ?? null,
 			hardConstraints: input.hardConstraints ?? [],
@@ -96,6 +97,7 @@ export class ForgeService {
 		const next: ForgeSession = {
 			...session,
 			...(input.seed !== undefined ? { seed: input.seed.trim() } : {}),
+			...(input.genreHint !== undefined ? { genreHint: input.genreHint.trim() } : {}),
 			...(input.titleCandidate !== undefined ? { titleCandidate: input.titleCandidate.trim() } : {}),
 			...(input.narrativeDNA !== undefined ? { narrativeDNA: input.narrativeDNA } : {}),
 			...(input.hardConstraints !== undefined ? { hardConstraints: input.hardConstraints } : {}),

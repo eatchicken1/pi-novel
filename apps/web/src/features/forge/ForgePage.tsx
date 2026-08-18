@@ -16,23 +16,29 @@ import {
 	regenerateForgeDirections,
 	selectForgeDirection,
 	updateForgeSession,
+	getApiErrorMessage,
 } from "../../api/client.ts";
 import { novelQueryKeys } from "../../api/query-keys.ts";
 import { useAppShellContext } from "../../app/AppShell.tsx";
 
-const DEFAULT_DNA: NarrativeDna = { genre: "悬疑", narrativeScale: "中长篇", coreExperience: "", pacing: "持续升级", pov: "限制视角", endingTone: "余韵明确", readerPromise: "真相与关系同时推进" };
+const EMPTY_DNA: NarrativeDna = { genre: "", narrativeScale: "", coreExperience: "", pacing: "", pov: "", endingTone: "", readerPromise: "" };
+const GENRE_OPTIONS = ["玄幻", "仙侠", "都市", "悬疑", "科幻", "言情", "历史"];
+const SCALE_OPTIONS = ["短篇", "中篇", "中长篇", "长篇"];
+const PACING_OPTIONS = ["慢燃", "平衡", "紧凑", "持续升级"];
+const POV_OPTIONS = ["第一人称", "限制三人称", "多 POV", "限制视角"];
+const ENDING_OPTIONS = ["开放", "苦涩", "温暖", "冷峻", "余韵明确"];
 const ACTIVE_TASK_STATUSES = new Set(["queued", "running"]);
 
 export function ForgePage() {
 	const { sessionId } = useParams();
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
-	const { catalog } = useAppShellContext();
+	const { catalog, onSetRuntimeAgentId } = useAppShellContext();
 	const [seed, setSeed] = useState("");
-	const [dna, setDna] = useState<NarrativeDna>(DEFAULT_DNA);
+	const [dna, setDna] = useState<NarrativeDna>(EMPTY_DNA);
 	const [hardText, setHardText] = useState("");
 	const [preferenceText, setPreferenceText] = useState("");
-	const [authorNote, setAuthorNote] = useState("这条方向符合我的创作意图，可以进入 Native Project。");
+	const [authorNote, setAuthorNote] = useState("这条方向符合我的创作意图，可以进入创作。");
 	const [title, setTitle] = useState("");
 	const [folderName, setFolderName] = useState("");
 	const [critiqueInstruction, setCritiqueInstruction] = useState("指出这个方向最容易变成套路的地方，并给出一个能落地的修正建议。");
@@ -73,14 +79,14 @@ export function ForgePage() {
 		if (!session || hydratedSessionId.current === sessionId) return;
 		hydratedSessionId.current = sessionId ?? null;
 		setSeed(session.seed);
-		setDna(session.narrativeDNA ?? { ...DEFAULT_DNA, coreExperience: session.seed });
+		setDna(session.narrativeDNA ?? { ...EMPTY_DNA, genre: session.genreHint ?? "" });
 		setHardText(session.hardConstraints.map((entry) => entry.text).join("\n"));
 		setPreferenceText(session.preferences.map((entry) => entry.text).join("\n"));
 		setTitle(session.titleCandidate ?? "");
 		setFolderName(session.titleCandidate?.replace(/[^\p{L}\p{N}_-]+/gu, "-") ?? "new-novel");
 	}, [session, sessionId]);
 
-	const saveMutation = useMutation({ mutationFn: () => updateForgeSession(sessionId ?? "", { seed: seed.trim(), narrativeDNA: { ...dna, coreExperience: dna.coreExperience.trim() || seed.trim() }, hardConstraints: toConstraints(hardText, "hard"), preferences: toConstraints(preferenceText, "preference"), ...(title.trim() ? { titleCandidate: title.trim() } : {}) }), onSuccess: (next) => queryClient.setQueryData(novelQueryKeys.forgeSession(sessionId ?? ""), next) });
+	const saveMutation = useMutation({ mutationFn: () => updateForgeSession(sessionId ?? "", { seed: seed.trim(), genreHint: dna.genre.trim() || undefined, narrativeDNA: { ...dna, coreExperience: dna.coreExperience.trim() }, hardConstraints: toConstraints(hardText, "hard"), preferences: toConstraints(preferenceText, "preference"), ...(title.trim() ? { titleCandidate: title.trim() } : {}) }), onSuccess: (next) => queryClient.setQueryData(novelQueryKeys.forgeSession(sessionId ?? ""), next) });
 	const generateMutation = useMutation({ mutationFn: () => generateForgeDirections(sessionId ?? "", { count: 3 }), onSuccess: async (nextTask) => { queryClient.setQueryData(novelQueryKeys.forgeTask(nextTask.taskId), nextTask); await queryClient.invalidateQueries({ queryKey: novelQueryKeys.forgeSession(sessionId ?? "") }); } });
 	const regenerateMutation = useMutation({ mutationFn: () => regenerateForgeDirections(sessionId ?? "", { count: 3 }), onSuccess: async (nextTask) => { queryClient.setQueryData(novelQueryKeys.forgeTask(nextTask.taskId), nextTask); await queryClient.invalidateQueries({ queryKey: novelQueryKeys.forgeSession(sessionId ?? "") }); } });
 	const compareMutation = useMutation({ mutationFn: () => compareForgeDirections(sessionId ?? ""), onSuccess: async (nextTask) => { queryClient.setQueryData(novelQueryKeys.forgeTask(nextTask.taskId), nextTask); await queryClient.invalidateQueries({ queryKey: novelQueryKeys.forgeSession(sessionId ?? "") }); } });
@@ -91,7 +97,7 @@ export function ForgePage() {
 	const recoverMutation = useMutation({ mutationFn: () => recoverForgeMaterialization(sessionId ?? ""), onSuccess: async (next) => { queryClient.setQueryData(novelQueryKeys.forgeSession(sessionId ?? ""), next); await queryClient.invalidateQueries({ queryKey: novelQueryKeys.workspace }); await queryClient.invalidateQueries({ queryKey: novelQueryKeys.projects }); } });
 
 	const operationError = [saveMutation.error, generateMutation.error, regenerateMutation.error, compareMutation.error, selectMutation.error, critiqueMutation.error, commitMutation.error, materializeMutation.error, recoverMutation.error].find((entry) => entry !== null);
-	const shownError = error ?? (operationError instanceof Error ? operationError.message : null);
+	const shownError = error ?? (operationError ? getApiErrorMessage(operationError) : null);
 	const selectedCandidate = useMemo(() => artifacts?.candidates.find((candidate) => candidate.status === "selected") ?? (session?.selectedCandidateId ? artifacts?.candidates.find((candidate) => candidate.candidateId === session.selectedCandidateId) : undefined), [artifacts?.candidates, session?.selectedCandidateId]);
 
 	if (!sessionId || sessionId === "draft") return <ForgeMissing />;
@@ -100,22 +106,24 @@ export function ForgePage() {
 	if (!session) return <ForgeMissing />;
 	const latestGeneration = artifacts?.generations.at(-1)?.generation ?? null;
 	const canEdit = session.status === "draft" || session.status === "ready" || session.status === "failed";
-	const canGenerate = canEdit;
-	const canRegenerate = canEdit || session.status === "awaiting_selection";
+	const dnaComplete = Object.values(dna).every((value) => value.trim().length > 0) && seed.trim().length > 0;
+	const canGenerate = canEdit && dnaComplete;
+	const canRegenerate = session.status === "awaiting_selection" || (canEdit && dnaComplete);
 	const canCompare = session.status === "awaiting_selection" && artifacts !== undefined && artifacts.candidates.length >= 3 && artifacts.comparison === null && !taskActive;
 	const isBusy = taskActive || saveMutation.isPending || generateMutation.isPending || regenerateMutation.isPending || compareMutation.isPending || selectMutation.isPending || critiqueMutation.isPending || commitMutation.isPending || materializeMutation.isPending || recoverMutation.isPending;
 	const generateLabel = saveMutation.isPending || generateMutation.isPending ? "生成中…" : "保存并生成方向";
 	const regenerateLabel = regenerateMutation.isPending ? "重新生成中…" : `重新生成（第 ${latestGeneration === null ? "—" : latestGeneration + 1} 代）`;
-	const connectedProviderCount = catalog.providers.filter((provider) => provider.status === "connected").length;
 
 	async function saveAndGenerate(): Promise<void> {
 		setError(null);
 		if (!canGenerate || isBusy) return;
+		onSetRuntimeAgentId("forge.explorer");
 		try { await saveMutation.mutateAsync(); await generateMutation.mutateAsync(); } catch { /* surfaced by mutation state */ }
 	}
 	async function saveAndRegenerate(): Promise<void> {
 		setError(null);
 		if (!canRegenerate || isBusy) return;
+		onSetRuntimeAgentId("forge.explorer");
 		try {
 			if (canEdit) await saveMutation.mutateAsync();
 			await regenerateMutation.mutateAsync();
@@ -123,15 +131,15 @@ export function ForgePage() {
 	}
 
 	return <div className="forge-page page-stack">
-		<section className="page-heading"><div><p className="eyebrow">02 / FORGE SESSION</p><h1>故事方向工作台 <span>{session.status}</span></h1><p>AI 只提出候选；作者选择并提交后，才会形成 Story Commitment。</p></div><button className="quiet-button" type="button" onClick={() => navigate("/")}><ArrowLeft size={15} /> 返回工作区</button></section>
-		<div className="forge-journey"><JourneyStep active={session.status === "draft" || session.status === "ready"} done={session.status !== "draft" && session.status !== "ready"} label="Seed & DNA" /><JourneyStep active={session.status === "generating" || session.status === "awaiting_selection"} done={session.status === "committed" || session.status === "materializing" || session.status === "materialized"} label="Explore & Compare" /><JourneyStep active={session.status === "committed" || session.status === "materializing"} done={session.status === "materialized"} label="Author Commit" /><JourneyStep active={session.status === "materialized"} done={session.status === "materialized"} label="Native Project" /></div>
+		<section className="page-heading"><div><p className="eyebrow">故事工作台</p><h1>把故事想法变成可写的方向</h1><p>先确认创作偏好，再让 AI 提出不同的故事方向；最终选择权始终在作者手里。</p></div><button className="quiet-button" type="button" onClick={() => navigate("/")}><ArrowLeft size={15} /> 返回起笔台</button></section>
+		<div className="forge-journey"><JourneyStep active={session.status === "draft" || session.status === "ready"} done={session.status !== "draft" && session.status !== "ready"} label="想法" /><JourneyStep active={session.status === "generating" || session.status === "awaiting_selection"} done={session.status === "committed" || session.status === "materializing" || session.status === "materialized"} label="方向" /><JourneyStep active={session.status === "committed" || session.status === "materializing"} done={session.status === "materialized"} label="确认" /><JourneyStep active={session.status === "materialized"} done={session.status === "materialized"} label="开始写作" /></div>
 		{shownError && <div className="inline-alert" role="alert"><TriangleAlert size={14} /> {shownError}</div>}
 		{artifactsQuery.isError && <div className="inline-alert" role="alert"><TriangleAlert size={14} /> 候选产物加载失败：{artifactsQuery.error instanceof Error ? artifactsQuery.error.message : "请稍后重试"}<button className="text-button" type="button" onClick={() => void artifactsQuery.refetch()}>重新加载</button></div>}
-		{session.failureCode === "FORGE_MATERIALIZATION_RECOVERABLE" && <div className="inline-alert recover-alert" role="alert"><TriangleAlert size={14} /><span>项目文件已写入，但注册流程未完成。可以恢复这次 materialization，避免重复创建项目。</span><button className="secondary-button" type="button" onClick={() => recoverMutation.mutate()} disabled={isBusy}>{recoverMutation.isPending ? "恢复中…" : "恢复项目注册"}</button></div>}
+		{session.failureCode === "FORGE_MATERIALIZATION_RECOVERABLE" && <div className="inline-alert recover-alert" role="alert"><TriangleAlert size={14} /><span>作品文件已写入，但登记流程未完成。可以恢复这次创建，避免重复生成作品。</span><button className="secondary-button" type="button" onClick={() => recoverMutation.mutate()} disabled={isBusy}>{recoverMutation.isPending ? "恢复中…" : "恢复作品"}</button></div>}
 		<section className="forge-grid"><div className="forge-main">
-			<section className="card forge-section"><div className="section-heading forge-section-heading"><div><p className="eyebrow">NARRATIVE DNA</p><h2>先固定创作意图</h2></div><span className="status-pill neutral">Proposal Layer</span></div><div className="forge-form-grid"><label>故事种子<textarea value={seed} onChange={(event) => setSeed(event.target.value)} disabled={!canEdit || isBusy} /></label><label>核心体验<textarea value={dna.coreExperience} onChange={(event) => setDna({ ...dna, coreExperience: event.target.value })} disabled={!canEdit || isBusy} /></label><label>读者承诺<textarea value={dna.readerPromise} onChange={(event) => setDna({ ...dna, readerPromise: event.target.value })} disabled={!canEdit || isBusy} /></label><label>结局语气<input value={dna.endingTone} onChange={(event) => setDna({ ...dna, endingTone: event.target.value })} disabled={!canEdit || isBusy} /></label></div><div className="constraint-grid"><label>硬约束 <span>必须满足</span><textarea value={hardText} onChange={(event) => setHardText(event.target.value)} placeholder="每行一条，例如：不使用失忆反转" disabled={!canEdit || isBusy} /></label><label>偏好 <span>尽量满足</span><textarea value={preferenceText} onChange={(event) => setPreferenceText(event.target.value)} placeholder="每行一条，例如：保留封闭空间" disabled={!canEdit || isBusy} /></label></div><div className="forge-section-footer"><span><LockKeyhole size={13} /> 硬约束与偏好分开存储</span><button className="primary-button" type="button" onClick={saveAndGenerate} disabled={!canGenerate || isBusy || !seed.trim()}>{generateLabel} <Send size={14} /></button></div></section>
-			{artifacts?.candidates.length ? <section className="card forge-section"><div className="section-heading forge-section-heading"><div><p className="eyebrow">DIRECTION CANDIDATES</p><h2>比较真正不同的故事引擎</h2></div><div className="forge-actions"><button className="secondary-button compact-button" type="button" onClick={saveAndRegenerate} disabled={!canRegenerate || isBusy}>{regenerateLabel} <RefreshCw size={13} /></button><button className="secondary-button compact-button" type="button" onClick={() => compareMutation.mutate()} disabled={!canCompare || isBusy}>{compareMutation.isPending ? "比较中…" : "运行比较"} <GitCompareArrows size={13} /></button></div></div><div className="candidate-grid">{artifacts.candidates.map((candidate) => <CandidateCard key={candidate.candidateId} candidate={candidate} selected={candidate.candidateId === session.selectedCandidateId} onSelect={() => selectMutation.mutate(candidate.candidateId)} onCritique={() => critiqueMutation.mutate(candidate.candidateId)} disabled={isBusy} />)}</div>{selectedCandidate && <div className="selection-summary"><Check size={14} /><span>已选方向：{selectedCandidate.title}</span><em>选择会先保存到 Session，提交后才会形成 Commitment。</em></div>}{artifacts.comparison && <div className="comparison-card"><div className="comparison-title"><GitCompareArrows size={15} /> 比较摘要</div><div className="comparison-grid">{artifacts.comparison.dimensions.map((dimension) => <div className="comparison-row" key={dimension.dimension}><strong className="comparison-dimension">{dimension.dimension}</strong><em className={`comparison-assessment ${dimension.assessment}`}>{comparisonLabel(dimension.assessment)}</em><span className="comparison-candidates">{dimension.candidateIds.map(shortId).join(" · ")}</span><span className="comparison-reason">{dimension.reason}</span></div>)}</div><p className="comparison-notes">{artifacts.comparison.notes.join(" ")}</p></div>}</section> : <section className="card forge-section forge-empty-state"><Sparkles size={25} /><h2>{session.status === "generating" ? "正在让模型探索不同方向" : "等待第一次方向生成"}</h2><p>至少三条候选会经过 Legacy Story Design 的差异检查后才进入比较。</p></section>}
-		</div><aside className="forge-rail"><section className="card commit-rail"><div className="card-kicker"><LockKeyhole size={15} /> AUTHOR COMMIT</div><h2>作者确认区</h2><p>选择只是 UI 状态；提交才会写入 Story Commitment。</p><label>批评要求<textarea value={critiqueInstruction} onChange={(event) => setCritiqueInstruction(event.target.value)} disabled={isBusy || session.status !== "awaiting_selection"} /></label><label>作者说明<textarea value={authorNote} onChange={(event) => setAuthorNote(event.target.value)} disabled={isBusy || session.status !== "awaiting_selection"} /></label><button className="primary-button" type="button" onClick={() => commitMutation.mutate()} disabled={!selectedCandidate || commitMutation.isPending || isBusy || session.status !== "awaiting_selection"}>{commitMutation.isPending ? "提交中…" : "提交选中方向"} <Check size={14} /></button>{session.status === "committed" && <div className="materialize-box"><p className="eyebrow">MATERIALIZE</p><strong>Story Commitment 已建立</strong><label>项目标题<input value={title} onChange={(event) => setTitle(event.target.value)} disabled={materializeMutation.isPending} /></label><label>文件夹名称<input value={folderName} onChange={(event) => setFolderName(event.target.value)} disabled={materializeMutation.isPending} /></label><button className="primary-button" type="button" onClick={() => materializeMutation.mutate()} disabled={materializeMutation.isPending || !title.trim() || !folderName.trim()}>{materializeMutation.isPending ? "建立项目中…" : "建立 Native Project"}</button></div>}{session.status === "materialized" && <button className="secondary-button" type="button" onClick={() => session.materializedProjectId && navigate(`/project/${encodeURIComponent(session.materializedProjectId)}/manuscript`)}>进入 Studio</button>}</section><section className="card forge-meta"><span>Session ID</span><code>{session.forgeSessionId}</code><span>Task</span><code>{task?.taskId ?? activeTask ?? "无"}</code>{task && <TaskStatus task={task} /> }<span>已连接 Provider</span><code>{connectedProviderCount}/{catalog.providers.length}</code><span>Runtime</span><code>{session.runtimeRelativePath}</code></section></aside></section></div>;
+			<section className="card forge-section"><div className="section-heading forge-section-heading"><div><p className="eyebrow">创作设置</p><h2>先确认你想怎么写</h2></div><span className="status-pill neutral">作者设置</span></div><div className="forge-form-grid"><label>故事种子<textarea value={seed} onChange={(event) => setSeed(event.target.value)} disabled={!canEdit || isBusy} /></label><label>核心体验<textarea value={dna.coreExperience} onChange={(event) => setDna({ ...dna, coreExperience: event.target.value })} placeholder="读者读完后最想留下的感受" disabled={!canEdit || isBusy} /></label><label>读者承诺<textarea value={dna.readerPromise} onChange={(event) => setDna({ ...dna, readerPromise: event.target.value })} placeholder="你承诺会把读者带向什么体验" disabled={!canEdit || isBusy} /></label><label>类型<select value={dna.genre} onChange={(event) => setDna({ ...dna, genre: event.target.value })} disabled={!canEdit || isBusy}><option value="">请选择类型</option>{GENRE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label><label>篇幅<select value={dna.narrativeScale} onChange={(event) => setDna({ ...dna, narrativeScale: event.target.value })} disabled={!canEdit || isBusy}><option value="">请选择篇幅</option>{SCALE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label><label>节奏<select value={dna.pacing} onChange={(event) => setDna({ ...dna, pacing: event.target.value })} disabled={!canEdit || isBusy}><option value="">请选择节奏</option>{PACING_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label><label>视角<select value={dna.pov} onChange={(event) => setDna({ ...dna, pov: event.target.value })} disabled={!canEdit || isBusy}><option value="">请选择视角</option>{POV_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label><label>结局气质<select value={dna.endingTone} onChange={(event) => setDna({ ...dna, endingTone: event.target.value })} disabled={!canEdit || isBusy}><option value="">请选择结局气质</option>{ENDING_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label></div><div className="constraint-grid"><label>硬约束 <span>必须满足</span><textarea value={hardText} onChange={(event) => setHardText(event.target.value)} placeholder="每行一条，例如：不使用失忆反转" disabled={!canEdit || isBusy} /></label><label>偏好 <span>尽量满足</span><textarea value={preferenceText} onChange={(event) => setPreferenceText(event.target.value)} placeholder="每行一条，例如：保留封闭空间" disabled={!canEdit || isBusy} /></label></div><div className="forge-section-footer"><span><LockKeyhole size={13} /> {dnaComplete ? "创作设置已完整" : "请完成所有创作设置后开始探索"}</span><button className="primary-button" type="button" onClick={saveAndGenerate} disabled={!canGenerate || isBusy}>{generateLabel} <Send size={14} /></button></div></section>
+			{artifacts?.candidates.length ? <section className="card forge-section"><div className="section-heading forge-section-heading"><div><p className="eyebrow">方向候选</p><h2>比较真正不同的故事引擎</h2></div><div className="forge-actions"><button className="secondary-button compact-button" type="button" onClick={saveAndRegenerate} disabled={!canRegenerate || isBusy}>{regenerateLabel} <RefreshCw size={13} /></button><button className="secondary-button compact-button" type="button" onClick={() => { onSetRuntimeAgentId("forge.comparator"); compareMutation.mutate(); }} disabled={!canCompare || isBusy}>{compareMutation.isPending ? "比较中…" : "运行比较"} <GitCompareArrows size={13} /></button></div></div><div className="candidate-grid">{artifacts.candidates.map((candidate) => <CandidateCard key={candidate.candidateId} candidate={candidate} selected={candidate.candidateId === session.selectedCandidateId} onSelect={() => selectMutation.mutate(candidate.candidateId)} onCritique={() => { onSetRuntimeAgentId("forge.critic"); critiqueMutation.mutate(candidate.candidateId); }} disabled={isBusy} />)}</div>{selectedCandidate && <div className="selection-summary"><Check size={14} /><span>已选方向：{selectedCandidate.title}</span><em>选择会先保存到当前故事，确认后才会锁定。</em></div>}{artifacts.comparison && <div className="comparison-card"><div className="comparison-title"><GitCompareArrows size={15} /> 比较摘要</div><div className="comparison-grid">{artifacts.comparison.dimensions.map((dimension) => <div className="comparison-row" key={dimension.dimension}><strong className="comparison-dimension">{dimension.dimension}</strong><em className={`comparison-assessment ${dimension.assessment}`}>{comparisonLabel(dimension.assessment)}</em><span className="comparison-candidates">{dimension.candidateIds.map(shortId).join(" · ")}</span><span className="comparison-reason">{dimension.reason}</span></div>)}</div><p className="comparison-notes">{artifacts.comparison.notes.join(" ")}</p></div>}</section> : <section className="card forge-section forge-empty-state"><Sparkles size={25} /><h2>{session.status === "generating" ? "正在让模型探索不同方向" : "等待第一次方向生成"}</h2><p>至少三条候选会经过故事差异检查后才进入比较。</p></section>}
+		</div><aside className="forge-rail"><section className="card commit-rail"><div className="card-kicker"><LockKeyhole size={15} /> 作者确认</div><h2>确认你的选择</h2><p>选择方向不会自动写作；确认后才会进入创作阶段。</p><label>批评要求<textarea value={critiqueInstruction} onChange={(event) => setCritiqueInstruction(event.target.value)} disabled={isBusy || session.status !== "awaiting_selection"} /></label><label>作者说明<textarea value={authorNote} onChange={(event) => setAuthorNote(event.target.value)} disabled={isBusy || session.status !== "awaiting_selection"} /></label><button className="primary-button" type="button" onClick={() => commitMutation.mutate()} disabled={!selectedCandidate || commitMutation.isPending || isBusy || session.status !== "awaiting_selection"}>{commitMutation.isPending ? "确认中…" : "确认选中方向"} <Check size={14} /></button>{session.status === "committed" && <div className="materialize-box"><p className="eyebrow">开始写作</p><strong>故事基础已确认</strong><label>作品标题<input value={title} onChange={(event) => setTitle(event.target.value)} disabled={materializeMutation.isPending} /></label><label>作品文件夹<input value={folderName} onChange={(event) => setFolderName(event.target.value)} disabled={materializeMutation.isPending} /></label><button className="primary-button" type="button" onClick={() => materializeMutation.mutate()} disabled={materializeMutation.isPending || !title.trim() || !folderName.trim()}>{materializeMutation.isPending ? "创建作品中…" : "创建作品"}</button></div>}{session.status === "materialized" && <button className="secondary-button" type="button" onClick={() => session.materializedProjectId && navigate(`/project/${encodeURIComponent(session.materializedProjectId)}/manuscript`)}>进入创作台</button>}</section><section className="card forge-meta"><span>创建进度</span><code>{task ? taskStatusLabel(task.status) : "尚未开始"}</code>{task && <TaskStatus task={task} /> }<span>运行配置</span><code>{catalog.providers.some((provider) => provider.status === "connected") ? "已按当前 Agent 配置" : "未配置"}</code></section></aside></section></div>;
 }
 
 function JourneyStep({ active, done, label }: { active: boolean; done: boolean; label: string }) { return <div className={`journey-step ${active ? "active" : ""} ${done ? "done" : ""}`}><span>{done ? <Check size={12} /> : ""}</span><strong>{label}</strong></div>; }
@@ -148,13 +156,18 @@ function shortId(candidateId: string): string { return candidateId.slice(-4); }
 function comparisonLabel(assessment: "stronger" | "comparable" | "weaker" | "risk"): string { return ({ stronger: "更强", comparable: "相当", weaker: "较弱", risk: "风险" })[assessment]; }
 
 function TaskStatus({ task }: { task: ForgeTask }) {
-	return <div className="task-status"><span className={`status-pill ${task.status}`}>{taskStatusLabel(task.status)}</span><span className="runtime-note">{task.progressPhase}</span>{task.errorMessage && <p className="task-error">{task.errorMessage}</p>}</div>;
+	return <div className="task-status"><span className={`status-pill ${task.status}`}>{taskStatusLabel(task.status)}</span><span className="runtime-note">{taskProgressLabel(task.progressPhase)}</span>{task.errorMessage && <p className="task-error">{task.errorMessage}</p>}</div>;
 }
 
 function taskStatusLabel(status: ForgeTask["status"]): string { return ({ queued: "排队中", running: "运行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" })[status]; }
 
-function ForgeMissing() { return <div className="studio-empty"><Sparkles size={24} /><h2>Forge Session 不存在</h2><p>从工作区首页创建一个新的 Forge Session。</p></div>; }
+function taskProgressLabel(progressPhase: string): string {
+	if (progressPhase.startsWith("generating")) return "正在探索方向";
+	return ({ queued: "等待开始", comparing: "正在比较方向", critiquing: "正在批评方向", awaiting_selection: "等待你的选择", failed: "处理失败" })[progressPhase] ?? "处理中";
+}
+
+function ForgeMissing() { return <div className="studio-empty"><Sparkles size={24} /><h2>故事工作区不存在</h2><p>请从起笔台重新创建一个故事。</p></div>; }
 
 function ForgeLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
-	return <div className="studio-empty"><TriangleAlert size={24} /><h2>Forge Session 加载失败</h2><p>{message}</p><button className="quiet-button" type="button" onClick={onRetry}><RefreshCw size={14} /> 重试</button></div>;
+	return <div className="studio-empty"><TriangleAlert size={24} /><h2>故事工作区加载失败</h2><p>{message}</p><button className="quiet-button" type="button" onClick={onRetry}><RefreshCw size={14} /> 重试</button></div>;
 }

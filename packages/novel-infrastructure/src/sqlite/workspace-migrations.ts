@@ -35,6 +35,10 @@ export function loadWorkspaceMigrations(): WorkspaceMigration[] {
 				"utf8",
 			),
 		},
+		{
+			id: "006_forge_genre_hint.sql",
+			sql: readFileSync(fileURLToPath(new URL("./migrations/006_forge_genre_hint.sql", import.meta.url)), "utf8"),
+		},
 	];
 }
 

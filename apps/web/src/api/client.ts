@@ -1,5 +1,6 @@
 import type {
 	AgentRuntimeProfile,
+	ApiError,
 	CommitForgeInput,
 	ConfigureModelApiKeyInput,
 	CreateForgeSessionInput,
@@ -30,11 +31,15 @@ interface ProjectsResponse {
 
 export class ApiClientError extends Error {
 	readonly status: number;
+	readonly code: string;
+	readonly details: Record<string, unknown> | undefined;
 
-	constructor(message: string, status = 0) {
+	constructor(message: string, status = 0, code = "API_REQUEST_FAILED", details?: Record<string, unknown>) {
 		super(message);
 		this.name = "ApiClientError";
 		this.status = status;
+		this.code = code;
+		this.details = details;
 	}
 }
 
@@ -46,15 +51,34 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 	const response = await fetch(url, { ...init, headers });
 	if (!response.ok) {
 		let message = `API request failed: ${response.status}`;
+		let code = "API_REQUEST_FAILED";
+		let details: Record<string, unknown> | undefined;
 		try {
-			const payload = (await response.json()) as { error?: { message?: string } };
+			const payload = (await response.json()) as { error?: ApiError };
 			if (payload.error?.message) message = payload.error.message;
+			if (payload.error?.code) code = payload.error.code;
+			if (payload.error?.details) details = payload.error.details;
 		} catch {
 			// Preserve the status-based error when the server did not return JSON.
 		}
-		throw new ApiClientError(message, response.status);
+		throw new ApiClientError(message, response.status, code, details);
 	}
 	return (await response.json()) as T;
+}
+
+export function getApiErrorMessage(error: unknown, fallback = "操作失败"): string {
+	if (!(error instanceof ApiClientError)) return error instanceof Error ? error.message : fallback;
+	const messages: Record<string, string> = {
+		MODEL_AUTH_REQUIRED: "供应商尚未配置可用凭证。",
+		RUNTIME_PROFILE_NOT_CONFIGURED: "当前 Agent 尚未配置运行模型。",
+		RUNTIME_PROFILE_INVALID: "当前 Agent 的运行模型已不可用，请重新配置。",
+		RUNTIME_MODEL_NOT_SELECTABLE: "只能选择已连接供应商提供的模型。",
+		PROJECT_FOLDER_EXISTS: "这个作品文件夹已经存在，请换一个名称。",
+		FORGE_SESSION_LOCKED: "当前故事阶段已锁定，不能再修改故事设置。",
+		FORGE_DNA_REQUIRED: "请先完成创作 DNA，再开始探索方向。",
+		FORGE_SESSION_NOT_FOUND: "找不到这个故事工作区。",
+	};
+	return messages[error.code] ?? (error.message || fallback);
 }
 
 export async function getWorkspace(): Promise<WorkspaceOverview | null> {

@@ -16,6 +16,7 @@ interface SessionRow {
 	workspace_id: string;
 	status: ForgeSession["status"];
 	seed: string;
+	genre_hint: string | null;
 	title_candidate: string | null;
 	narrative_dna_json: string;
 	hard_constraints_json: string;
@@ -77,13 +78,14 @@ export class ForgeRepository {
 	createSession(session: ForgeSession): void {
 		this.db
 			.prepare(
-				"INSERT INTO forge_sessions (forge_session_id, workspace_id, status, seed, title_candidate, narrative_dna_json, hard_constraints_json, preferences_json, created_at, updated_at, selected_candidate_id, committed_at, materialized_project_id, current_task_id, runtime_relative_path, failure_code, failure_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				"INSERT INTO forge_sessions (forge_session_id, workspace_id, status, seed, genre_hint, title_candidate, narrative_dna_json, hard_constraints_json, preferences_json, created_at, updated_at, selected_candidate_id, committed_at, materialized_project_id, current_task_id, runtime_relative_path, failure_code, failure_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			)
 			.run(
 				session.forgeSessionId,
 				session.workspaceId,
 				session.status,
 				session.seed,
+				session.genreHint ?? null,
 				session.titleCandidate,
 				JSON.stringify(session.narrativeDNA),
 				JSON.stringify(session.hardConstraints),
@@ -110,11 +112,12 @@ export class ForgeRepository {
 	updateSession(session: ForgeSession): void {
 		this.db
 			.prepare(
-				"UPDATE forge_sessions SET status = ?, seed = ?, title_candidate = ?, narrative_dna_json = ?, hard_constraints_json = ?, preferences_json = ?, updated_at = ?, selected_candidate_id = ?, committed_at = ?, materialized_project_id = ?, current_task_id = ?, runtime_relative_path = ?, failure_code = ?, failure_message = ? WHERE forge_session_id = ?",
+				"UPDATE forge_sessions SET status = ?, seed = ?, genre_hint = ?, title_candidate = ?, narrative_dna_json = ?, hard_constraints_json = ?, preferences_json = ?, updated_at = ?, selected_candidate_id = ?, committed_at = ?, materialized_project_id = ?, current_task_id = ?, runtime_relative_path = ?, failure_code = ?, failure_message = ? WHERE forge_session_id = ?",
 			)
 			.run(
 				session.status,
 				session.seed,
+				session.genreHint ?? null,
 				session.titleCandidate,
 				JSON.stringify(session.narrativeDNA),
 				JSON.stringify(session.hardConstraints),
@@ -224,6 +227,7 @@ function toSession(row: SessionRow): ForgeSession {
 		workspaceId: row.workspace_id,
 		status: row.status,
 		seed: row.seed,
+		...(row.genre_hint ? { genreHint: row.genre_hint } : {}),
 		titleCandidate: row.title_candidate,
 		narrativeDNA: parseJson<NarrativeDna | null>(row.narrative_dna_json, null),
 		hardConstraints: parseJson<StoryConstraint[]>(row.hard_constraints_json, []),

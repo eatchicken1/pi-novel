@@ -157,6 +157,7 @@ export const ForgeSessionSchema = Type.Object(
 		workspaceId: Type.String({ minLength: 1 }),
 		status: ForgeSessionStatusSchema,
 		seed: Type.String(),
+		genreHint: Type.Optional(Type.String({ minLength: 1 })),
 		titleCandidate: Type.Union([Type.Null(), Type.String()]),
 		narrativeDNA: Type.Union([Type.Null(), NarrativeDnaSchema]),
 		hardConstraints: Type.Array(StoryConstraintSchema),
@@ -178,6 +179,7 @@ export type ForgeSession = Static<typeof ForgeSessionSchema>;
 export const CreateForgeSessionInputSchema = Type.Object(
 	{
 		seed: Type.String({ minLength: 1 }),
+		genreHint: Type.Optional(Type.String({ minLength: 1 })),
 		titleCandidate: Type.Optional(Type.String({ minLength: 1 })),
 		narrativeDNA: Type.Optional(NarrativeDnaSchema),
 		hardConstraints: Type.Optional(Type.Array(StoryConstraintSchema)),
@@ -190,6 +192,7 @@ export type CreateForgeSessionInput = Static<typeof CreateForgeSessionInputSchem
 export const UpdateForgeSessionInputSchema = Type.Object(
 	{
 		seed: Type.Optional(Type.String({ minLength: 1 })),
+		genreHint: Type.Optional(Type.String({ minLength: 1 })),
 		titleCandidate: Type.Optional(Type.String({ minLength: 1 })),
 		narrativeDNA: Type.Optional(NarrativeDnaSchema),
 		hardConstraints: Type.Optional(Type.Array(StoryConstraintSchema)),

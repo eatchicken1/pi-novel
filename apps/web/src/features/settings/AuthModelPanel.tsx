@@ -1,5 +1,5 @@
 import { Check, ChevronRight, Cpu, ExternalLink, KeyRound, LogIn, ShieldCheck, Terminal, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ConfigureModelApiKeyInput, ModelCatalog } from "@earendil-works/pi-novel-contracts";
 
 interface AuthModelPanelProps {
@@ -21,6 +21,15 @@ export function AuthModelPanel({ catalog, initialProviderId, onConfigureApiKey, 
 	const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "");
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [providerSearch, setProviderSearch] = useState("");
+	const [providerFilter, setProviderFilter] = useState<"all" | "connected">("all");
+	const visibleProviders = useMemo(() => {
+		const query = providerSearch.trim().toLowerCase();
+		return catalog.providers.filter((entry) => {
+			if (providerFilter === "connected" && entry.status !== "connected") return false;
+			return `${entry.name} ${entry.providerId} ${entry.authLabel}`.toLowerCase().includes(query);
+		});
+	}, [catalog.providers, providerFilter, providerSearch]);
 	useEffect(() => {
 		setApiKey("");
 		setCopied(false);
@@ -68,7 +77,7 @@ export function AuthModelPanel({ catalog, initialProviderId, onConfigureApiKey, 
 			<button className="icon-button" type="button" aria-label="关闭供应商设置" onClick={onClose}><X size={18} /></button>
 		</header>
 		<div className="runtime-layout">
-			<div className="provider-list">{catalog.providers.map((entry) => (<button className={`provider-row ${entry.providerId === provider?.providerId ? "selected" : ""}`} type="button" key={entry.providerId} onClick={() => { setProviderId(entry.providerId); setBaseUrl(entry.baseUrl ?? ""); setError(null); }}><span className="provider-logo">{entry.name.slice(0, 1)}</span><span className="provider-row-copy"><strong>{entry.name}</strong><small>{entry.authLabel}</small></span><span className={`connection-status ${entry.status}`}>{entry.status === "connected" ? "已连接" : "未连接"}</span><ChevronRight size={14} /></button>))}</div>
+			<div className="provider-list"><div className="provider-search"><SearchIcon /><input value={providerSearch} onChange={(event) => setProviderSearch(event.target.value)} placeholder="搜索供应商" /></div><div className="provider-filter"><button className={providerFilter === "all" ? "active" : ""} type="button" onClick={() => setProviderFilter("all")}>全部</button><button className={providerFilter === "connected" ? "active" : ""} type="button" onClick={() => setProviderFilter("connected")}>已连接</button></div>{visibleProviders.map((entry) => (<button className={`provider-row ${entry.providerId === provider?.providerId ? "selected" : ""}`} type="button" key={entry.providerId} onClick={() => { setProviderId(entry.providerId); setBaseUrl(entry.baseUrl ?? ""); setError(null); }}><span className="provider-logo">{entry.name.slice(0, 1)}</span><span className="provider-row-copy"><strong>{entry.name}</strong><small>{entry.authLabel}</small></span><span className={`connection-status ${entry.status}`}>{entry.status === "connected" ? "已连接" : "未连接"}</span><ChevronRight size={14} /></button>))}{visibleProviders.length === 0 && <p className="provider-list-empty">没有匹配的供应商。</p>}</div>
 			{!provider ? <div className="runtime-empty"><LogIn size={22} /><strong>暂无可用供应商</strong></div> : (<div className="provider-detail">
 				<div className="detail-eyebrow"><span className="provider-logo large">{provider.name.slice(0, 1)}</span><div><p className="eyebrow">供应商连接</p><h3>{provider.name}</h3></div></div>
 				<div className="auth-status-card"><div className="auth-status-icon"><ShieldCheck size={18} /></div><div><strong>{provider.status === "connected" ? "已连接" : "尚未连接"}</strong><span>{provider.apiKeyConfigured ? "已为当前工作区配置 API Key。" : "配置 API Key 或使用 CLI OAuth 作为该供应商的凭证。"}</span></div><span className="status-pill neutral">{provider.authMethods.includes("api_key") && provider.authMethods.includes("oauth") ? "API Key + OAuth" : provider.authMethods.includes("api_key") ? "API Key" : "OAuth"}</span></div>
@@ -90,3 +99,5 @@ export function AuthModelPanel({ catalog, initialProviderId, onConfigureApiKey, 
 		</div>
 	</section></div>);
 }
+
+function SearchIcon() { return <svg aria-hidden="true" className="provider-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>; }

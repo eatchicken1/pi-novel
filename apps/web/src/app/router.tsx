@@ -1,6 +1,7 @@
 import { Cpu, KeyRound, Sparkles } from "lucide-react";
 import { createBrowserRouter, Navigate, useSearchParams } from "react-router-dom";
 import { AppShell, useAppShellContext } from "./AppShell.tsx";
+import type { ModelCatalog, RuntimeAgentId } from "@earendil-works/pi-novel-contracts";
 import { LibraryPage } from "../features/library/LibraryPage.tsx";
 import { StudioShell } from "../features/studio/StudioShell.tsx";
 import {
@@ -53,9 +54,15 @@ function LibraryRoute() {
 }
 
 function SettingsRoute() {
-	const { catalog, profiles, onOpenProviders, onNavigate } = useAppShellContext();
+	const { catalog, profiles, onOpenProviders, onOpenRuntime, onNavigate } = useAppShellContext();
 	const connectedProviders = catalog.providers.filter((provider) => provider.status === "connected").length;
-	return <div className="page-stack settings-page"><section className="page-heading"><div><p className="eyebrow">03 / SETTINGS</p><h1>工作区设置 <span>Runtime & Providers</span></h1><p>集中管理本地运行时凭证与 Agent 的模型配置。</p></div><button className="quiet-button" type="button" onClick={() => onNavigate("/")}>返回首页</button></section><section className="settings-grid"><article className="card settings-card settings-card-feature"><div className="settings-card-icon purple"><KeyRound size={17} /></div><div><p className="eyebrow">PROVIDERS</p><h2>供应商与凭证</h2><p>查看连接状态、配置 API Key，或复制 CLI OAuth 登录命令。</p><button className="primary-button" type="button" onClick={() => onOpenProviders()}>管理供应商</button></div><strong className="settings-stat">{connectedProviders}/{catalog.providers.length}<small>已连接</small></strong></article><article className="card settings-card"><div className="settings-card-icon blue"><Cpu size={17} /></div><div><p className="eyebrow">AGENT RUNTIME</p><h2>Agent 运行配置</h2><p>右上角 Runtime 入口可以为 Forge Explorer、Comparator 和 Critic 分别选择模型。</p><button className="secondary-button" type="button" onClick={() => onNavigate("/")}>返回首页配置</button></div><strong className="settings-stat">{profiles.length}<small>已保存配置</small></strong></article></section><div className="settings-note"><Sparkles size={15} /><span>凭证与 Runtime Profile 保存在当前 Workspace，本地重启后会恢复；作者确认仍是所有写入操作的最终入口。</span></div></div>;
+	const agents: Array<{ id: RuntimeAgentId; label: string }> = [{ id: "forge.explorer", label: "方向探索" }, { id: "forge.comparator", label: "方向比较" }, { id: "forge.critic", label: "方向批评" }];
+	return <div className="page-stack settings-page"><section className="page-heading"><div><p className="eyebrow">03 / SETTINGS</p><h1>工作区设置</h1><p>在这里完整管理供应商凭证和每个 Agent 的运行模型。</p></div><button className="quiet-button" type="button" onClick={() => onNavigate("/")}>返回起笔台</button></section><section className="settings-grid"><article className="card settings-card settings-card-feature"><div className="settings-card-icon purple"><KeyRound size={17} /></div><div><p className="eyebrow">PROVIDERS</p><h2>供应商与凭证</h2><p>查看连接状态、配置 API Key，或复制 CLI OAuth 登录命令。</p><button className="primary-button" type="button" onClick={() => onOpenProviders()}>管理供应商</button></div><strong className="settings-stat">{connectedProviders}<small>已连接</small></strong></article><article className="card settings-card settings-runtime-card"><div className="settings-card-icon blue"><Cpu size={17} /></div><div><p className="eyebrow">AGENT RUNTIME</p><h2>Agent 运行配置</h2><p>每个创作操作都有自己的模型配置。点击某一项即可直接打开对应设置。</p><div className="runtime-profile-list">{agents.map((agent) => { const profile = profiles.find((entry) => entry.agentId === agent.id); const modelName = profile ? findModelName(catalog, profile.modelId) : "未配置"; return <div className="runtime-profile-row" key={agent.id}><span><strong>{agent.label}</strong><small>{modelName} · {profile?.thinkingLevel ?? "未配置"}</small></span><button className="secondary-button" type="button" onClick={() => onOpenRuntime(agent.id)}>配置</button></div>; })}</div></div></article></section><div className="settings-note"><Sparkles size={15} /><span>凭证与 Runtime Profile 保存在当前 Workspace；页面右上角 Runtime 只是当前操作的快速配置入口。</span></div></div>;
+}
+
+function findModelName(catalog: ModelCatalog, modelId: string): string {
+	for (const provider of catalog.providers) { const model = provider.models.find((entry) => `${provider.providerId}/${entry.modelId}` === modelId); if (model) return model.name; }
+	return "模型不可用";
 }
 
 function LegacyStudioRedirect() {
