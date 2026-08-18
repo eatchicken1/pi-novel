@@ -1,5 +1,4 @@
 import { DatabaseSync } from "node:sqlite";
-import { applyWorkspaceMigrations } from "./workspace-migrations.ts";
 import {
 	type AgentRun,
 	AgentRunSchema,
@@ -9,6 +8,7 @@ import {
 	TaskEventSchema,
 } from "@earendil-works/pi-novel-contracts";
 import { Check } from "typebox/value";
+import { applyWorkspaceMigrations } from "./workspace-migrations.ts";
 
 interface TaskRow {
 	task_id: string;
@@ -131,8 +131,14 @@ export class TaskRepository {
 	listTasks(filter: { projectId?: string; status?: string; limit?: number } = {}): NovelTask[] {
 		const conditions: string[] = [];
 		const params: Array<string | number> = [];
-		if (filter.projectId !== undefined) { conditions.push("project_id = ?"); params.push(filter.projectId); }
-		if (filter.status !== undefined) { conditions.push("status = ?"); params.push(filter.status); }
+		if (filter.projectId !== undefined) {
+			conditions.push("project_id = ?");
+			params.push(filter.projectId);
+		}
+		if (filter.status !== undefined) {
+			conditions.push("status = ?");
+			params.push(filter.status);
+		}
 		const where = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
 		const rows = this.db
 			.prepare(`SELECT * FROM tasks${where} ORDER BY created_at DESC LIMIT ?`)
@@ -143,8 +149,17 @@ export class TaskRepository {
 	appendEvent(event: TaskEvent): void {
 		if (!Check(TaskEventSchema, event)) throw new Error("Invalid task event record");
 		this.db
-			.prepare("INSERT INTO task_events (event_id, task_id, sequence, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-			.run(event.eventId, event.taskId, event.sequence, event.type, event.payload === undefined ? null : JSON.stringify(event.payload), event.createdAt);
+			.prepare(
+				"INSERT INTO task_events (event_id, task_id, sequence, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+			)
+			.run(
+				event.eventId,
+				event.taskId,
+				event.sequence,
+				event.type,
+				event.payload === undefined ? null : JSON.stringify(event.payload),
+				event.createdAt,
+			);
 	}
 
 	listEvents(taskId: string, afterSequence = 0): TaskEvent[] {
@@ -162,7 +177,9 @@ export class TaskRepository {
 	}
 
 	maxSequence(taskId: string): number {
-		const row = this.db.prepare("SELECT COALESCE(MAX(sequence), 0) AS s FROM task_events WHERE task_id = ?").get(taskId) as { s: number };
+		const row = this.db
+			.prepare("SELECT COALESCE(MAX(sequence), 0) AS s FROM task_events WHERE task_id = ?")
+			.get(taskId) as { s: number };
 		return Number(row.s);
 	}
 
@@ -187,12 +204,22 @@ export class TaskRepository {
 
 	updateAgentRun(run: AgentRun): void {
 		this.db
-			.prepare("UPDATE agent_runs SET status = ?, completed_at = ?, usage_json = ?, produced_artifacts_json = ? WHERE agent_run_id = ?")
-			.run(run.status, run.completedAt, run.usage === undefined ? null : JSON.stringify(run.usage), JSON.stringify(run.producedArtifacts), run.agentRunId);
+			.prepare(
+				"UPDATE agent_runs SET status = ?, completed_at = ?, usage_json = ?, produced_artifacts_json = ? WHERE agent_run_id = ?",
+			)
+			.run(
+				run.status,
+				run.completedAt,
+				run.usage === undefined ? null : JSON.stringify(run.usage),
+				JSON.stringify(run.producedArtifacts),
+				run.agentRunId,
+			);
 	}
 
 	getAgentRun(agentRunId: string): AgentRun | null {
-		const row = this.db.prepare("SELECT * FROM agent_runs WHERE agent_run_id = ?").get(agentRunId) as AgentRunRow | undefined;
+		const row = this.db.prepare("SELECT * FROM agent_runs WHERE agent_run_id = ?").get(agentRunId) as
+			| AgentRunRow
+			| undefined;
 		if (row === undefined) return null;
 		return {
 			agentRunId: row.agent_run_id,

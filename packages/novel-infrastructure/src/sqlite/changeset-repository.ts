@@ -1,9 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import {
-	type ChangeSet,
-	ChangeSetSchema,
-	type ChangeOperation,
-} from "@earendil-works/pi-novel-contracts";
+import { type ChangeOperation, type ChangeSet, ChangeSetSchema } from "@earendil-works/pi-novel-contracts";
 import { Check } from "typebox/value";
 
 interface ChangeSetRow {

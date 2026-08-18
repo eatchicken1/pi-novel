@@ -90,6 +90,12 @@ export class ProjectScanner {
 					});
 				}
 			}
+
+			// Legacy projects may live under workspaceRoot/novels/<projectId>.
+			// The container directory itself is not a project.
+			if (entry.name === "novels" && !hasNativeManifest && !hasLegacyManifest) {
+				await scanLegacyNested(projectPath, candidates, warnings);
+			}
 		}
 
 		const counts = new Map<string, number>();
@@ -149,5 +155,57 @@ async function fileExists(path: string): Promise<boolean> {
 		return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT"
 			? false
 			: Promise.reject(error);
+	}
+}
+async function scanLegacyNested(
+	novelsRoot: string,
+	candidates: ProjectRecord[],
+	warnings: ProjectScanWarning[],
+): Promise<void> {
+	let entries: import("node:fs").Dirent[] = [];
+	try {
+		entries = await readdir(novelsRoot, { withFileTypes: true });
+	} catch (error) {
+		warnings.push(unreadableWarning(novelsRoot, error));
+		return;
+	}
+	for (const entry of entries) {
+		if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+		const projectPath = join(novelsRoot, entry.name);
+		let metadata: Awaited<ReturnType<typeof stat>>;
+		try {
+			metadata = await stat(projectPath);
+		} catch (error) {
+			warnings.push(unreadableWarning(projectPath, error));
+			continue;
+		}
+		const manifestPath = join(projectPath, "project.json");
+		let hasManifest = false;
+		try {
+			hasManifest = await fileExists(manifestPath);
+		} catch (error) {
+			warnings.push(unreadableWarning(projectPath, error));
+			continue;
+		}
+		if (!hasManifest) continue;
+		try {
+			const legacy = await readLegacyMetadata(manifestPath, entry.name);
+			candidates.push({
+				projectId: legacy.projectId,
+				title: legacy.title,
+				rootPath: projectPath,
+				kind: "legacy",
+				status: "needs_migration",
+				wordCount: 0,
+				lastModifiedAt: metadata.mtime.toISOString(),
+				manifest: null,
+			});
+		} catch (error) {
+			warnings.push({
+				code: "INVALID_LEGACY_METADATA",
+				rootPath: projectPath,
+				message: errorMessage(error, "Legacy project metadata is invalid"),
+			});
+		}
 	}
 }

@@ -1,4 +1,5 @@
 import { type Static, Type } from "typebox";
+import { type ModelThinkingLevel, ModelThinkingLevelSchema } from "./runtime.ts";
 
 export const ProviderConnectionStatusSchema = Type.Union([Type.Literal("connected"), Type.Literal("not_connected")]);
 export type ProviderConnectionStatus = Static<typeof ProviderConnectionStatusSchema>;
@@ -15,6 +16,9 @@ export const ModelCatalogEntrySchema = Type.Object(
 		modelId: Type.String({ minLength: 1 }),
 		name: Type.String({ minLength: 1 }),
 		reasoning: Type.Boolean(),
+		// Thinking levels this model actually supports (pi-ai getSupportedThinkingLevels).
+		// Non-reasoning models only support "off".
+		thinkingLevels: Type.Array(ModelThinkingLevelSchema, { minItems: 1 }),
 		contextWindow: Type.Integer({ minimum: 1 }),
 		maxTokens: Type.Integer({ minimum: 1 }),
 		input: Type.Array(ModelInputSchema, { minItems: 1 }),
@@ -22,6 +26,7 @@ export const ModelCatalogEntrySchema = Type.Object(
 	{ additionalProperties: false },
 );
 export type ModelCatalogEntry = Static<typeof ModelCatalogEntrySchema>;
+export type { ModelThinkingLevel };
 
 export const ProviderCatalogEntrySchema = Type.Object(
 	{
@@ -70,7 +75,6 @@ export type ModelProviderCredentialStatus = Static<typeof ModelProviderCredentia
 export const ModelCatalogSchema = Type.Object(
 	{
 		providers: Type.Array(ProviderCatalogEntrySchema),
-		defaultModelId: Type.Union([Type.Null(), Type.String({ minLength: 1 })]),
 	},
 	{ additionalProperties: false },
 );

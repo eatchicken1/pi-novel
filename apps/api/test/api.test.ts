@@ -64,6 +64,46 @@ describe("Novel API", () => {
 		expect(response.json().providers.find((provider: { providerId: string }) => provider.providerId === "deepseek").apiKeyConfigured).toBe(true);
 	});
 
+	it("uses the initialized workspace for generic tasks and exposes their terminal state", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-novel-api-tasks-"));
+		const app = await createNovelApi({ localToken: token });
+		apps.push(app);
+		const initialized = await app.inject({
+			method: "POST",
+			url: "/api/workspace/initialize",
+			headers: { "x-pi-novel-token": token },
+			payload: { path: root },
+		});
+		expect(initialized.statusCode).toBe(200);
+
+		const created = await app.inject({
+			method: "POST",
+			url: "/api/tasks",
+			headers: { "x-pi-novel-token": token },
+			payload: { projectId: null, forgeSessionId: null, type: "chapter.generate", intent: "test" },
+		});
+		expect(created.statusCode).toBe(202);
+		const taskId = (created.json() as { task: { taskId: string } }).task.taskId;
+
+		let fetched = await app.inject({ method: "GET", url: `/api/tasks/${taskId}`, headers: { "x-pi-novel-token": token } });
+		for (let attempt = 0; attempt < 20 && fetched.json().task?.status !== "failed"; attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			fetched = await app.inject({ method: "GET", url: `/api/tasks/${taskId}`, headers: { "x-pi-novel-token": token } });
+		}
+		expect(fetched.statusCode).toBe(200);
+		expect(fetched.json().task.status).toBe("failed");
+		const events = await app.inject({
+			method: "GET",
+			url: `/api/tasks/${taskId}/events`,
+			headers: { "x-pi-novel-token": token },
+		});
+		expect(events.statusCode).toBe(200);
+		expect(events.json().events.map((event: { type: string }) => event.type)).toEqual([
+			"task.started",
+			"task.failed",
+		]);
+	});
+
 	it("leaves health public and rejects protected requests without the local token", async () => {
 		const app = await createNovelApi({ localToken: token });
 		apps.push(app);

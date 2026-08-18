@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
 import type { ChangeSet } from "@earendil-works/pi-novel-contracts";
+import { describe, expect, it } from "vitest";
 import { ChangeSetRepository } from "../src/sqlite/changeset-repository.ts";
 import { CommitRepository } from "../src/sqlite/commit-repository.ts";
 import { ProjectDatabase } from "../src/sqlite/project-database.ts";
@@ -16,7 +16,9 @@ function tempDbPath(prefix: string): string {
 }
 
 function removeDb(path: string): void {
-	try { rmSync(path, { recursive: true }); } catch {}
+	try {
+		rmSync(path, { recursive: true });
+	} catch {}
 }
 
 describe("product repositories", () => {
@@ -24,10 +26,24 @@ describe("product repositories", () => {
 		const path = tempDbPath("m1");
 		const db = new ProjectDatabase(path);
 		const applied = db.db.prepare("SELECT id FROM schema_migrations ORDER BY id").all() as Array<{ id: string }>;
-		expect(applied.map((row) => row.id)).toEqual(["001_project_initial.sql", "003_project_product.sql"]);
+		expect(applied.map((row) => row.id)).toEqual([
+			"001_project_initial.sql",
+			"003_project_product.sql",
+			"004_commit_recovery.sql",
+		]);
 		const tables = db.db.prepare("PRAGMA table_list").all() as Array<{ name: string }>;
 		const names = new Set(tables.map((row) => row.name));
-		for (const table of ["project_metadata", "changesets", "review_issues", "commits", "checkpoints", "commit_journals", "story_nodes", "story_edges", "artifacts"]) {
+		for (const table of [
+			"project_metadata",
+			"changesets",
+			"review_issues",
+			"commits",
+			"checkpoints",
+			"commit_journals",
+			"story_nodes",
+			"story_edges",
+			"artifacts",
+		]) {
 			expect(names.has(table), table).toBe(true);
 		}
 		db.close();
@@ -41,7 +57,8 @@ describe("product repositories", () => {
 		expect(applied.some((row) => row.id === "003_task_product.sql")).toBe(true);
 		const columns = db.db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
 		const names = new Set(columns.map((row) => row.name));
-		for (const column of ["progress_json", "result_ref", "started_at", "completed_at"]) expect(names.has(column), column).toBe(true);
+		for (const column of ["progress_json", "result_ref", "started_at", "completed_at"])
+			expect(names.has(column), column).toBe(true);
 		db.close();
 		removeDb(path);
 	});
@@ -59,8 +76,26 @@ describe("product repositories", () => {
 			source: "agent",
 			intent: "increase-subtext",
 			baseRevision: "rev-2",
-			operations: [{ operationId: "op-1", kind: "replace-text", target: "manuscript/chapter-003.md", startChar: 10, endChar: 40, text: "x" }],
-			impact: { severity: "downstream-review", affectedChapters: [3], affectedCharacters: ["heroine"], affectedThreads: [], affectedClues: [], affectedPromises: [], summary: "s", analyzedAt: "2026-08-16T10:00:00.000Z" },
+			operations: [
+				{
+					operationId: "op-1",
+					kind: "replace-text",
+					target: "manuscript/chapter-003.md",
+					startChar: 10,
+					endChar: 40,
+					text: "x",
+				},
+			],
+			impact: {
+				severity: "downstream-review",
+				affectedChapters: [3],
+				affectedCharacters: ["heroine"],
+				affectedThreads: [],
+				affectedClues: [],
+				affectedPromises: [],
+				summary: "s",
+				analyzedAt: "2026-08-16T10:00:00.000Z",
+			},
 			createdAt: "2026-08-16T10:00:00.000Z",
 			updatedAt: "2026-08-16T10:00:00.000Z",
 		});
@@ -77,8 +112,26 @@ describe("product repositories", () => {
 			source: "agent",
 			intent: "increase-subtext",
 			baseRevision: "rev-2",
-			operations: [{ operationId: "op-1", kind: "replace-text", target: "manuscript/chapter-003.md", startChar: 10, endChar: 40, text: "x" }],
-			impact: { severity: "downstream-review", affectedChapters: [3], affectedCharacters: ["heroine"], affectedThreads: [], affectedClues: [], affectedPromises: [], summary: "s", analyzedAt: "2026-08-16T10:00:00.000Z" },
+			operations: [
+				{
+					operationId: "op-1",
+					kind: "replace-text",
+					target: "manuscript/chapter-003.md",
+					startChar: 10,
+					endChar: 40,
+					text: "x",
+				},
+			],
+			impact: {
+				severity: "downstream-review",
+				affectedChapters: [3],
+				affectedCharacters: ["heroine"],
+				affectedThreads: [],
+				affectedClues: [],
+				affectedPromises: [],
+				summary: "s",
+				analyzedAt: "2026-08-16T10:00:00.000Z",
+			},
 			createdAt: "2026-08-16T10:00:00.000Z",
 			updatedAt: "2026-08-16T11:00:00.000Z",
 			committedAt: "2026-08-16T11:00:00.000Z",
@@ -181,7 +234,14 @@ describe("product repositories", () => {
 				{ nodeId: "ev-1", type: "event", ref: "1", label: "接案", chapter: 1, meta: {} },
 				{ nodeId: "ev-5", type: "event", ref: "5", label: "揭示", chapter: 5, meta: {} },
 				{ nodeId: "clue-1", type: "clue", ref: "CL1", label: "门禁", chapter: 1, meta: { reliability: "medium" } },
-				{ nodeId: "char-1", type: "character", ref: "heroine", label: "沈砚", chapter: null, meta: { characterId: "heroine" } },
+				{
+					nodeId: "char-1",
+					type: "character",
+					ref: "heroine",
+					label: "沈砚",
+					chapter: null,
+					meta: { characterId: "heroine" },
+				},
 			],
 			edges: [{ edgeId: "e-1", sourceNodeId: "ev-1", targetNodeId: "clue-1", type: "reveals", label: null }],
 			sourceHash: "abc",
@@ -197,7 +257,13 @@ describe("product repositories", () => {
 		const character = repo.query("p-1", { characterId: "heroine" });
 		expect(character.nodes.map((n) => n.nodeId)).toContain("char-1");
 		expect(repo.counts("p-1")).toEqual({ nodes: 4, edges: 1 });
-		repo.replaceAll({ projectId: "p-1", nodes: [], edges: [], sourceHash: "def", generatedAt: "2026-08-16T10:00:00.000Z" });
+		repo.replaceAll({
+			projectId: "p-1",
+			nodes: [],
+			edges: [],
+			sourceHash: "def",
+			generatedAt: "2026-08-16T10:00:00.000Z",
+		});
 		expect(repo.counts("p-1")).toEqual({ nodes: 0, edges: 0 });
 		db.close();
 		removeDb(path);
@@ -220,8 +286,21 @@ describe("product repositories", () => {
 			completedAt: null,
 			updatedAt: "2026-08-16T10:00:00.000Z",
 		});
-		repo.appendEvent({ eventId: "ev-1", taskId: "t-1", sequence: 1, type: "task.started", createdAt: "2026-08-16T10:00:00.000Z" });
-		repo.appendEvent({ eventId: "ev-2", taskId: "t-1", sequence: 2, type: "task.progress", payload: { phase: "drafting" }, createdAt: "2026-08-16T10:00:01.000Z" });
+		repo.appendEvent({
+			eventId: "ev-1",
+			taskId: "t-1",
+			sequence: 1,
+			type: "task.started",
+			createdAt: "2026-08-16T10:00:00.000Z",
+		});
+		repo.appendEvent({
+			eventId: "ev-2",
+			taskId: "t-1",
+			sequence: 2,
+			type: "task.progress",
+			payload: { phase: "drafting" },
+			createdAt: "2026-08-16T10:00:01.000Z",
+		});
 		const events = repo.listEvents("t-1");
 		expect(events.map((event) => event.type)).toEqual(["task.started", "task.progress"]);
 		expect(repo.maxSequence("t-1")).toBe(2);

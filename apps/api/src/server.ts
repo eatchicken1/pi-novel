@@ -1,27 +1,124 @@
+function taskRepositoryFor(workspaceService: WorkspaceService): LazyTaskRepository {
+	// Resolve lazily so the API can be constructed before a workspace is open.
+	let repository: TaskRepository | null = null;
+	let databasePath: string | null = null;
+	const resolve = (): TaskRepositoryPort => {
+		const currentPath = workspaceService.databasePath();
+		if (currentPath === null) throw new Error("WORKSPACE_NOT_OPEN");
+		if (repository === null || databasePath !== currentPath) {
+			repository?.close();
+			repository = new TaskRepository(currentPath);
+			databasePath = currentPath;
+		}
+		return repository;
+	};
+	return new LazyTaskRepository(resolve, () => {
+		repository?.close();
+		repository = null;
+		databasePath = null;
+	});
+}
+
+class LazyTaskRepository implements TaskRepositoryPort {
+	private readonly resolve: () => TaskRepositoryPort;
+	private readonly closeRepository: () => void;
+
+	constructor(resolve: () => TaskRepositoryPort, closeRepository: () => void) {
+		this.resolve = resolve;
+		this.closeRepository = closeRepository;
+	}
+
+	close(): void {
+		this.closeRepository();
+	}
+
+	createTask(task: import("@earendil-works/pi-novel-contracts").NovelTask): void {
+		this.resolve().createTask(task);
+	}
+
+	updateTask(task: import("@earendil-works/pi-novel-contracts").NovelTask): void {
+		this.resolve().updateTask(task);
+	}
+
+	getTask(taskId: string) {
+		return this.resolve().getTask(taskId);
+	}
+
+	listTasks(filter?: { projectId?: string; status?: string; limit?: number }) {
+		return this.resolve().listTasks(filter);
+	}
+
+	appendEvent(event: import("@earendil-works/pi-novel-contracts").TaskEvent): void {
+		this.resolve().appendEvent(event);
+	}
+
+	listEvents(taskId: string, afterSequence?: number) {
+		return this.resolve().listEvents(taskId, afterSequence);
+	}
+
+	maxSequence(taskId: string) {
+		return this.resolve().maxSequence(taskId);
+	}
+
+	createAgentRun(run: import("@earendil-works/pi-novel-contracts").AgentRun): void {
+		this.resolve().createAgentRun(run);
+	}
+
+	updateAgentRun(run: import("@earendil-works/pi-novel-contracts").AgentRun): void {
+		this.resolve().updateAgentRun(run);
+	}
+
+	getAgentRun(agentRunId: string) {
+		return this.resolve().getAgentRun(agentRunId);
+	}
+}
+
 import { randomBytes } from "node:crypto";
 import cors from "@fastify/cors";
 import fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import {
+	AgentRuntimeService,
+	ChangeSetService,
 	ForgeService,
+	HistoryService,
 	ModelCatalogService,
 	ProjectQueryService,
+	ProjectReadService,
+	ReviewService,
+	StoryGraphService,
+	StudioService,
+	TaskService,
 	WorkspaceService,
 } from "@earendil-works/pi-novel-application";
+import type { AgentRuntimePort, ClockPort, IdempotencyPort, TaskRepositoryPort } from "@earendil-works/pi-novel-application";
 import {
 	PiModelRuntimeAdapter,
 	ForgeArtifactStore,
 	ForgeRepository,
+	LegacyNovelEngineAdapter,
 	LegacyStoryExplorationAdapter,
+	FileTransaction,
+	MaterializationJournalRepository,
+	ProjectDatabaseRegistry,
 	ProjectMaterializer,
 	ProjectScanner,
+	RuntimeProfileRepository,
+	TaskRepository,
 	WorkspaceDatabase,
 	WorkspaceFiles,
 } from "@earendil-works/pi-novel-infrastructure";
 import { registerHealthRoute } from "./routes/health.ts";
 import { registerProjectRoutes } from "./routes/projects.ts";
+import { registerProductProjectRoutes } from "./routes/projects-product.ts";
 import { registerWorkspaceRoutes } from "./routes/workspace.ts";
 import { registerModelRoutes } from "./routes/models.ts";
 import { registerForgeRoutes } from "./routes/forge.ts";
+import { registerRuntimeRoutes } from "./routes/runtime.ts";
+import { registerChangeSetRoutes } from "./routes/changesets.ts";
+import { registerReviewRoutes } from "./routes/review.ts";
+import { registerHistoryRoutes } from "./routes/history.ts";
+import { registerGraphRoutes } from "./routes/graph.ts";
+import { registerTaskRoutes } from "./routes/tasks.ts";
 
 export interface NovelApiOptions {
 	workspaceRoot?: string;
@@ -39,14 +136,43 @@ export async function createNovelApi(options: NovelApiOptions = {}): Promise<Fas
 		createRepository: (databasePath) => new WorkspaceDatabase(databasePath),
 		scanner: new ProjectScanner(),
 		createForgeRepository: (databasePath) => new ForgeRepository(databasePath),
+		createRuntimeProfileRepository: (databasePath) => new RuntimeProfileRepository(databasePath),
+		createMaterializationJournalRepository: (databasePath) => new MaterializationJournalRepository(databasePath),
 	});
 	const modelCatalogService = new ModelCatalogService(modelRuntime);
+	const agentRuntime = new AgentRuntimeService({
+		storeFor: () => workspaceService.getRuntimeProfileRepository(),
+		rootFor: () => workspaceService.getWorkspacePaths()?.root ?? null,
+		runtime: modelRuntime,
+	});
 	const forgeService = new ForgeService({
 		workspace: workspaceService,
 		exploration: new LegacyStoryExplorationAdapter(modelRuntime),
 		artifactStoreFor: (workspaceRoot) => new ForgeArtifactStore(workspaceRoot),
 		materializer: new ProjectMaterializer(),
+		runtime: agentRuntime,
 	});
+	const clock: ClockPort = { now: () => new Date().toISOString() };
+	const idGenerator = { id: () => globalThis.crypto.randomUUID() };
+	const registry = new ProjectDatabaseRegistry();
+	const engine = new LegacyNovelEngineAdapter();
+	const reads = new ProjectReadService(workspaceService, engine);
+	const reviewService = new ReviewService({ workspace: workspaceService, engine, registry, id: idGenerator });
+	const changeSets = new ChangeSetService({
+		workspace: workspaceService,
+		engine,
+		registry,
+		files: new FileTransaction(),
+		idempotency: new InMemoryIdempotency(),
+		id: idGenerator,
+		clock,
+		reviewProjector: reviewService,
+	});
+	const historyService = new HistoryService(workspaceService, registry);
+	const graphService = new StoryGraphService(workspaceService, engine, registry);
+	const taskRepository = taskRepositoryFor(workspaceService);
+	const studioService = new StudioService({ workspace: workspaceService, reads, review: reviewService, registry, tasks: taskRepository, engine });
+	const taskService = new TaskService(taskRepository, new UnavailableAgentRuntime(), clock);
 	if (options.workspaceRoot) {
 		const overview = await workspaceService.open(options.workspaceRoot);
 		if (overview) app.log.info({ event: "workspace.open" }, "workspace.open");
@@ -85,12 +211,46 @@ export async function createNovelApi(options: NovelApiOptions = {}): Promise<Fas
 	registerHealthRoute(app);
 	registerWorkspaceRoutes(app, workspaceService);
 	registerProjectRoutes(app, new ProjectQueryService(workspaceService));
+	registerProductProjectRoutes(app, reads, studioService);
 	registerModelRoutes(app, modelCatalogService, workspaceService);
-	registerForgeRoutes(app, forgeService);
-	app.addHook("onClose", async () => workspaceService.close());
+	registerRuntimeRoutes(app, agentRuntime);
+	registerForgeRoutes(app, forgeService, taskService);
+	registerChangeSetRoutes(app, changeSets);
+	registerReviewRoutes(app, reviewService);
+	registerHistoryRoutes(app, historyService);
+	registerGraphRoutes(app, graphService);
+	registerTaskRoutes(app, taskService, () => workspaceService.getWorkspacePaths()?.root ?? null);
+	app.addHook("onClose", async () => {
+		taskRepository.close();
+		workspaceService.close();
+		registry.closeAll();
+	});
 	return app;
 }
 
 function parseAllowedOrigins(value: string | undefined): string[] {
 	return value ? value.split(",").map((origin) => origin.trim()).filter(Boolean) : [];
+}
+
+
+class InMemoryIdempotency implements IdempotencyPort {
+	private readonly results = new Map<string, unknown>();
+
+	hasResult(key: string): boolean {
+		return this.results.has(key);
+	}
+
+	storeResult(key: string, payload: unknown): void {
+		this.results.set(key, payload);
+	}
+}
+
+class UnavailableAgentRuntime implements AgentRuntimePort {
+	async startTask(): Promise<void> {
+		throw new Error("AGENT_RUNTIME_UNAVAILABLE");
+	}
+	cancelTask(): void {}
+	subscribe(): () => void {
+		return () => undefined;
+	}
 }

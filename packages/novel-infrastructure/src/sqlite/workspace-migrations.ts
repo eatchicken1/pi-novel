@@ -22,17 +22,11 @@ export function loadWorkspaceMigrations(): WorkspaceMigration[] {
 		},
 		{
 			id: "003_task_product.sql",
-			sql: readFileSync(
-				fileURLToPath(new URL("./migrations/003_task_product.sql", import.meta.url)),
-				"utf8",
-			),
+			sql: readFileSync(fileURLToPath(new URL("./migrations/003_task_product.sql", import.meta.url)), "utf8"),
 		},
 		{
 			id: "004_agent_runtime.sql",
-			sql: readFileSync(
-				fileURLToPath(new URL("./migrations/004_agent_runtime.sql", import.meta.url)),
-				"utf8",
-			),
+			sql: readFileSync(fileURLToPath(new URL("./migrations/004_agent_runtime.sql", import.meta.url)), "utf8"),
 		},
 		{
 			id: "005_materialization_journal.sql",

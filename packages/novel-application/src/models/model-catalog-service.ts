@@ -19,8 +19,4 @@ export class ModelCatalogService {
 	clearApiKey(workspaceRoot: string, providerId: string): Promise<ModelCatalog> {
 		return this.runtime.clearApiKey(workspaceRoot, providerId);
 	}
-
-	generateText(workspaceRoot: string, modelId: string, prompt: string, signal?: AbortSignal): Promise<string> {
-		return this.runtime.generateText(workspaceRoot, modelId, prompt, signal);
-	}
 }

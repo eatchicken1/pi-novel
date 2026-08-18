@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import type { CommitJournalCommit, CommitJournalEntry, CommitJournalFile } from "@earendil-works/pi-novel-application";
 import {
 	type CommitRecord,
 	CommitRecordSchema,
@@ -16,18 +17,10 @@ export interface CommitJournalRow {
 	db_actions_json: string;
 	started_at: string;
 	completed_at: string | null;
+	commit_json: string | null;
 }
 
-export interface CommitJournal {
-	journalId: string;
-	projectId: string;
-	changeSetId: string;
-	state: "pending" | "applied" | "committed" | "rolled-back";
-	files: Array<{ relativePath: string; tempPath: string }>;
-	dbActions: string[];
-	startedAt: string;
-	completedAt: string | null;
-}
+type CommitJournal = CommitJournalEntry;
 
 interface CommitRow {
 	commit_id: string;
@@ -122,7 +115,7 @@ export class CommitRepository {
 	createJournal(journal: CommitJournal): void {
 		this.db
 			.prepare(
-				"INSERT INTO commit_journals (journal_id, project_id, change_set_id, state, files_json, db_actions_json, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+				"INSERT INTO commit_journals (journal_id, project_id, change_set_id, state, files_json, db_actions_json, started_at, completed_at, commit_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			)
 			.run(
 				journal.journalId,
@@ -133,7 +126,20 @@ export class CommitRepository {
 				JSON.stringify(journal.dbActions),
 				journal.startedAt,
 				journal.completedAt,
+				journal.commit === undefined ? null : JSON.stringify(journal.commit),
 			);
+	}
+
+	updateJournalFiles(journalId: string, files: CommitJournalFile[]): void {
+		this.db
+			.prepare("UPDATE commit_journals SET files_json = ? WHERE journal_id = ?")
+			.run(JSON.stringify(files), journalId);
+	}
+
+	updateJournalCommit(journalId: string, commit: CommitJournalCommit): void {
+		this.db
+			.prepare("UPDATE commit_journals SET commit_json = ? WHERE journal_id = ?")
+			.run(JSON.stringify(commit), journalId);
 	}
 
 	updateJournalState(journalId: string, state: CommitJournal["state"], completedAt: string | null): void {
@@ -155,6 +161,7 @@ export class CommitRepository {
 			dbActions: JSON.parse(row.db_actions_json) as string[],
 			startedAt: row.started_at,
 			completedAt: row.completed_at,
+			...(row.commit_json === null ? {} : { commit: JSON.parse(row.commit_json) as CommitJournalCommit }),
 		}));
 	}
 }

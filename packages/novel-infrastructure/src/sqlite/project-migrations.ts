@@ -17,6 +17,10 @@ export function loadProjectMigrations(): ProjectMigration[] {
 			id: "003_project_product.sql",
 			sql: readFileSync(fileURLToPath(new URL("./migrations/003_project_product.sql", import.meta.url)), "utf8"),
 		},
+		{
+			id: "004_commit_recovery.sql",
+			sql: readFileSync(fileURLToPath(new URL("./migrations/004_commit_recovery.sql", import.meta.url)), "utf8"),
+		},
 	];
 }
 

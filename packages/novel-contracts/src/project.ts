@@ -51,7 +51,6 @@ export const ProjectListResponseSchema = Type.Object(
 
 export const ProjectResponseSchema = Type.Object({ project: ProjectRecordSchema }, { additionalProperties: false });
 
-
 export const ProjectReadModelSchema = Type.Object(
 	{
 		projectId: ProjectIdSchema,
@@ -67,12 +66,7 @@ export const ProjectReadModelSchema = Type.Object(
 		pendingChangeCount: Type.Integer({ minimum: 0 }),
 		blockingIssueCount: Type.Integer({ minimum: 0 }),
 		currentMovement: Type.Union([Type.Null(), Type.String({ minLength: 1 })]),
-		memoryStatus: Type.Union([
-			Type.Null(),
-			Type.Literal("missing"),
-			Type.Literal("current"),
-			Type.Literal("stale"),
-		]),
+		memoryStatus: Type.Union([Type.Null(), Type.Literal("missing"), Type.Literal("current"), Type.Literal("stale")]),
 		updatedAt: ISODateStringSchema,
 	},
 	{ additionalProperties: false },

@@ -1,57 +1,92 @@
-import { Check, ChevronRight, Copy, Cpu, ExternalLink, KeyRound, LogIn, Search, ShieldCheck, Terminal, X } from "lucide-react";
-import { useMemo, useState } from "react";
-import type { ConfigureModelApiKeyInput, ModelCatalogEntry, ModelCatalog, ProviderCatalogEntry } from "@earendil-works/pi-novel-contracts";
-
-export type RuntimePanelMode = "auth" | "models";
+import { Check, ChevronRight, Cpu, ExternalLink, KeyRound, LogIn, ShieldCheck, Terminal, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { ConfigureModelApiKeyInput, ModelCatalog } from "@earendil-works/pi-novel-contracts";
 
 interface AuthModelPanelProps {
-	mode: RuntimePanelMode;
 	catalog: ModelCatalog;
-	selectedModel: ModelCatalogEntry | null;
-	onModeChange: (mode: RuntimePanelMode) => void;
-	onSelectModel: (model: ModelCatalogEntry) => void;
+	initialProviderId?: string;
 	onConfigureApiKey: (input: ConfigureModelApiKeyInput) => Promise<void>;
 	onClearApiKey: (providerId: string) => Promise<void>;
 	onClose: () => void;
 }
 
-export function AuthModelPanel({ mode, catalog, selectedModel, onModeChange, onSelectModel, onConfigureApiKey, onClearApiKey, onClose }: AuthModelPanelProps) {
-	const [providerId, setProviderId] = useState(selectedModel?.providerId ?? "openai-codex");
-	const [query, setQuery] = useState("");
-
-	return <div className="panel-backdrop" onClick={onClose}><section className="runtime-panel" onClick={(event) => event.stopPropagation()}><header className="runtime-panel-header"><div className="runtime-panel-title"><div className="runtime-panel-icon"><Cpu size={18} /></div><div><p className="eyebrow">PI-NOVEL RUNTIME</p><h2>运行时设置</h2><span>供应商与模型统一管理，凭证目录与 CLI 保持一致</span></div></div><button className="icon-button" aria-label="关闭运行时设置" onClick={onClose}><X size={18} /></button></header><div className="runtime-tabs"><button className={mode === "auth" ? "active" : ""} onClick={() => onModeChange("auth")}><LogIn size={15} /> 供应商登录</button><button className={mode === "models" ? "active" : ""} onClick={() => onModeChange("models")}><Cpu size={15} /> 选择模型</button></div>{mode === "auth" ? <AuthView providers={catalog.providers} providerId={providerId} onProviderChange={setProviderId} onConfigureApiKey={onConfigureApiKey} onClearApiKey={onClearApiKey} /> : <ModelView catalog={catalog} providerId={providerId} query={query} selectedModel={selectedModel} onProviderChange={setProviderId} onQueryChange={setQuery} onSelectModel={onSelectModel} />}</section></div>;
-}
-
-function AuthView({ providers, providerId, onProviderChange, onConfigureApiKey, onClearApiKey }: { providers: ProviderCatalogEntry[]; providerId: string; onProviderChange: (providerId: string) => void; onConfigureApiKey: (input: ConfigureModelApiKeyInput) => Promise<void>; onClearApiKey: (providerId: string) => Promise<void> }) {
-	const provider = providers.find((entry) => entry.providerId === providerId) ?? providers[0];
+// 供应商设置：只管理 Provider / Credential / API Key / OAuth / Base URL /
+// Connection Status。不在这里选择 Runtime Model（模型由 Agent Runtime Profile 管理）。
+export function AuthModelPanel({ catalog, initialProviderId, onConfigureApiKey, onClearApiKey, onClose }: AuthModelPanelProps) {
+	const firstProvider = catalog.providers.find((entry) => entry.status === "connected") ?? catalog.providers[0];
+	const [providerId, setProviderId] = useState(initialProviderId ?? firstProvider?.providerId ?? "openai-codex");
+	const provider = catalog.providers.find((entry) => entry.providerId === providerId) ?? firstProvider;
 	const [copied, setCopied] = useState(false);
 	const [apiKey, setApiKey] = useState("");
 	const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "");
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	useEffect(() => {
+		setApiKey("");
+		setCopied(false);
+		setError(null);
+	}, [providerId]);
+	useEffect(() => {
+		const nextProviderId = initialProviderId && catalog.providers.some((entry) => entry.providerId === initialProviderId) ? initialProviderId : catalog.providers.some((entry) => entry.providerId === providerId) ? providerId : firstProvider?.providerId;
+		if (!nextProviderId) return;
+		setProviderId(nextProviderId);
+		setBaseUrl(catalog.providers.find((entry) => entry.providerId === nextProviderId)?.baseUrl ?? "");
+	}, [catalog, firstProvider?.providerId, initialProviderId, providerId]);
 
 	async function copyCommand(): Promise<void> {
-		if (!provider) return;
-		if (!provider.cliLoginCommand) return;
-		await navigator.clipboard?.writeText(provider.cliLoginCommand);
-		setCopied(true);
-		window.setTimeout(() => setCopied(false), 1600);
+		if (!provider?.cliLoginCommand) return;
+		try {
+			if (!navigator.clipboard) throw new Error("当前浏览器不支持复制");
+			await navigator.clipboard.writeText(provider.cliLoginCommand);
+			setCopied(true);
+			window.setTimeout(() => setCopied(false), 1600);
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : "复制失败");
+		}
 	}
 
-	if (!provider) return <div className="runtime-empty"><LogIn size={22} /><strong>暂无可用供应商</strong></div>;
 	async function saveApiKey(): Promise<void> {
-		if (!apiKey.trim()) return;
+		if (!provider || !apiKey.trim()) return;
 		setSaving(true); setError(null);
-		try { await onConfigureApiKey({ providerId: provider.providerId, apiKey: apiKey.trim(), ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}) }); setApiKey(""); } catch (cause) { setError(cause instanceof Error ? cause.message : "保存失败"); } finally { setSaving(false); }
+		try {
+			await onConfigureApiKey({ providerId: provider.providerId, apiKey: apiKey.trim(), ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}) });
+			setApiKey("");
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : "保存失败");
+		} finally { setSaving(false); }
 	}
-	async function clearApiKey(): Promise<void> { setSaving(true); setError(null); try { await onClearApiKey(provider.providerId); } catch (cause) { setError(cause instanceof Error ? cause.message : "清除失败"); } finally { setSaving(false); } }
-	return <div className="runtime-layout"><div className="provider-list">{providers.map((entry) => <button className={`provider-row ${entry.providerId === provider.providerId ? "selected" : ""}`} key={entry.providerId} onClick={() => { onProviderChange(entry.providerId); setBaseUrl(entry.baseUrl ?? ""); setError(null); }}><span className="provider-logo">{entry.name.slice(0, 1)}</span><span className="provider-row-copy"><strong>{entry.name}</strong><small>{entry.authLabel}</small></span><span className={`connection-status ${entry.status}`}>{entry.status === "connected" ? "已连接" : "未连接"}</span><ChevronRight size={14} /></button>)}</div><div className="provider-detail"><div className="detail-eyebrow"><span className="provider-logo large">{provider.name.slice(0, 1)}</span><div><p className="eyebrow">供应商连接</p><h3>{provider.name}</h3></div></div><div className="auth-status-card"><div className="auth-status-icon"><ShieldCheck size={18} /></div><div><strong>{provider.status === "connected" ? "已连接" : "尚未连接"}</strong><span>{provider.apiKeyConfigured ? "API Key 已安全保存到当前工作区。" : "选择 API Key 或 CLI OAuth 作为当前供应商的凭证。"}</span></div><span className="status-pill neutral">{provider.authMethods.includes("api_key") && provider.authMethods.includes("oauth") ? "API Key + OAuth" : provider.authMethods.includes("api_key") ? "API Key" : "OAuth"}</span></div>{provider.authMethods.includes("api_key") && <div className="api-key-card"><div className="cli-card-title"><KeyRound size={15} /><strong>前端配置 API Key</strong><span>{provider.apiKeyLabel ?? "Provider API key"}</span></div><p>密钥只提交给本机 Pi-Novel API，并以工作区本地凭证文件保存，前端不会回显。</p><label>API Key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={provider.apiKeyConfigured ? "已配置，输入新 key 可替换" : "粘贴 API Key"} autoComplete="off" /></label><label>Base URL <span className="muted">可选</span><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="默认供应商地址" /></label><div className="button-row"><button className="primary-button" onClick={saveApiKey} disabled={saving || !apiKey.trim()}>{saving ? "保存中" : provider.apiKeyConfigured ? "替换 API Key" : "保存 API Key"}</button>{provider.apiKeyConfigured && <button className="secondary-button" onClick={clearApiKey} disabled={saving}>清除</button>}</div></div>}{provider.cliLoginCommand && <div className="cli-login-card"><div className="cli-card-title"><Terminal size={15} /><strong>与命令行保持一致</strong><span>CLI OAuth</span></div><p>OAuth 继续复用 CLI 凭证，不在 Web 层保存 token。</p><code>{provider.cliLoginCommand}</code><button className="secondary-button" onClick={copyCommand}>{copied ? <Check size={15} /> : <Copy size={15} />} {copied ? "命令已复制" : "复制登录命令"}</button></div>}{error && <p className="form-error">{error}</p>}<div className="auth-footnote"><ExternalLink size={14} /> API Key 配置与模型选择都作用于当前 Workspace。</div></div></div>;
-}
 
-function ModelView({ catalog, providerId, query, selectedModel, onProviderChange, onQueryChange, onSelectModel }: { catalog: ModelCatalog; providerId: string; query: string; selectedModel: ModelCatalogEntry | null; onProviderChange: (providerId: string) => void; onQueryChange: (query: string) => void; onSelectModel: (model: ModelCatalogEntry) => void }) {
-	const provider = catalog.providers.find((entry) => entry.providerId === providerId) ?? catalog.providers[0];
-	const models = useMemo(() => (provider?.models ?? []).filter((model) => `${model.name} ${model.modelId}`.toLowerCase().includes(query.toLowerCase())), [provider, query]);
-	return <div className="model-layout"><div className="model-sidebar"><div className="model-search"><Search size={15} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="搜索模型" /></div><div className="model-provider-list">{catalog.providers.map((entry) => <button key={entry.providerId} className={entry.providerId === provider?.providerId ? "active" : ""} onClick={() => { onProviderChange(entry.providerId); onQueryChange(""); }}><span>{entry.name}</span><small>{entry.models.length}</small></button>)}</div></div><div className="model-results"><div className="model-results-header"><div><p className="eyebrow">MODEL CATALOG</p><h3>{provider?.name ?? "模型"}</h3></div><span>{models.length} 个模型</span></div>{models.length === 0 ? <div className="runtime-empty compact"><Cpu size={20} /><strong>该供应商暂无静态模型</strong><span>登录后可从动态目录刷新。</span></div> : <div className="model-list">{models.map((model) => <button key={`${model.providerId}/${model.modelId}`} className={`model-row ${selectedModel?.modelId === model.modelId && selectedModel.providerId === model.providerId ? "selected" : ""}`} onClick={() => onSelectModel(model)}><span className="model-row-main"><strong>{model.name}</strong><small>{model.modelId}</small></span><span className="model-badges">{model.reasoning && <em>Reasoning</em>}{model.input.includes("image") && <em>Vision</em>}</span><span className="model-row-meta">{formatContext(model.contextWindow)}<ChevronRight size={14} /></span></button>)}</div>}</div></div>;
-}
+	async function clearApiKey(): Promise<void> {
+		if (!provider) return;
+		setSaving(true); setError(null);
+		try { await onClearApiKey(provider.providerId); } catch (cause) { setError(cause instanceof Error ? cause.message : "清除失败"); } finally { setSaving(false); }
+	}
 
-function formatContext(value: number): string { return value >= 1_000_000 ? `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M ctx` : `${Math.round(value / 1000)}K ctx`; }
+	return (<div className="panel-backdrop" role="presentation" onClick={onClose}><section className="runtime-panel" role="dialog" aria-modal="true" aria-labelledby="provider-panel-title" onClick={(event) => event.stopPropagation()}>
+		<header className="runtime-panel-header">
+			<div className="runtime-panel-title"><div className="runtime-panel-icon"><KeyRound size={18} /></div><div><p className="eyebrow">PI-NOVEL PROVIDERS</p><h2 id="provider-panel-title">供应商设置</h2><span>Provider、凭证与连接状态；运行模型由右上角 Runtime 为每个 Agent 单独配置</span></div></div>
+			<button className="icon-button" type="button" aria-label="关闭供应商设置" onClick={onClose}><X size={18} /></button>
+		</header>
+		<div className="runtime-layout">
+			<div className="provider-list">{catalog.providers.map((entry) => (<button className={`provider-row ${entry.providerId === provider?.providerId ? "selected" : ""}`} type="button" key={entry.providerId} onClick={() => { setProviderId(entry.providerId); setBaseUrl(entry.baseUrl ?? ""); setError(null); }}><span className="provider-logo">{entry.name.slice(0, 1)}</span><span className="provider-row-copy"><strong>{entry.name}</strong><small>{entry.authLabel}</small></span><span className={`connection-status ${entry.status}`}>{entry.status === "connected" ? "已连接" : "未连接"}</span><ChevronRight size={14} /></button>))}</div>
+			{!provider ? <div className="runtime-empty"><LogIn size={22} /><strong>暂无可用供应商</strong></div> : (<div className="provider-detail">
+				<div className="detail-eyebrow"><span className="provider-logo large">{provider.name.slice(0, 1)}</span><div><p className="eyebrow">供应商连接</p><h3>{provider.name}</h3></div></div>
+				<div className="auth-status-card"><div className="auth-status-icon"><ShieldCheck size={18} /></div><div><strong>{provider.status === "connected" ? "已连接" : "尚未连接"}</strong><span>{provider.apiKeyConfigured ? "已为当前工作区配置 API Key。" : "配置 API Key 或使用 CLI OAuth 作为该供应商的凭证。"}</span></div><span className="status-pill neutral">{provider.authMethods.includes("api_key") && provider.authMethods.includes("oauth") ? "API Key + OAuth" : provider.authMethods.includes("api_key") ? "API Key" : "OAuth"}</span></div>
+				<div className="model-count-note"><Cpu size={14} /><span>该供应商包含 <strong>{provider.models.length}</strong> 个模型；模型选择在右上角 Runtime 中按 Agent 配置。</span></div>
+				{provider.authMethods.includes("api_key") && (<div className="api-key-card">
+					<div className="cli-card-title"><KeyRound size={15} /><strong>配置 API Key</strong><span>{provider.apiKeyLabel ?? "Provider API key"}</span></div>
+					<p>凭证保存在当前本地工作区（.pi-novel/model-credentials.json），不会在前端回显。</p>
+					<label>API Key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={provider.apiKeyConfigured ? "已配置，输入新 key 可替换" : "粘贴 API Key"} autoComplete="off" /></label>
+					<label>Base URL <span className="muted">可选</span><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="默认供应商地址" /></label>
+					<div className="api-key-actions"><button className="primary-button" onClick={saveApiKey} disabled={saving || !apiKey.trim()}>{saving ? "保存中…" : "保存 API Key"}</button>{provider.apiKeyConfigured && <button className="quiet-button" onClick={clearApiKey} disabled={saving}>清除本地 Key</button>}</div>
+				</div>)}
+				{provider.authMethods.includes("oauth") && (<div className="api-key-card">
+					<div className="cli-card-title"><Terminal size={15} /><strong>CLI OAuth</strong><span>{provider.cliLoginCommand ? "与 pi-ai 登录状态一致" : "OAuth"}</span></div>
+					<p>在终端执行 CLI 登录后，Pi-Novel 会读取同一份 AuthStorage 并显示已连接。</p>
+					{provider.cliLoginCommand && <div className="cli-command"><code>{provider.cliLoginCommand}</code><button className="icon-button" title="复制命令" onClick={copyCommand}>{copied ? <Check size={15} /> : <ExternalLink size={15} />}</button></div>}
+				</div>)}
+				{error && <div className="inline-alert" role="alert"><ShieldCheck size={13} /> {error}</div>}
+			</div>)}
+		</div>
+	</section></div>);
+}

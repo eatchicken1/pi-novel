@@ -1,10 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import {
-	type StoryEdge,
-	type StoryGraph,
-	type StoryGraphQuery,
-	type StoryNode,
-} from "@earendil-works/pi-novel-contracts";
+import type { StoryEdge, StoryGraph, StoryGraphQuery, StoryNode } from "@earendil-works/pi-novel-contracts";
 
 interface StoryNodeRow {
 	node_id: string;
@@ -42,13 +37,28 @@ export class StoryGraphRepository {
 				"INSERT INTO story_nodes (node_id, project_id, type, ref, label, chapter, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
 			);
 			for (const node of graph.nodes) {
-				nodeStatement.run(node.nodeId, graph.projectId, node.type, node.ref, node.label, node.chapter, JSON.stringify(node.meta));
+				nodeStatement.run(
+					node.nodeId,
+					graph.projectId,
+					node.type,
+					node.ref,
+					node.label,
+					node.chapter,
+					JSON.stringify(node.meta),
+				);
 			}
 			const edgeStatement = this.db.prepare(
 				"INSERT INTO story_edges (edge_id, project_id, source_node_id, target_node_id, type, label) VALUES (?, ?, ?, ?, ?, ?)",
 			);
 			for (const edge of graph.edges) {
-				edgeStatement.run(edge.edgeId, graph.projectId, edge.sourceNodeId, edge.targetNodeId, edge.type, edge.label);
+				edgeStatement.run(
+					edge.edgeId,
+					graph.projectId,
+					edge.sourceNodeId,
+					edge.targetNodeId,
+					edge.type,
+					edge.label,
+				);
 			}
 			this.db.exec("COMMIT");
 		} catch (error) {
@@ -60,13 +70,22 @@ export class StoryGraphRepository {
 	query(projectId: string, filter: StoryGraphQuery): { nodes: StoryNode[]; edges: StoryEdge[] } {
 		const nodeConditions = ["project_id = ?"];
 		const nodeParams: Array<string | number> = [projectId];
-		if (filter.chapterFrom !== undefined) { nodeConditions.push("chapter >= ?"); nodeParams.push(filter.chapterFrom); }
-		if (filter.chapterTo !== undefined) { nodeConditions.push("chapter <= ?"); nodeParams.push(filter.chapterTo); }
+		if (filter.chapterFrom !== undefined) {
+			nodeConditions.push("chapter >= ?");
+			nodeParams.push(filter.chapterFrom);
+		}
+		if (filter.chapterTo !== undefined) {
+			nodeConditions.push("chapter <= ?");
+			nodeParams.push(filter.chapterTo);
+		}
 		if (filter.nodeTypes !== undefined && filter.nodeTypes.length > 0) {
 			nodeConditions.push(`type IN (${filter.nodeTypes.map(() => "?").join(", ")})`);
 			nodeParams.push(...filter.nodeTypes);
 		}
-		if (filter.characterId !== undefined) { nodeConditions.push("(ref = ? OR meta_json LIKE ?)"); nodeParams.push(filter.characterId, `%"characterId":"${filter.characterId}"%`); }
+		if (filter.characterId !== undefined) {
+			nodeConditions.push("(ref = ? OR meta_json LIKE ?)");
+			nodeParams.push(filter.characterId, `%"characterId":"${filter.characterId}"%`);
+		}
 		const nodeRows = this.db
 			.prepare(`SELECT * FROM story_nodes WHERE ${nodeConditions.join(" AND ")}`)
 			.all(...nodeParams) as unknown as StoryNodeRow[];
@@ -97,8 +116,12 @@ export class StoryGraphRepository {
 	}
 
 	counts(projectId: string): { nodes: number; edges: number } {
-		const nodes = this.db.prepare("SELECT COUNT(*) AS c FROM story_nodes WHERE project_id = ?").get(projectId) as { c: number };
-		const edges = this.db.prepare("SELECT COUNT(*) AS c FROM story_edges WHERE project_id = ?").get(projectId) as { c: number };
+		const nodes = this.db.prepare("SELECT COUNT(*) AS c FROM story_nodes WHERE project_id = ?").get(projectId) as {
+			c: number;
+		};
+		const edges = this.db.prepare("SELECT COUNT(*) AS c FROM story_edges WHERE project_id = ?").get(projectId) as {
+			c: number;
+		};
 		return { nodes: Number(nodes.c), edges: Number(edges.c) };
 	}
 }

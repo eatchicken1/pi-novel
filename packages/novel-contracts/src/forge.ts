@@ -46,6 +46,22 @@ export const DirectionCandidateStatusSchema = Type.Union([
 ]);
 export type DirectionCandidateStatus = Static<typeof DirectionCandidateStatusSchema>;
 
+export const ConstraintValidationStatusSchema = Type.Union([
+	Type.Literal("PASS"),
+	Type.Literal("FAIL"),
+	Type.Literal("UNCERTAIN"),
+]);
+export type ConstraintValidationStatus = Static<typeof ConstraintValidationStatusSchema>;
+
+export const ConstraintValidationSchema = Type.Object(
+	{
+		status: ConstraintValidationStatusSchema,
+		reasons: Type.Array(Type.String({ minLength: 1 })),
+	},
+	{ additionalProperties: false },
+);
+export type ConstraintValidation = Static<typeof ConstraintValidationSchema>;
+
 export const DirectionCandidateSchema = Type.Object(
 	{
 		candidateId: Type.String({ minLength: 1 }),
@@ -65,12 +81,25 @@ export const DirectionCandidateSchema = Type.Object(
 		climaxIdea: Type.String({ minLength: 1 }),
 		majorRisks: Type.Array(Type.String({ minLength: 1 })),
 		distinctiveFeatures: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+		// Hard-constraint gate result recorded at generation time. FAIL
+		// candidates never reach the user as ordinary proposals.
+		constraintValidation: ConstraintValidationSchema,
 		createdAt: ISODateStringSchema,
 		selectedAt: Type.Optional(ISODateStringSchema),
 	},
 	{ additionalProperties: false },
 );
 export type DirectionCandidate = Static<typeof DirectionCandidateSchema>;
+
+export const ForgeGenerationSummarySchema = Type.Object(
+	{
+		generation: Type.Integer({ minimum: 1 }),
+		artifactId: Type.String({ minLength: 1 }),
+		createdAt: ISODateStringSchema,
+	},
+	{ additionalProperties: false },
+);
+export type ForgeGenerationSummary = Static<typeof ForgeGenerationSummarySchema>;
 
 export const ComparisonAssessmentSchema = Type.Union([
 	Type.Literal("stronger"),
@@ -172,7 +201,6 @@ export type UpdateForgeSessionInput = Static<typeof UpdateForgeSessionInputSchem
 
 export const GenerateDirectionsInputSchema = Type.Object(
 	{
-		modelId: Type.String({ minLength: 1 }),
 		count: Type.Optional(Type.Integer({ minimum: 3, maximum: 6 })),
 	},
 	{ additionalProperties: false },
@@ -189,14 +217,13 @@ export const CritiqueDirectionInputSchema = Type.Object(
 	{
 		candidateId: Type.String({ minLength: 1 }),
 		instruction: Type.String({ minLength: 1 }),
-		modelId: Type.String({ minLength: 1 }),
 	},
 	{ additionalProperties: false },
 );
 export type CritiqueDirectionInput = Static<typeof CritiqueDirectionInputSchema>;
 
 export const RegenerateDirectionsInputSchema = Type.Object(
-	{ modelId: Type.String({ minLength: 1 }), count: Type.Optional(Type.Integer({ minimum: 3, maximum: 6 })) },
+	{ count: Type.Optional(Type.Integer({ minimum: 3, maximum: 6 })) },
 	{ additionalProperties: false },
 );
 export type RegenerateDirectionsInput = Static<typeof RegenerateDirectionsInputSchema>;
@@ -243,6 +270,7 @@ export const ForgeArtifactsResponseSchema = Type.Object(
 	{
 		artifacts: Type.Array(ForgeArtifactSchema),
 		candidates: Type.Array(DirectionCandidateSchema),
+		generations: Type.Array(ForgeGenerationSummarySchema),
 		comparison: Type.Union([Type.Null(), StoryDirectionComparisonSchema]),
 		task: Type.Union([Type.Null(), ForgeTaskSchema]),
 	},

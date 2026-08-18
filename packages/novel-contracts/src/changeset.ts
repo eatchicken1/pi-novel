@@ -1,6 +1,6 @@
 import { type Static, Type } from "typebox";
 import { ISODateStringSchema } from "./common.ts";
-import { ChangeSetImpactSchema, ChangeOperationSchema, ChangeSetReviewSchema } from "./patch.ts";
+import { ChangeOperationSchema, ChangeSetImpactSchema, ChangeSetReviewSchema } from "./patch.ts";
 
 export const ChangeSetStatusSchema = Type.Union([
 	Type.Literal("proposed"),
@@ -21,11 +21,7 @@ export const ChangeSetKindSchema = Type.Union([
 ]);
 export type ChangeSetKind = Static<typeof ChangeSetKindSchema>;
 
-export const ChangeSetSourceSchema = Type.Union([
-	Type.Literal("user"),
-	Type.Literal("agent"),
-	Type.Literal("system"),
-]);
+export const ChangeSetSourceSchema = Type.Union([Type.Literal("user"), Type.Literal("agent"), Type.Literal("system")]);
 export type ChangeSetSource = Static<typeof ChangeSetSourceSchema>;
 
 export const ChangeSetSchema = Type.Object(
@@ -67,7 +63,4 @@ export const ChangeSetListResponseSchema = Type.Object(
 	{ changeSets: Type.Array(ChangeSetSchema) },
 	{ additionalProperties: false },
 );
-export const ChangeSetResponseSchema = Type.Object(
-	{ changeSet: ChangeSetSchema },
-	{ additionalProperties: false },
-);
+export const ChangeSetResponseSchema = Type.Object({ changeSet: ChangeSetSchema }, { additionalProperties: false });

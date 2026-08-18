@@ -7,6 +7,7 @@ import type {
 	ForgeTask,
 	NarrativeDna,
 	StoryConstraint,
+	TaskEvent,
 } from "@earendil-works/pi-novel-contracts";
 import { applyWorkspaceMigrations } from "./workspace-migrations.ts";
 
@@ -49,6 +50,15 @@ interface TaskRow {
 	created_at: string;
 	updated_at: string;
 	error_message: string | null;
+}
+
+interface TaskEventRow {
+	event_id: string;
+	task_id: string;
+	sequence: number;
+	type: string;
+	payload_json: string | null;
+	created_at: string;
 }
 
 export class ForgeRepository {
@@ -177,6 +187,35 @@ export class ForgeRepository {
 			)
 			.run(task.status, task.progressPhase, task.updatedAt, task.errorMessage, task.taskId);
 	}
+
+	appendTaskEvent(event: TaskEvent): void {
+		this.db
+			.prepare(
+				"INSERT OR REPLACE INTO task_events (event_id, task_id, sequence, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+			)
+			.run(
+				event.eventId,
+				event.taskId,
+				event.sequence,
+				event.type,
+				event.payload ? JSON.stringify(event.payload) : null,
+				event.createdAt,
+			);
+	}
+
+	listTaskEvents(taskId: string, afterSequence: number): TaskEvent[] {
+		const rows = this.db
+			.prepare("SELECT * FROM task_events WHERE task_id = ? AND sequence > ? ORDER BY sequence ASC")
+			.all(taskId, afterSequence) as unknown as TaskEventRow[];
+		return rows.map(toTaskEvent);
+	}
+
+	taskEventSequence(taskId: string): number {
+		const row = this.db
+			.prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM task_events WHERE task_id = ?")
+			.get(taskId) as { sequence: number };
+		return row.sequence;
+	}
 }
 
 function toSession(row: SessionRow): ForgeSession {
@@ -210,6 +249,17 @@ function toArtifact(row: ArtifactRow): ForgeArtifact {
 		createdAt: row.created_at,
 		...(row.candidate_id ? { candidateId: row.candidate_id } : {}),
 		...(row.summary ? { summary: row.summary } : {}),
+	};
+}
+
+function toTaskEvent(row: TaskEventRow): TaskEvent {
+	return {
+		eventId: row.event_id,
+		taskId: row.task_id,
+		sequence: row.sequence,
+		type: row.type as TaskEvent["type"],
+		...(row.payload_json ? { payload: JSON.parse(row.payload_json) as Record<string, unknown> } : {}),
+		createdAt: row.created_at,
 	};
 }
 

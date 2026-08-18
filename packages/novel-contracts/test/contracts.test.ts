@@ -92,7 +92,6 @@ describe("novel runtime contracts", () => {
 	});
 });
 
-
 describe("product backend contracts", () => {
 	it("ChangeSet with operations, impact and review validates at runtime", () => {
 		expect(
@@ -106,7 +105,14 @@ describe("product backend contracts", () => {
 				intent: "increase-subtext",
 				baseRevision: "rev-2",
 				operations: [
-					{ operationId: "op-1", kind: "replace-text", target: "manuscript/chapter-003.md", startChar: 10, endChar: 40, text: "新的句子" },
+					{
+						operationId: "op-1",
+						kind: "replace-text",
+						target: "manuscript/chapter-003.md",
+						startChar: 10,
+						endChar: 40,
+						text: "新的句子",
+					},
 				],
 				impact: {
 					severity: "downstream-review",
@@ -209,7 +215,14 @@ describe("product backend contracts", () => {
 				projectId: "p-1",
 				nodes: [
 					{ nodeId: "ev-1", type: "event", ref: "1", label: "接案", chapter: 1, meta: {} },
-					{ nodeId: "clue-1", type: "clue", ref: "CL1", label: "门禁记录", chapter: 1, meta: { reliability: "medium" } },
+					{
+						nodeId: "clue-1",
+						type: "clue",
+						ref: "CL1",
+						label: "门禁记录",
+						chapter: 1,
+						meta: { reliability: "medium" },
+					},
 				],
 				edges: [{ edgeId: "e-1", sourceNodeId: "ev-1", targetNodeId: "clue-1", type: "reveals", label: null }],
 				sourceHash: "abc",

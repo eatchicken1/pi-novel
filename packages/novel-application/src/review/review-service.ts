@@ -1,9 +1,4 @@
-import type {
-	ReviewIssue,
-	ReviewIssueStatus,
-	ReviewListResponse,
-	ReviewSummary,
-} from "@earendil-works/pi-novel-contracts";
+import type { ReviewIssue, ReviewListResponse, ReviewSummary } from "@earendil-works/pi-novel-contracts";
 import type { NovelEnginePort, ProjectDatabaseRegistryPort } from "../ports.ts";
 import type { WorkspaceService } from "../workspace/workspace-service.ts";
 
@@ -70,7 +65,10 @@ export class ReviewService {
 		return repository.summary(projectId);
 	}
 
-	async list(projectId: string, filter: { severity?: string; scope?: string; chapter?: number; status?: string } = {}): Promise<ReviewListResponse> {
+	async list(
+		projectId: string,
+		filter: { severity?: string; scope?: string; chapter?: number; status?: string } = {},
+	): Promise<ReviewListResponse> {
 		const repository = await this.handle(projectId);
 		return { issues: repository.list(projectId, filter), summary: repository.summary(projectId) };
 	}

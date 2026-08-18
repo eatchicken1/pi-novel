@@ -1,4 +1,5 @@
 import type {
+	AgentRuntimeProfile,
 	CommitForgeInput,
 	ConfigureModelApiKeyInput,
 	CreateForgeSessionInput,
@@ -10,7 +11,11 @@ import type {
 	MaterializeForgeInput,
 	ModelCatalog,
 	ProjectRecord,
+	RuntimeAgentId,
+	RuntimeProfileListResponse,
 	SelectDirectionInput,
+	SetRuntimeProfileInput,
+	TaskEvent,
 	UpdateForgeSessionInput,
 	WorkspaceOverview,
 } from "@earendil-works/pi-novel-contracts";
@@ -103,12 +108,70 @@ export async function regenerateForgeDirections(sessionId: string, input: Genera
 	return (await request<{ task: ForgeTask }>(`/api/forge/sessions/${encodeURIComponent(sessionId)}/regenerate`, { method: "POST", body: JSON.stringify(input) })).task;
 }
 
+export async function compareForgeDirections(sessionId: string): Promise<ForgeTask> {
+	return (await request<{ task: ForgeTask }>(`/api/forge/sessions/${encodeURIComponent(sessionId)}/compare`, { method: "POST" })).task;
+}
+
+export async function recoverForgeMaterialization(sessionId: string): Promise<ForgeSession> {
+	return (await request<{ session: ForgeSession }>(`/api/forge/sessions/${encodeURIComponent(sessionId)}/materialize/recover`, { method: "POST" })).session;
+}
+
+export async function getTaskEvents(taskId: string): Promise<TaskEvent[]> {
+	return (await request<{ events: TaskEvent[] }>(`/api/tasks/${encodeURIComponent(taskId)}/events`)).events;
+}
+
+export async function getRuntimeProfiles(): Promise<AgentRuntimeProfile[]> {
+	return (await request<RuntimeProfileListResponse>("/api/runtime/profiles")).profiles;
+}
+
+export async function setRuntimeProfile(agentId: RuntimeAgentId, input: SetRuntimeProfileInput): Promise<AgentRuntimeProfile[]> {
+	return (await request<RuntimeProfileListResponse>(`/api/runtime/profiles/${encodeURIComponent(agentId)}`, { method: "PUT", body: JSON.stringify(input) })).profiles;
+}
+
+// SSE: use fetch so the local API token is sent with the stream request.
+export function openTaskEventStream(taskId: string, onTask: (task: ForgeTask) => void, onError: () => void): () => void {
+	const controller = new AbortController();
+	const token = import.meta.env.VITE_PI_NOVEL_LOCAL_TOKEN;
+	const headers = token ? { "X-Pi-Novel-Token": token } : undefined;
+	void readTaskEventStream(`/api/tasks/${encodeURIComponent(taskId)}/events/stream`, headers, controller.signal, onTask).catch(() => {
+		if (!controller.signal.aborted) onError();
+	});
+	return () => controller.abort();
+}
+
+async function readTaskEventStream(
+	url: string,
+	headers: HeadersInit | undefined,
+	signal: AbortSignal,
+	onTask: (task: ForgeTask) => void,
+): Promise<void> {
+	const response = await fetch(url, { headers, signal });
+	if (!response.ok || response.body === null) throw new ApiClientError(`Task stream failed: ${response.status}`, response.status);
+
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	while (!signal.aborted) {
+		const { done, value } = await reader.read();
+		if (done) return;
+		buffer += decoder.decode(value, { stream: true });
+		const frames = buffer.split(/\r?\n\r?\n/);
+		buffer = frames.pop() ?? "";
+		for (const frame of frames) {
+			const eventName = frame.match(/^event:\s*(.+)$/m)?.[1];
+			const data = frame.match(/^data:\s*(.+)$/m)?.[1];
+			if (eventName !== "task" || !data) continue;
+			onTask(JSON.parse(data) as ForgeTask);
+		}
+	}
+}
+
 export async function getForgeArtifacts(sessionId: string): Promise<ForgeArtifactsResponse> {
 	return request<ForgeArtifactsResponse>(`/api/forge/sessions/${encodeURIComponent(sessionId)}/artifacts`);
 }
 
-export async function critiqueForgeCandidate(sessionId: string, input: CritiqueDirectionInput): Promise<ForgeArtifactsResponse> {
-	return request<ForgeArtifactsResponse>(`/api/forge/sessions/${encodeURIComponent(sessionId)}/candidate/critique`, { method: "POST", body: JSON.stringify(input) });
+export async function critiqueForgeCandidate(sessionId: string, input: CritiqueDirectionInput): Promise<ForgeTask> {
+	return (await request<{ task: ForgeTask }>(`/api/forge/sessions/${encodeURIComponent(sessionId)}/candidate/critique`, { method: "POST", body: JSON.stringify(input) })).task;
 }
 
 export async function selectForgeDirection(sessionId: string, input: SelectDirectionInput): Promise<ForgeSession> {

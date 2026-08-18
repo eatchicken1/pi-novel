@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
 	ChapterDocumentView,
@@ -19,7 +19,7 @@ function sha256(content: string): string {
 }
 
 function chapterFileName(chapter: number): string {
-	return "chapter-" + String(chapter).padStart(3, "0") + ".md";
+	return `chapter-${String(chapter).padStart(3, "0")}.md`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,15 +36,19 @@ function safeParse(filePath: string): unknown {
 }
 
 // landing chapter 启发式（与 diagnoseChapter 的 fairnessLandingChapter 一致）：
-function fairnessLandingChapter(message: string, proofCoverage: Record<string, { revealChapter?: number }>, unsupported: Array<{ claimId: string; reason: string }>): number | null {
+function fairnessLandingChapter(
+	message: string,
+	proofCoverage: Record<string, { revealChapter?: number }>,
+	unsupported: Array<{ claimId: string; reason: string }>,
+): number | null {
 	const revealMatch = message.match(/claim (\w+) is actually revealed in chapter (\d+)/u);
 	if (revealMatch !== null) return Number(revealMatch[2]);
 	const clueMatch = message.match(/clue (\w+) is required by path (\w+)/u);
 	if (clueMatch === null) return null;
 	const pathId = clueMatch[2];
-	const entry = unsupported.find((candidate) => candidate.reason.includes(": " + pathId + ":"));
+	const entry = unsupported.find((candidate) => candidate.reason.includes(`: ${pathId}:`));
 	if (entry === undefined) return null;
-	const coverage = proofCoverage[entry.claimId + ":heroine"] ?? proofCoverage[entry.claimId + ":reader"];
+	const coverage = proofCoverage[`${entry.claimId}:heroine`] ?? proofCoverage[`${entry.claimId}:reader`];
 	return coverage?.revealChapter ?? null;
 }
 
@@ -102,11 +106,13 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 				nextChapter,
 				finalizedChapters,
 				memoryStatus: memory === "missing" || memory === "current" || memory === "stale" ? memory : null,
-				continuityStatus: continuity === "ok" || continuity === "warning" || continuity === "error" ? continuity : null,
+				continuityStatus:
+					continuity === "ok" || continuity === "warning" || continuity === "error" ? continuity : null,
 				openThreads: typeof threads === "number" ? threads : null,
 				overdueThreads: typeof project.overdueThreads === "number" ? project.overdueThreads : null,
 				unresolvedSetups: typeof project.unresolvedSetups === "number" ? project.unresolvedSetups : null,
-				downstreamReviewRequired: typeof project.downstreamReviewRequired === "boolean" ? project.downstreamReviewRequired : null,
+				downstreamReviewRequired:
+					typeof project.downstreamReviewRequired === "boolean" ? project.downstreamReviewRequired : null,
 				currentMovement: typeof movement === "string" ? movement : null,
 			};
 		} catch {
@@ -114,10 +120,21 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 		}
 	}
 
-	async listChapters(workspaceRoot: string, projectId: string, kind: "native" | "legacy"): Promise<ChapterSummaryView[]> {
-		const directory = kind === "legacy" ? join(workspaceRoot, "novels", projectId, "chapters") : join(workspaceRoot, projectId, "manuscript");
+	async listChapters(
+		workspaceRoot: string,
+		projectId: string,
+		kind: "native" | "legacy",
+	): Promise<ChapterSummaryView[]> {
+		const directory =
+			kind === "legacy"
+				? join(workspaceRoot, "novels", projectId, "chapters")
+				: join(workspaceRoot, projectId, "manuscript");
 		let files: string[] = [];
-		try { files = readdirSync(directory); } catch { return []; }
+		try {
+			files = readdirSync(directory);
+		} catch {
+			return [];
+		}
 		const chapters: ChapterSummaryView[] = [];
 		for (const file of files.filter((entry) => /^chapter-\d{3}\.md$/u.test(entry)).sort()) {
 			const match = file.match(/chapter-(\d{3})\.md$/u);
@@ -129,14 +146,24 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 			let revision = 1;
 			let updatedAt = new Date(0).toISOString();
 			if (kind === "legacy") {
-				const summary = safeParse(join(workspaceRoot, "novels", projectId, "summaries", "chapter-" + String(chapter).padStart(3, "0") + ".json"));
+				const summary = safeParse(
+					join(
+						workspaceRoot,
+						"novels",
+						projectId,
+						"summaries",
+						`chapter-${String(chapter).padStart(3, "0")}.json`,
+					),
+				);
 				if (isRecord(summary)) {
 					title = typeof summary.title === "string" ? summary.title : null;
 					revision = typeof summary.draftRevision === "number" ? summary.draftRevision : 1;
 					updatedAt = typeof summary.finalizedAt === "string" ? summary.finalizedAt : new Date(0).toISOString();
 				}
 			} else {
-				try { updatedAt = new Date(0).toISOString(); } catch {}
+				try {
+					updatedAt = new Date(0).toISOString();
+				} catch {}
 			}
 			chapters.push({
 				chapter,
@@ -151,15 +178,25 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 		return chapters;
 	}
 
-	async readChapter(workspaceRoot: string, projectId: string, kind: "native" | "legacy", chapter: number): Promise<ChapterDocumentView | null> {
-		const directory = kind === "legacy" ? join(workspaceRoot, "novels", projectId, "chapters") : join(workspaceRoot, projectId, "manuscript");
+	async readChapter(
+		workspaceRoot: string,
+		projectId: string,
+		kind: "native" | "legacy",
+		chapter: number,
+	): Promise<ChapterDocumentView | null> {
+		const directory =
+			kind === "legacy"
+				? join(workspaceRoot, "novels", projectId, "chapters")
+				: join(workspaceRoot, projectId, "manuscript");
 		const path = join(directory, chapterFileName(chapter));
 		if (!existsSync(path)) return null;
 		const text = readFileSync(path, "utf8");
 		let title: string | null = null;
 		let revision = 1;
 		if (kind === "legacy") {
-			const summary = safeParse(join(workspaceRoot, "novels", projectId, "summaries", "chapter-" + String(chapter).padStart(3, "0") + ".json"));
+			const summary = safeParse(
+				join(workspaceRoot, "novels", projectId, "summaries", `chapter-${String(chapter).padStart(3, "0")}.json`),
+			);
 			if (isRecord(summary)) {
 				title = typeof summary.title === "string" ? summary.title : null;
 				revision = typeof summary.draftRevision === "number" ? summary.draftRevision : 1;
@@ -176,7 +213,11 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 		};
 	}
 
-	async analyzeRevisionImpact(workspaceRoot: string, projectId: string, input: RevisionImpactInput): Promise<ChangeSetImpact | null> {
+	async analyzeRevisionImpact(
+		workspaceRoot: string,
+		projectId: string,
+		input: RevisionImpactInput,
+	): Promise<ChangeSetImpact | null> {
 		if (!(await this.projectExists(workspaceRoot, projectId))) return null;
 		try {
 			const report = await this.storeFor(workspaceRoot).analyzeRevisionImpact({ projectId, ...input });
@@ -203,8 +244,12 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 		// 1. realized fairness（持久化报告，不重跑 checker）
 		const fairness = safeParse(join(projectRoot, "continuity", "reports", "mystery-realized-fairness.json"));
 		if (isRecord(fairness) && Array.isArray(fairness.issues)) {
-			const proofCoverage = isRecord(fairness.proofCoverage) ? fairness.proofCoverage as Record<string, { revealChapter?: number }> : {};
-			const unsupported = Array.isArray(fairness.unsupportedFinalClaims) ? fairness.unsupportedFinalClaims as Array<{ claimId: string; reason: string }> : [];
+			const proofCoverage = isRecord(fairness.proofCoverage)
+				? (fairness.proofCoverage as Record<string, { revealChapter?: number }>)
+				: {};
+			const unsupported = Array.isArray(fairness.unsupportedFinalClaims)
+				? (fairness.unsupportedFinalClaims as Array<{ claimId: string; reason: string }>)
+				: [];
 			for (const issue of fairness.issues as Array<{ code: string; severity: string; message: string }>) {
 				const landing = fairnessLandingChapter(issue.message, proofCoverage, unsupported);
 				const scope = landing === null || landing === undefined ? "manuscript" : "future-chapter";
@@ -226,17 +271,27 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 		// 2. 每章诊断（持久化报告）
 		const diagnosisDirectory = join(projectRoot, "work", "diagnosis");
 		let diagnosisFiles: string[] = [];
-		try { diagnosisFiles = readdirSync(diagnosisDirectory).filter((entry) => entry.endsWith(".json")); } catch {}
+		try {
+			diagnosisFiles = readdirSync(diagnosisDirectory).filter((entry) => entry.endsWith(".json"));
+		} catch {}
 		for (const file of diagnosisFiles) {
 			const match = file.match(/chapter-(\d{3})\.json$/u);
 			if (match === null) continue;
 			const chapter = Number(match[1]);
 			const diagnosis = safeParse(join(diagnosisDirectory, file));
 			if (!isRecord(diagnosis) || !Array.isArray(diagnosis.findings)) continue;
-			for (const finding of diagnosis.findings as Array<{ priority: string; problem: string; sourceIssues?: string[] }>) {
+			for (const finding of diagnosis.findings as Array<{
+				priority: string;
+				problem: string;
+				sourceIssues?: string[];
+			}>) {
 				const priority = typeof finding.priority === "string" ? finding.priority : "P3";
-				const sourceCode = Array.isArray(finding.sourceIssues) && finding.sourceIssues.length > 0 ? String(finding.sourceIssues[0]) : "DIAGNOSIS";
-				const landingMatch = typeof finding.problem === "string" ? finding.problem.match(/修复落点 ch(\d+)/u) : null;
+				const sourceCode =
+					Array.isArray(finding.sourceIssues) && finding.sourceIssues.length > 0
+						? String(finding.sourceIssues[0])
+						: "DIAGNOSIS";
+				const landingMatch =
+					typeof finding.problem === "string" ? finding.problem.match(/修复落点 ch(\d+)/u) : null;
 				const landing = landingMatch === null ? null : Number(landingMatch[1]);
 				const scope = landing !== null && landing !== chapter ? "future-chapter" : "chapter";
 				sources.push({
@@ -297,12 +352,22 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 					eventId: typeof event.eventId === "number" ? event.eventId : 0,
 					chapter: typeof event.chapter === "number" ? event.chapter : 0,
 					action: typeof event.action === "string" ? event.action : "",
-					causes: Array.isArray(event.causes) ? event.causes.filter((value): value is number => typeof value === "number") : [],
+					causes: Array.isArray(event.causes)
+						? event.causes.filter((value): value is number => typeof value === "number")
+						: [],
 					characterRefs: [...characterRefs],
-					clueRefs: Array.isArray(mystery.discoveredClueIds) ? mystery.discoveredClueIds.filter((value): value is string => typeof value === "string") : [],
-					claimRefs: Array.isArray(mystery.revealClaimIds) ? mystery.revealClaimIds.filter((value): value is string => typeof value === "string") : [],
-					professionalActionRefs: Array.isArray(professional.actionIds) ? professional.actionIds.filter((value): value is string => typeof value === "string") : [],
-					marriageRefs: Array.isArray(marriage.economicItemChanges) ? marriage.economicItemChanges.filter((value): value is string => typeof value === "string") : [],
+					clueRefs: Array.isArray(mystery.discoveredClueIds)
+						? mystery.discoveredClueIds.filter((value): value is string => typeof value === "string")
+						: [],
+					claimRefs: Array.isArray(mystery.revealClaimIds)
+						? mystery.revealClaimIds.filter((value): value is string => typeof value === "string")
+						: [],
+					professionalActionRefs: Array.isArray(professional.actionIds)
+						? professional.actionIds.filter((value): value is string => typeof value === "string")
+						: [],
+					marriageRefs: Array.isArray(marriage.economicItemChanges)
+						? marriage.economicItemChanges.filter((value): value is string => typeof value === "string")
+						: [],
 					irreversible: event.irreversible === true,
 				});
 			}
@@ -310,11 +375,14 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 		const characters: Array<{ characterId: string; label: string | null }> = [];
 		const characterDirectory = join(projectRoot, "characters");
 		let characterFiles: string[] = [];
-		try { characterFiles = readdirSync(characterDirectory).filter((entry) => entry.endsWith(".json")); } catch {}
+		try {
+			characterFiles = readdirSync(characterDirectory).filter((entry) => entry.endsWith(".json"));
+		} catch {}
 		for (const file of characterFiles) {
 			const record = safeParse(join(characterDirectory, file));
 			if (isRecord(record)) {
-				const characterId = typeof record.characterId === "string" ? record.characterId : file.replace(/\.json$/u, "");
+				const characterId =
+					typeof record.characterId === "string" ? record.characterId : file.replace(/\.json$/u, "");
 				characters.push({ characterId, label: typeof record.name === "string" ? record.name : null });
 			}
 		}
@@ -350,7 +418,14 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 				});
 			}
 		}
-		const sources: StoryGraphSources = { events, characters, clues, claims, promises, sourceHash: sha256(JSON.stringify({ events, characters, clues, claims, promises })) };
+		const sources: StoryGraphSources = {
+			events,
+			characters,
+			clues,
+			claims,
+			promises,
+			sourceHash: sha256(JSON.stringify({ events, characters, clues, claims, promises })),
+		};
 		return sources;
 	}
 

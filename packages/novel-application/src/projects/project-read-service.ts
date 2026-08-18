@@ -5,8 +5,8 @@ import type {
 	ProjectReadModel,
 	ProjectStatusSnapshot,
 } from "@earendil-works/pi-novel-contracts";
-import type { WorkspaceService } from "../workspace/workspace-service.ts";
 import type { NovelEnginePort } from "../ports.ts";
+import type { WorkspaceService } from "../workspace/workspace-service.ts";
 
 // Project read models：Library/Studio 不直接读 engine JSON；
 // 这里从 workspace registry + NovelEnginePort 组装（只读意图）。

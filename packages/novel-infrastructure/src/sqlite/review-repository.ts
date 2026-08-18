@@ -36,9 +36,10 @@ export function reviewIssueDedupKey(issue: {
 	scene: string | null;
 	message: string;
 }): string {
-	const scopeKey = issue.scope === "chapter" || issue.scope === "scene" || issue.scope === "future-chapter"
-		? `${issue.scope}:${issue.chapter ?? "?"}`
-		: issue.scope;
+	const scopeKey =
+		issue.scope === "chapter" || issue.scope === "scene" || issue.scope === "future-chapter"
+			? `${issue.scope}:${issue.chapter ?? "?"}`
+			: issue.scope;
 	const landing = issue.landingChapter === null ? "-" : String(issue.landingChapter);
 	return `${issue.sourceCode}|${scopeKey}|landing:${landing}|${issue.scene ?? "-"}`;
 }
@@ -125,13 +126,28 @@ export class ReviewRepository {
 		return { created: true };
 	}
 
-	list(projectId: string, filter: { severity?: string; scope?: string; chapter?: number; status?: string } = {}): ReviewIssue[] {
+	list(
+		projectId: string,
+		filter: { severity?: string; scope?: string; chapter?: number; status?: string } = {},
+	): ReviewIssue[] {
 		const conditions = ["project_id = ?"];
 		const params: Array<string | number> = [projectId];
-		if (filter.severity !== undefined) { conditions.push("severity = ?"); params.push(filter.severity); }
-		if (filter.scope !== undefined) { conditions.push("scope = ?"); params.push(filter.scope); }
-		if (filter.chapter !== undefined) { conditions.push("(chapter = ? OR landing_chapter = ?)"); params.push(filter.chapter, filter.chapter); }
-		if (filter.status !== undefined) { conditions.push("status = ?"); params.push(filter.status); }
+		if (filter.severity !== undefined) {
+			conditions.push("severity = ?");
+			params.push(filter.severity);
+		}
+		if (filter.scope !== undefined) {
+			conditions.push("scope = ?");
+			params.push(filter.scope);
+		}
+		if (filter.chapter !== undefined) {
+			conditions.push("(chapter = ? OR landing_chapter = ?)");
+			params.push(filter.chapter, filter.chapter);
+		}
+		if (filter.status !== undefined) {
+			conditions.push("status = ?");
+			params.push(filter.status);
+		}
 		const rows = this.db
 			.prepare(`SELECT * FROM review_issues WHERE ${conditions.join(" AND ")} ORDER BY first_seen_at DESC`)
 			.all(...params) as unknown as ReviewIssueRow[];
@@ -146,15 +162,18 @@ export class ReviewRepository {
 
 	markResolvedBySource(projectId: string, sourceCodes: string[], now: string): number {
 		// 本次投影中已消失的来源 → resolved（不在 seen 列表中的 open/acknowledged issue）。
-		const result = sourceCodes.length === 0
-			? this.db
-					.prepare("UPDATE review_issues SET status = 'resolved', resolved_at = ? WHERE project_id = ? AND status IN ('open', 'acknowledged')")
-					.run(now, projectId)
-			: this.db
-					.prepare(
-						`UPDATE review_issues SET status = 'resolved', resolved_at = ? WHERE project_id = ? AND source_code NOT IN (${sourceCodes.map(() => "?").join(", ")}) AND status IN ('open', 'acknowledged')`,
-					)
-					.run(now, projectId, ...sourceCodes);
+		const result =
+			sourceCodes.length === 0
+				? this.db
+						.prepare(
+							"UPDATE review_issues SET status = 'resolved', resolved_at = ? WHERE project_id = ? AND status IN ('open', 'acknowledged')",
+						)
+						.run(now, projectId)
+				: this.db
+						.prepare(
+							`UPDATE review_issues SET status = 'resolved', resolved_at = ? WHERE project_id = ? AND source_code NOT IN (${sourceCodes.map(() => "?").join(", ")}) AND status IN ('open', 'acknowledged')`,
+						)
+						.run(now, projectId, ...sourceCodes);
 		return Number(result.changes);
 	}
 
@@ -163,7 +182,13 @@ export class ReviewRepository {
 			.prepare(
 				"SELECT SUM(CASE WHEN status IN ('open','acknowledged') THEN 1 ELSE 0 END) AS open_count, SUM(CASE WHEN status IN ('open','acknowledged') AND blocking_for_current_action = 1 THEN 1 ELSE 0 END) AS blocking_count, SUM(CASE WHEN status IN ('open','acknowledged') AND severity = 'error' THEN 1 ELSE 0 END) AS error_count, SUM(CASE WHEN status IN ('open','acknowledged') AND severity = 'warning' THEN 1 ELSE 0 END) AS warning_count, MAX(last_seen_at) AS latest_run FROM review_issues WHERE project_id = ?",
 			)
-			.get(projectId) as { open_count: number | null; blocking_count: number | null; error_count: number | null; warning_count: number | null; latest_run: string | null };
+			.get(projectId) as {
+			open_count: number | null;
+			blocking_count: number | null;
+			error_count: number | null;
+			warning_count: number | null;
+			latest_run: string | null;
+		};
 		return {
 			openCount: Number(row.open_count ?? 0),
 			blockingCount: Number(row.blocking_count ?? 0),

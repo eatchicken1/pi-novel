@@ -17,17 +17,102 @@ function createLegacyProject(): { root: string; projectId: string; cleanup(): vo
 	mkdirSync(join(projectRoot, "outline", "mystery"), { recursive: true });
 	mkdirSync(join(projectRoot, "continuity", "reports"), { recursive: true });
 	mkdirSync(join(projectRoot, "characters"), { recursive: true });
-	writeFileSync(join(projectRoot, "project.json"), JSON.stringify({ projectId, title: "Legacy Story", genre: "female-social-suspense", status: "writing", nextChapter: 2, memoryStatus: "current", continuityStatus: "ok", openThreads: 1, overdueThreads: 0, unresolvedSetups: 0, downstreamReviewRequired: false, currentMovement: "m1", finalizedChapters: [1] }), "utf8");
+	writeFileSync(
+		join(projectRoot, "project.json"),
+		JSON.stringify({
+			projectId,
+			title: "Legacy Story",
+			genre: "female-social-suspense",
+			status: "writing",
+			nextChapter: 2,
+			memoryStatus: "current",
+			continuityStatus: "ok",
+			openThreads: 1,
+			overdueThreads: 0,
+			unresolvedSetups: 0,
+			downstreamReviewRequired: false,
+			currentMovement: "m1",
+			finalizedChapters: [1],
+		}),
+		"utf8",
+	);
 	writeFileSync(join(projectRoot, "chapters", "chapter-001.md"), "第一版正文内容，足够长。", "utf8");
-	writeFileSync(join(projectRoot, "summaries", "chapter-001.json"), JSON.stringify({ chapter: 1, title: "第一章", draftRevision: 2, finalizedAt: "2026-08-16T00:00:00.000Z" }), "utf8");
-	writeFileSync(join(projectRoot, "outline", "unified", "event-map.json"), JSON.stringify({ events: [{ eventId: 1, chapter: 1, action: "接案", causes: [], characterDeltas: [{ characterId: "heroine", dimension: "knowledge", from: "a", to: "b" }], mysteryDelta: { discoveredClueIds: ["CL1"], revealClaimIds: [] }, professionalDelta: { actionIds: ["ACT1"] }, irreversible: false }] }), "utf8");
-	writeFileSync(join(projectRoot, "characters", "heroine.json"), JSON.stringify({ characterId: "heroine", name: "沈砚" }), "utf8");
-	writeFileSync(join(projectRoot, "outline", "mystery", "clue-ledger.json"), JSON.stringify([{ id: "CL1", observableFact: "门禁记录", plannedRealizationChapter: 1 }]), "utf8");
-	writeFileSync(join(projectRoot, "work", "mystery", "truth-model-proposed.json"), JSON.stringify({ case: { truthClaims: [{ id: "T1", statement: "真相", plannedRevealChapter: 2 }] } }), "utf8");
-	writeFileSync(join(projectRoot, "work", "authoring", "story-promises.json"), JSON.stringify({ promises: [{ id: "p1", promise: "查清真相" }] }), "utf8");
-	writeFileSync(join(projectRoot, "work", "diagnosis", "chapter-001.json"), JSON.stringify({ findings: [{ priority: "P1", problem: "对话直白", sourceIssues: ["DIALOGUE_TOO_DIRECT"] }] }), "utf8");
-	writeFileSync(join(projectRoot, "continuity", "reports", "mystery-realized-fairness.json"), JSON.stringify({ issues: [{ code: "REALIZED_REVEAL_BEFORE_PROOF", severity: "error", message: "final claim T1 is actually revealed in chapter 2 for the heroine audience before any proof path is fully realized" }], proofCoverage: { "T1:heroine": { revealChapter: 2 } }, unsupportedFinalClaims: [{ claimId: "T1", reason: "heroine: PP1: clue C2 is never actually realized for the heroine audience before the reveal" }] }), "utf8");
-	return { root, projectId, cleanup() { rmSync(root, { recursive: true, force: true }); } };
+	writeFileSync(
+		join(projectRoot, "summaries", "chapter-001.json"),
+		JSON.stringify({ chapter: 1, title: "第一章", draftRevision: 2, finalizedAt: "2026-08-16T00:00:00.000Z" }),
+		"utf8",
+	);
+	writeFileSync(
+		join(projectRoot, "outline", "unified", "event-map.json"),
+		JSON.stringify({
+			events: [
+				{
+					eventId: 1,
+					chapter: 1,
+					action: "接案",
+					causes: [],
+					characterDeltas: [{ characterId: "heroine", dimension: "knowledge", from: "a", to: "b" }],
+					mysteryDelta: { discoveredClueIds: ["CL1"], revealClaimIds: [] },
+					professionalDelta: { actionIds: ["ACT1"] },
+					irreversible: false,
+				},
+			],
+		}),
+		"utf8",
+	);
+	writeFileSync(
+		join(projectRoot, "characters", "heroine.json"),
+		JSON.stringify({ characterId: "heroine", name: "沈砚" }),
+		"utf8",
+	);
+	writeFileSync(
+		join(projectRoot, "outline", "mystery", "clue-ledger.json"),
+		JSON.stringify([{ id: "CL1", observableFact: "门禁记录", plannedRealizationChapter: 1 }]),
+		"utf8",
+	);
+	writeFileSync(
+		join(projectRoot, "work", "mystery", "truth-model-proposed.json"),
+		JSON.stringify({ case: { truthClaims: [{ id: "T1", statement: "真相", plannedRevealChapter: 2 }] } }),
+		"utf8",
+	);
+	writeFileSync(
+		join(projectRoot, "work", "authoring", "story-promises.json"),
+		JSON.stringify({ promises: [{ id: "p1", promise: "查清真相" }] }),
+		"utf8",
+	);
+	writeFileSync(
+		join(projectRoot, "work", "diagnosis", "chapter-001.json"),
+		JSON.stringify({ findings: [{ priority: "P1", problem: "对话直白", sourceIssues: ["DIALOGUE_TOO_DIRECT"] }] }),
+		"utf8",
+	);
+	writeFileSync(
+		join(projectRoot, "continuity", "reports", "mystery-realized-fairness.json"),
+		JSON.stringify({
+			issues: [
+				{
+					code: "REALIZED_REVEAL_BEFORE_PROOF",
+					severity: "error",
+					message:
+						"final claim T1 is actually revealed in chapter 2 for the heroine audience before any proof path is fully realized",
+				},
+			],
+			proofCoverage: { "T1:heroine": { revealChapter: 2 } },
+			unsupportedFinalClaims: [
+				{
+					claimId: "T1",
+					reason: "heroine: PP1: clue C2 is never actually realized for the heroine audience before the reveal",
+				},
+			],
+		}),
+		"utf8",
+	);
+	return {
+		root,
+		projectId,
+		cleanup() {
+			rmSync(root, { recursive: true, force: true });
+		},
+	};
 }
 
 describe("legacy novel engine adapter", () => {
@@ -46,7 +131,9 @@ describe("legacy novel engine adapter", () => {
 			const chapter = await adapter.readChapter(fixture.root, fixture.projectId, "legacy", 1);
 			expect(chapter?.text).toContain("第一版正文");
 			expect(chapter?.contentHash).toMatch(/^[0-9a-f]{64}$/u);
-		} finally { fixture.cleanup(); }
+		} finally {
+			fixture.cleanup();
+		}
 	});
 
 	it("L2: review sources derive from persisted reports with landing chapters", async () => {
@@ -61,7 +148,9 @@ describe("legacy novel engine adapter", () => {
 			const diagnosis = sources.find((source) => source.sourceCode === "DIALOGUE_TOO_DIRECT");
 			expect(diagnosis?.chapter).toBe(1);
 			expect(diagnosis?.scope).toBe("chapter");
-		} finally { fixture.cleanup(); }
+		} finally {
+			fixture.cleanup();
+		}
 	});
 
 	it("L3: story graph sources read unified events, characters, clues, claims and promises", async () => {
@@ -77,7 +166,9 @@ describe("legacy novel engine adapter", () => {
 			expect(sources?.claims[0]?.revealChapter).toBe(2);
 			expect(sources?.promises[0]?.promiseId).toBe("p1");
 			expect(sources?.sourceHash.length).toBeGreaterThan(0);
-		} finally { fixture.cleanup(); }
+		} finally {
+			fixture.cleanup();
+		}
 	});
 
 	it("L4: missing project returns null without throwing", async () => {
@@ -87,6 +178,8 @@ describe("legacy novel engine adapter", () => {
 			expect(await adapter.getStatus(fixture.root, "missing")).toBeNull();
 			expect(await adapter.storyGraphSources(fixture.root, "missing")).toBeNull();
 			expect(await adapter.analyzeRevisionImpact(fixture.root, "missing", {})).toBeNull();
-		} finally { fixture.cleanup(); }
+		} finally {
+			fixture.cleanup();
+		}
 	});
 });

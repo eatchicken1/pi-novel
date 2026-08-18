@@ -1,18 +1,26 @@
 import type {
+	AgentRuntimeProfile,
 	DirectionCandidate,
 	ForgeArtifact,
 	ForgeSession,
 	ForgeTask,
+	ModelCatalog,
 	ProjectScanResult,
+	TaskEvent,
 	WorkspaceManifest,
 } from "@earendil-works/pi-novel-contracts";
 import { describe, expect, it } from "vitest";
 import {
+	AgentRuntimeService,
 	type ForgeArtifactPort,
 	type ForgePersistencePort,
 	ForgeService,
+	type MaterializationJournalEntry,
+	type MaterializationJournalPort,
+	type ModelRuntimePort,
 	type ProjectMaterializationPort,
 	type ProjectScannerPort,
+	type RuntimeProfileStorePort,
 	type StoryExplorationPort,
 	type WorkspaceFileSystemPort,
 	type WorkspaceRepository,
@@ -27,6 +35,13 @@ describe("ForgeService authoring boundary", () => {
 		await workspace.initialize("D:/Forge");
 		const artifactStore = new MemoryArtifactStore();
 		let materialized = false;
+		const runtime = new FakeRuntime();
+		const agentRuntime = new AgentRuntimeService({
+			storeFor: () => runtime.profileStore,
+			rootFor: () => "D:/Forge",
+			runtime,
+		});
+		await agentRuntime.setProfile("forge.explorer", { modelId: "openai/gpt-4o", thinkingLevel: "off" });
 		const service = new ForgeService({
 			workspace,
 			exploration: new FakeExploration(),
@@ -37,6 +52,7 @@ describe("ForgeService authoring boundary", () => {
 					return { projectId: "native-1", projectRoot: "D:/Forge/native-1" };
 				},
 			} satisfies ProjectMaterializationPort,
+			runtime: agentRuntime,
 		});
 		const session = service.createSession({
 			seed: "封闭海岛上的失踪案",
@@ -50,11 +66,23 @@ describe("ForgeService authoring boundary", () => {
 				readerPromise: "真相与关系同时推进",
 			},
 		});
-		const task = service.startDirectionGeneration(session.forgeSessionId, { modelId: "fake/model", count: 3 });
+		const task = await service.startDirectionGeneration(session.forgeSessionId, { count: 3 });
 		await waitForTask(repository, task.taskId);
 		expect(service.getSession(session.forgeSessionId).status).toBe("awaiting_selection");
+		const artifacts = await service.getArtifacts(session.forgeSessionId);
+		expect(artifacts.candidates).toHaveLength(3);
+		expect(artifacts.generations.map((entry) => entry.generation)).toEqual([1]);
+		// candidate artifactId must resolve to a real artifact
+		for (const candidate of artifacts.candidates) {
+			expect(artifacts.artifacts.some((artifact) => artifact.artifactId === candidate.artifactId)).toBe(true);
+		}
 		await service.select(session.forgeSessionId, { candidateId: "direction-1" });
 		expect(service.getSession(session.forgeSessionId).status).toBe("awaiting_selection");
+		// selection artifact recorded
+		const selectionArtifacts = (await service.getArtifacts(session.forgeSessionId)).artifacts.filter(
+			(artifact) => artifact.kind === "selection",
+		);
+		expect(selectionArtifacts).toHaveLength(1);
 		await service.commit(session.forgeSessionId, { authorNote: "作者确认这个方向" });
 		expect(service.getSession(session.forgeSessionId).status).toBe("committed");
 		expect(materialized).toBe(false);
@@ -62,10 +90,67 @@ describe("ForgeService authoring boundary", () => {
 		expect(materialized).toBe(true);
 		expect(service.getSession(session.forgeSessionId).status).toBe("materialized");
 	});
+
+	it("regeneration appends an immutable generation and reuses the explorer profile", async () => {
+		const repository = new FakeForgeRepository();
+		const workspace = new WorkspaceService(createDependencies(repository));
+		await workspace.initialize("D:/Forge");
+		const artifactStore = new MemoryArtifactStore();
+		const runtime = new FakeRuntime();
+		const agentRuntime = new AgentRuntimeService({
+			storeFor: () => runtime.profileStore,
+			rootFor: () => "D:/Forge",
+			runtime,
+		});
+		await agentRuntime.setProfile("forge.explorer", { modelId: "openai/gpt-4o", thinkingLevel: "off" });
+		const service = new ForgeService({
+			workspace,
+			exploration: new FakeExploration(),
+			artifactStoreFor: () => artifactStore,
+			materializer: {
+				materialize: async () => ({ projectId: "native-2", projectRoot: "D:/Forge/native-2" }),
+			},
+			runtime: agentRuntime,
+		});
+		const session = service.createSession({
+			seed: "雨夜的档案室",
+			narrativeDNA: {
+				genre: "悬疑",
+				narrativeScale: "中长篇",
+				coreExperience: "档案",
+				pacing: "持续升级",
+				pov: "限制视角",
+				endingTone: "余韵明确",
+				readerPromise: "真相与关系同时推进",
+			},
+		});
+		const first = await service.startDirectionGeneration(session.forgeSessionId, { count: 3 });
+		await waitForTask(repository, first.taskId);
+		const second = await service.startRegeneration(session.forgeSessionId, { count: 3 });
+		await waitForTask(repository, second.taskId);
+		const artifacts = await service.getArtifacts(session.forgeSessionId);
+		expect(artifacts.generations.map((entry) => entry.generation)).toEqual([1, 2]);
+		const firstGeneration = await artifactStore.readJson(
+			session.forgeSessionId,
+			"artifacts/generations/001/generation.json",
+		);
+		const secondGeneration = await artifactStore.readJson(
+			session.forgeSessionId,
+			"artifacts/generations/002/generation.json",
+		);
+		expect(firstGeneration).not.toBeNull();
+		expect(secondGeneration).not.toBeNull();
+		expect((firstGeneration as { candidates: DirectionCandidate[] }).candidates[0]?.generation).toBe(1);
+		expect((secondGeneration as { candidates: DirectionCandidate[] }).candidates[0]?.generation).toBe(2);
+		// first generation remains auditable
+		expect(
+			artifacts.artifacts.some((artifact) => artifact.relativePath === "artifacts/generations/001/generation.json"),
+		).toBe(true);
+	});
 });
 
 async function waitForTask(repository: FakeForgeRepository, taskId: string): Promise<void> {
-	for (let attempt = 0; attempt < 20; attempt += 1) {
+	for (let attempt = 0; attempt < 40; attempt += 1) {
 		if (repository.getTask(taskId)?.status === "succeeded") return;
 		await new Promise((resolve) => setTimeout(resolve, 5));
 	}
@@ -75,7 +160,7 @@ async function waitForTask(repository: FakeForgeRepository, taskId: string): Pro
 class FakeExploration implements StoryExplorationPort {
 	async generateDirections(): Promise<{
 		candidates: DirectionCandidate[];
-		comparison: { dimensions: []; recommendedCandidateIds: string[]; notes: string[]; createdAt: string };
+		comparison: null;
 	}> {
 		return {
 			candidates: [
@@ -83,17 +168,79 @@ class FakeExploration implements StoryExplorationPort {
 				createCandidate("direction-2", "潮汐档案"),
 				createCandidate("direction-3", "失踪者的录音"),
 			],
-			comparison: {
-				dimensions: [],
-				recommendedCandidateIds: ["direction-1"],
-				notes: ["比较完成"],
-				createdAt: "2026-08-16T10:00:00.000Z",
-			},
+			comparison: null,
 		};
 	}
 	async critiqueDirection(): Promise<string> {
 		return "批评结果";
 	}
+	async compareDirections(): Promise<{
+		dimensions: [];
+		recommendedCandidateIds: string[];
+		notes: string[];
+		createdAt: string;
+	}> {
+		return {
+			dimensions: [],
+			recommendedCandidateIds: ["direction-1"],
+			notes: ["比较完成"],
+			createdAt: "2026-08-16T10:00:00.000Z",
+		};
+	}
+}
+
+class FakeRuntime implements ModelRuntimePort {
+	readonly profileStore: RuntimeProfileStorePort = new InMemoryProfileStore();
+	async getCatalog(): Promise<ModelCatalog> {
+		return {
+			providers: [
+				{
+					providerId: "openai",
+					name: "OpenAI",
+					authLabel: "API Key",
+					authMethods: ["api_key"],
+					isSubscription: false,
+					status: "connected",
+					apiKeyConfigured: true,
+					models: [
+						{
+							providerId: "openai",
+							modelId: "gpt-4o",
+							name: "GPT-4o",
+							reasoning: false,
+							thinkingLevels: ["off"],
+							contextWindow: 128000,
+							maxTokens: 4096,
+							input: ["text"],
+						},
+					],
+				},
+			],
+		};
+	}
+	async configureApiKey(): Promise<ModelCatalog> {
+		return this.getCatalog();
+	}
+	async clearApiKey(): Promise<ModelCatalog> {
+		return this.getCatalog();
+	}
+	async generateText(): Promise<string> {
+		return "{}";
+	}
+}
+
+class InMemoryProfileStore implements RuntimeProfileStorePort {
+	private readonly profiles = new Map<string, AgentRuntimeProfile>();
+	listProfiles(): AgentRuntimeProfile[] {
+		return [...this.profiles.values()];
+	}
+	getProfile(agentId: string): AgentRuntimeProfile | null {
+		return this.profiles.get(agentId) ?? null;
+	}
+	setProfile(profile: AgentRuntimeProfile): void {
+		this.profiles.set(profile.agentId, profile);
+	}
+	close(): void {}
 }
 
 class MemoryArtifactStore implements ForgeArtifactPort {
@@ -110,6 +257,7 @@ class FakeForgeRepository implements ForgePersistencePort {
 	readonly sessions = new Map<string, ForgeSession>();
 	readonly tasks = new Map<string, ForgeTask>();
 	readonly artifacts = new Map<string, ForgeArtifact>();
+	readonly events = new Map<string, TaskEvent[]>();
 	createSession(session: ForgeSession): void {
 		this.sessions.set(session.forgeSessionId, session);
 	}
@@ -134,6 +282,14 @@ class FakeForgeRepository implements ForgePersistencePort {
 	updateTask(task: ForgeTask): void {
 		this.tasks.set(task.taskId, task);
 	}
+	appendTaskEvent(event: TaskEvent): void {
+		const events = this.events.get(event.taskId) ?? [];
+		events.push(event);
+		this.events.set(event.taskId, events);
+	}
+	listTaskEvents(taskId: string, afterSequence: number): TaskEvent[] {
+		return (this.events.get(taskId) ?? []).filter((event) => event.sequence > afterSequence);
+	}
 	close(): void {}
 }
 
@@ -144,17 +300,31 @@ function createDependencies(forgeRepository: FakeForgeRepository): WorkspaceServ
 		upsertWorkspace: () => {},
 		replaceProjects: () => {},
 		listProjects: () => [],
+		databasePath: "D:/Forge/.pi-novel/workspace.sqlite",
 		close: () => {},
 	};
 	const scanner: ProjectScannerPort = {
 		scan: async (): Promise<ProjectScanResult> => ({ projects: [], warnings: [] }),
 	};
+	const journal = new FakeJournal();
 	return {
 		createFileSystem: (root) => new FakeFileSystem(root, manifests),
 		createRepository: () => repository,
 		createForgeRepository: () => forgeRepository,
+		createMaterializationJournalRepository: () => journal,
 		scanner,
 	};
+}
+
+class FakeJournal implements MaterializationJournalPort {
+	private readonly entries = new Map<string, MaterializationJournalEntry>();
+	get(sessionId: string): MaterializationJournalEntry | null {
+		return this.entries.get(sessionId) ?? null;
+	}
+	update(entry: MaterializationJournalEntry): void {
+		this.entries.set(entry.forgeSessionId, entry);
+	}
+	close(): void {}
 }
 
 class FakeFileSystem implements WorkspaceFileSystemPort {
@@ -181,7 +351,7 @@ class FakeFileSystem implements WorkspaceFileSystemPort {
 function createCandidate(candidateId: string, mystery: string): DirectionCandidate {
 	return {
 		candidateId,
-		artifactId: `${candidateId}-artifact`,
+		artifactId: candidateId,
 		generation: 1,
 		status: "proposed",
 		title: mystery,
@@ -197,6 +367,7 @@ function createCandidate(candidateId: string, mystery: string): DirectionCandida
 		climaxIdea: "在公开场合核对证词",
 		majorRisks: ["风险"],
 		distinctiveFeatures: [mystery],
+		constraintValidation: { status: "PASS", reasons: ["全部硬约束满足"] },
 		createdAt: "2026-08-16T10:00:00.000Z",
 	};
 }

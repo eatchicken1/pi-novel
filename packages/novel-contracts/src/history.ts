@@ -1,11 +1,7 @@
 import { type Static, Type } from "typebox";
 import { ISODateStringSchema } from "./common.ts";
 
-export const CommitActorSchema = Type.Union([
-	Type.Literal("user"),
-	Type.Literal("agent"),
-	Type.Literal("system"),
-]);
+export const CommitActorSchema = Type.Union([Type.Literal("user"), Type.Literal("agent"), Type.Literal("system")]);
 export type CommitActor = Static<typeof CommitActorSchema>;
 
 export const CommitRecordSchema = Type.Object(

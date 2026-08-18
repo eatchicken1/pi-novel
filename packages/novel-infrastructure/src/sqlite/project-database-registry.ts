@@ -1,9 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type {
-	ProjectDatabaseHandle,
-	ProjectDatabaseRegistryPort,
-} from "@earendil-works/pi-novel-application";
+import type { ProjectDatabaseHandle, ProjectDatabaseRegistryPort } from "@earendil-works/pi-novel-application";
 import { ChangeSetRepository } from "./changeset-repository.ts";
 import { CommitRepository } from "./commit-repository.ts";
 import { ProjectDatabase } from "./project-database.ts";

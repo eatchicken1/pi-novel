@@ -1,9 +1,9 @@
 import { type Static, Type } from "typebox";
-import { ISODateStringSchema } from "./common.ts";
 import { ChangeSetSchema } from "./changeset.ts";
-import { NovelTaskSchema } from "./task.ts";
+import { ISODateStringSchema } from "./common.ts";
 import { ProjectRecordSchema } from "./project.ts";
 import { ReviewSummarySchema } from "./review.ts";
+import { NovelTaskSchema } from "./task.ts";
 
 // ==== Project read model / Studio ====
 
@@ -19,12 +19,7 @@ export const ProjectDetailSchema = Type.Object(
 		wordCount: Type.Integer({ minimum: 0 }),
 		chapterCount: Type.Integer({ minimum: 0 }),
 		currentChapter: Type.Union([Type.Null(), Type.Integer({ minimum: 1 })]),
-		memoryStatus: Type.Union([
-			Type.Null(),
-			Type.Literal("missing"),
-			Type.Literal("current"),
-			Type.Literal("stale"),
-		]),
+		memoryStatus: Type.Union([Type.Null(), Type.Literal("missing"), Type.Literal("current"), Type.Literal("stale")]),
 		currentMovement: Type.Union([Type.Null(), Type.String({ minLength: 1 })]),
 		updatedAt: ISODateStringSchema,
 	},
@@ -38,12 +33,7 @@ export const ProjectStatusSnapshotSchema = Type.Object(
 		status: Type.String({ minLength: 1 }),
 		nextChapter: Type.Union([Type.Null(), Type.Integer({ minimum: 1 })]),
 		finalizedChapters: Type.Array(Type.Integer({ minimum: 1 })),
-		memoryStatus: Type.Union([
-			Type.Null(),
-			Type.Literal("missing"),
-			Type.Literal("current"),
-			Type.Literal("stale"),
-		]),
+		memoryStatus: Type.Union([Type.Null(), Type.Literal("missing"), Type.Literal("current"), Type.Literal("stale")]),
 		continuityStatus: Type.Union([Type.Null(), Type.Literal("ok"), Type.Literal("warning"), Type.Literal("error")]),
 		openThreads: Type.Union([Type.Null(), Type.Integer({ minimum: 0 })]),
 		overdueThreads: Type.Union([Type.Null(), Type.Integer({ minimum: 0 })]),

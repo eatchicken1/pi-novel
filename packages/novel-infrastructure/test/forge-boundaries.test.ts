@@ -35,6 +35,7 @@ describe("Forge persistence boundaries", () => {
 		expect(database.prepare("SELECT id FROM schema_migrations ORDER BY id").all()).toEqual([
 			{ id: "001_project_initial.sql" },
 			{ id: "003_project_product.sql" },
+			{ id: "004_commit_recovery.sql" },
 		]);
 		expect(database.prepare("SELECT project_id FROM project_metadata").get()).toEqual({
 			project_id: result.projectId,
@@ -123,6 +124,7 @@ function createCandidate(): DirectionCandidate {
 		climaxIdea: "在封港会议上逐条核对伪造的证词",
 		majorRisks: ["封闭空间过度依赖巧合"],
 		distinctiveFeatures: ["互助会控制潮汐航线", "记录者伴侣", "公开证词审判"],
+		constraintValidation: { status: "PASS", reasons: ["全部硬约束满足"] },
 		createdAt: "2026-08-16T10:00:00.000Z",
 	};
 }

@@ -4,6 +4,7 @@ import {
 	ApiErrorResponseSchema,
 	ChangeSetListResponseSchema,
 	ChangeSetResponseSchema,
+	ChangeSetSchema,
 	CreateChangeSetInputSchema,
 	type ChangeSet,
 	type CreateChangeSetInput,
@@ -95,11 +96,11 @@ export function registerChangeSetRoutes(app: FastifyInstance, service: ChangeSet
 	);
 	app.post<{ Params: { projectId: string; changeSetId: string }; Body: { actor: ChangeSet["source"] }; Headers: { "x-idempotency-key"?: string } }>(
 		"/api/projects/:projectId/changesets/:changeSetId/commit",
-		{ schema: { params: ChangeSetParamsSchema, body: CommitBodySchema, headers: Type.Object({ "x-idempotency-key": Type.Optional(Type.String({ minLength: 1 })) }, { additionalProperties: true }), response: { 201: Type.Object({ changeSet: ChangeSetResponseSchema, commit: Type.Object({ commitId: Type.String({ minLength: 1 }) }) }, { additionalProperties: false }), 404: ApiErrorResponseSchema, 409: ApiErrorResponseSchema } } },
+		{ schema: { params: ChangeSetParamsSchema, body: CommitBodySchema, headers: Type.Object({ "x-idempotency-key": Type.Optional(Type.String({ minLength: 1 })) }, { additionalProperties: true }), response: { 201: Type.Object({ changeSet: ChangeSetSchema, commit: Type.Object({ commitId: Type.String({ minLength: 1 }) }) }, { additionalProperties: false }), 404: ApiErrorResponseSchema, 409: ApiErrorResponseSchema } } },
 		async (request, reply) => {
 			try {
 				const result = await service.commit(request.params.projectId, request.params.changeSetId, request.body.actor, request.headers["x-idempotency-key"]);
-				return reply.code(201).send({ changeSet: { changeSet: result.changeSet }, commit: { commitId: result.commit.commitId } });
+				return reply.code(201).send({ changeSet: result.changeSet, commit: { commitId: result.commit.commitId } });
 			} catch (error) {
 				const mapped = errorCode(error);
 				return reply.code(mapped.status).send({ error: { code: mapped.code, message: mapped.message } });

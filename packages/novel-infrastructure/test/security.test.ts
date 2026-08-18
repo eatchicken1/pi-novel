@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -15,9 +15,41 @@ describe("file transaction security", () => {
 			mkdirSync(join(root, "manuscript"), { recursive: true });
 			writeFileSync(join(root, "manuscript", "chapter-001.md"), "正文。", "utf8");
 			const files = new FileTransaction();
-			await expect(files.applyOperations({ projectRoot: root, operations: [{ operationId: "op-1", kind: "replace-text", target: "../outside.md", startChar: 0, endChar: 0, text: "x" }], baseHashes: {} })).rejects.toThrow("PATH_ESCAPE");
-			await expect(files.applyOperations({ projectRoot: root, operations: [{ operationId: "op-1", kind: "replace-text", target: "C:\\Windows\\win.ini", startChar: 0, endChar: 0, text: "x" }], baseHashes: {} })).rejects.toThrow("PATH_ESCAPE");
-		} finally { rmSync(root, { recursive: true, force: true }); }
+			await expect(
+				files.applyOperations({
+					projectRoot: root,
+					operations: [
+						{
+							operationId: "op-1",
+							kind: "replace-text",
+							target: "../outside.md",
+							startChar: 0,
+							endChar: 0,
+							text: "x",
+						},
+					],
+					baseHashes: {},
+				}),
+			).rejects.toThrow("PATH_ESCAPE");
+			await expect(
+				files.applyOperations({
+					projectRoot: root,
+					operations: [
+						{
+							operationId: "op-1",
+							kind: "replace-text",
+							target: "C:\\Windows\\win.ini",
+							startChar: 0,
+							endChar: 0,
+							text: "x",
+						},
+					],
+					baseHashes: {},
+				}),
+			).rejects.toThrow("PATH_ESCAPE");
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 
 	it("SEC3: rejects symlink escape outside the project root", async () => {
@@ -34,8 +66,26 @@ describe("file transaction security", () => {
 				return;
 			}
 			const files = new FileTransaction();
-			await expect(files.applyOperations({ projectRoot: root, operations: [{ operationId: "op-1", kind: "replace-text", target: "manuscript/link/secret.md", startChar: 0, endChar: 2, text: "改" }], baseHashes: {} })).rejects.toThrow("PATH_ESCAPE");
-		} finally { rmSync(root, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); }
+			await expect(
+				files.applyOperations({
+					projectRoot: root,
+					operations: [
+						{
+							operationId: "op-1",
+							kind: "replace-text",
+							target: "manuscript/link/secret.md",
+							startChar: 0,
+							endChar: 2,
+							text: "改",
+						},
+					],
+					baseHashes: {},
+				}),
+			).rejects.toThrow("PATH_ESCAPE");
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+			rmSync(outside, { recursive: true, force: true });
+		}
 	});
 
 	it("SEC2b: normal in-root edits still apply atomically", async () => {
@@ -44,10 +94,94 @@ describe("file transaction security", () => {
 			mkdirSync(join(root, "manuscript"), { recursive: true });
 			writeFileSync(join(root, "manuscript", "chapter-001.md"), "第一版正文内容。", "utf8");
 			const files = new FileTransaction();
-			const { staged } = await files.applyOperations({ projectRoot: root, operations: [{ operationId: "op-1", kind: "replace-text", target: "manuscript/chapter-001.md", startChar: 0, endChar: 3, text: "修正" }], baseHashes: {} });
+			const { staged } = await files.applyOperations({
+				projectRoot: root,
+				operations: [
+					{
+						operationId: "op-1",
+						kind: "replace-text",
+						target: "manuscript/chapter-001.md",
+						startChar: 0,
+						endChar: 3,
+						text: "修正",
+					},
+				],
+				baseHashes: {},
+			});
 			await files.finalize({ projectRoot: root, staged });
-			const { readFileSync } = await import("node:fs");
 			expect(readFileSync(join(root, "manuscript", "chapter-001.md"), "utf8")).toContain("修正");
-		} finally { rmSync(root, { recursive: true, force: true }); }
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("restores earlier files when a later finalize detects an external edit", async () => {
+		const root = tempRoot();
+		try {
+			mkdirSync(join(root, "manuscript"), { recursive: true });
+			writeFileSync(join(root, "manuscript", "chapter-001.md"), "one", "utf8");
+			writeFileSync(join(root, "manuscript", "chapter-002.md"), "two", "utf8");
+			const files = new FileTransaction();
+			const result = await files.applyOperations({
+				projectRoot: root,
+				operations: [
+					{ operationId: "op-1", kind: "replace-document", target: "manuscript/chapter-001.md", text: "ONE" },
+					{ operationId: "op-2", kind: "replace-document", target: "manuscript/chapter-002.md", text: "TWO" },
+				],
+				baseHashes: {},
+			});
+			writeFileSync(join(root, "manuscript", "chapter-002.md"), "external", "utf8");
+			await expect(files.finalize({ projectRoot: root, staged: result.staged })).rejects.toThrow(
+				"CHANGESET_BASE_STALE",
+			);
+			await files.rollback({ projectRoot: root, staged: result.staged });
+			expect(readFileSync(join(root, "manuscript", "chapter-001.md"), "utf8")).toBe("one");
+			expect(readFileSync(join(root, "manuscript", "chapter-002.md"), "utf8")).toBe("external");
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("applies multiple operations on one file in order and rejects invalid ranges", async () => {
+		const root = tempRoot();
+		try {
+			mkdirSync(join(root, "manuscript"), { recursive: true });
+			writeFileSync(join(root, "manuscript", "chapter.md"), "abc", "utf8");
+			const files = new FileTransaction();
+			const { staged } = await files.applyOperations({
+				projectRoot: root,
+				operations: [
+					{ operationId: "op-1", kind: "insert-text", target: "manuscript/chapter.md", startChar: 3, text: "!" },
+					{
+						operationId: "op-2",
+						kind: "replace-text",
+						target: "manuscript/chapter.md",
+						startChar: 0,
+						endChar: 1,
+						text: "A",
+					},
+				],
+				baseHashes: {},
+			});
+			await files.finalize({ projectRoot: root, staged });
+			expect(readFileSync(join(root, "manuscript", "chapter.md"), "utf8")).toBe("Abc!");
+			await expect(
+				files.applyOperations({
+					projectRoot: root,
+					operations: [
+						{
+							operationId: "op-3",
+							kind: "delete-text",
+							target: "manuscript/chapter.md",
+							startChar: 5,
+							endChar: 6,
+						},
+					],
+					baseHashes: {},
+				}),
+			).rejects.toThrow("text range is out of range");
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });

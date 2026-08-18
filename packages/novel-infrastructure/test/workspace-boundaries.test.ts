@@ -108,6 +108,18 @@ describe("ProjectScanner", () => {
 
 		expect(await new ProjectScanner().scan(root)).toEqual({ projects: [], warnings: [] });
 	});
+
+	it("scans legacy projects nested under novels", async () => {
+		const root = await createWorkspace();
+		await createLegacyProject(join(root, "novels"), "nested-legacy", {
+			projectId: "nested-project",
+			title: "Nested Project",
+		});
+
+		const result = await new ProjectScanner().scan(root);
+
+		expect(result.projects).toEqual([expect.objectContaining({ projectId: "nested-project", kind: "legacy" })]);
+	});
 });
 
 describe("workspace files and persistence", () => {
@@ -147,12 +159,16 @@ describe("workspace files and persistence", () => {
 			{ id: "001_initial.sql" },
 			{ id: "002_forge_vertical_slice.sql" },
 			{ id: "003_task_product.sql" },
+			{ id: "004_agent_runtime.sql" },
+			{ id: "005_materialization_journal.sql" },
 		]);
 		raw.close();
 		expect(loadWorkspaceMigrations().map((migration) => migration.id)).toEqual([
 			"001_initial.sql",
 			"002_forge_vertical_slice.sql",
 			"003_task_product.sql",
+			"004_agent_runtime.sql",
+			"005_materialization_journal.sql",
 		]);
 	});
 
