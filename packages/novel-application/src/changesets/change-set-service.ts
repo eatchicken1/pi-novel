@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { ChangeSet, CommitRecord, CreateChangeSetInput, ReviewSummary } from "@earendil-works/pi-novel-contracts";
+import { operationWithResolvedAnchor } from "../patch/text-anchor.ts";
 import type {
 	ClockPort,
 	CommitJournalCommit,
@@ -76,6 +79,7 @@ export class ChangeSetService {
 			operations: input.operations,
 			createdAt: now,
 			updatedAt: now,
+			...(input.patch === undefined ? {} : { patch: input.patch }),
 		};
 		const repository = this.registry.open(input.projectId, root).changesets;
 		repository.create(changeSet);
@@ -92,7 +96,10 @@ export class ChangeSetService {
 			}));
 		const { workspaceRoot } = await this.roots(input.projectId);
 		const impact = await this.engine.analyzeRevisionImpact(workspaceRoot, input.projectId, {
-			changedChapter: undefined,
+			changedChapter:
+				input.patch === undefined
+					? undefined
+					: Number(input.patch.anchor.chapterId.replace(/\D/gu, "")) || undefined,
 			changedEventIds: [],
 			knowledgeChanges: knowledgeChanges.length > 0 ? knowledgeChanges : undefined,
 		});
@@ -115,12 +122,23 @@ export class ChangeSetService {
 	}
 
 	// 全量 accept / reject（第一版不支持 partial accept——不做假实现）
-	async accept(projectId: string, changeSetId: string): Promise<ChangeSet> {
+	async accept(projectId: string, changeSetId: string, selectedCandidateId?: string): Promise<ChangeSet> {
 		const { changeSet, root } = await this.load(projectId, changeSetId);
-		if (changeSet.status === "committed" || changeSet.status === "rejected") {
+		if (changeSet.status !== "proposed" && changeSet.status !== "reviewing") {
 			throw new Error("CHANGESET_INVALID_STATE");
 		}
-		const updated: ChangeSet = { ...changeSet, status: "accepted", updatedAt: this.clock.now() };
+		let updated: ChangeSet = { ...changeSet, status: "accepted", updatedAt: this.clock.now() };
+		if (selectedCandidateId !== undefined && changeSet.patch !== undefined) {
+			const candidate = changeSet.patch.candidates.find((entry) => entry.candidateId === selectedCandidateId);
+			if (candidate === undefined) throw new Error("PATCH_CANDIDATE_NOT_FOUND");
+			updated = {
+				...updated,
+				selectedCandidateId,
+				operations: updated.operations.map((operation, index) =>
+					index === 0 ? { ...operation, text: candidate.replacement } : operation,
+				),
+			};
+		}
 		this.registry.open(projectId, root).changesets.update(updated);
 		return updated;
 	}
@@ -145,16 +163,27 @@ export class ChangeSetService {
 			if (stored) throw new Error("IDEMPOTENT_REPLAY");
 		}
 		const { changeSet, root } = await this.load(projectId, changeSetId);
-		if (changeSet.status !== "accepted" && changeSet.status !== "proposed") {
-			throw new Error("CHANGESET_INVALID_STATE: commit requires accepted or proposed");
+		if (changeSet.status !== "accepted") {
+			throw new Error("CHANGESET_INVALID_STATE: commit requires accepted");
 		}
 		const now = this.clock.now();
 		const repository = this.registry.open(projectId, root);
 		// 1. base hash 校验（外部编辑检测）
 		const targets = [...new Set(changeSet.operations.map((operation) => operation.target))];
 		const currentHashes = await this.files.currentHashes(root, targets);
-		for (const operation of changeSet.operations) {
-			const expected = operation.baseHash ?? changeSet.baseRevision ?? undefined;
+		let operations = changeSet.operations;
+		if (changeSet.patch !== undefined) {
+			const currentContent = await this.readTarget(root, changeSet.patch.target);
+			operations = [operationWithResolvedAnchor(currentContent, changeSet.operations[0]!)];
+		}
+		for (const operation of operations) {
+			// Manuscript patches have an anchor-based relocation path. The resolver
+			// above rewrites baseHash to the current document hash; ordinary
+			// ChangeSets remain strict hash-checked.
+			const expected =
+				changeSet.patch === undefined
+					? (operation.baseHash ?? changeSet.baseRevision ?? undefined)
+					: operation.baseHash;
 			if (
 				expected !== undefined &&
 				currentHashes[operation.target] !== undefined &&
@@ -174,6 +203,19 @@ export class ChangeSetService {
 			actor,
 			summary: changeSet.title,
 			createdAt: now,
+			...(changeSet.patch === undefined
+				? {}
+				: {
+						patch: {
+							chapter: Number(changeSet.patch.anchor.chapterId.replace(/\D/gu, "")) || 1,
+							goal: changeSet.patch.goal,
+							original: selectedPatchCandidate(changeSet).original,
+							replacement: selectedPatchCandidate(changeSet).replacement,
+							agentId: changeSet.patch.provenance.agentId,
+							runtimeModelId: changeSet.patch.provenance.runtimeModelId,
+							impact: changeSet.patch.impact,
+						},
+					}),
 		};
 		const journal: CommitJournalEntry = {
 			journalId,
@@ -194,13 +236,13 @@ export class ChangeSetService {
 		try {
 			// 3. 应用（temp 文件）
 			const baseHashes: Record<string, string> = {};
-			for (const operation of changeSet.operations) {
+			for (const operation of operations) {
 				const hash = operation.baseHash ?? currentHashes[operation.target] ?? "";
 				if (hash !== "") baseHashes[operation.target] = hash;
 			}
 			const appliedResult = await this.files.applyOperations({
 				projectRoot: root,
-				operations: changeSet.operations,
+				operations,
 				baseHashes,
 			});
 			staged = appliedResult.staged;
@@ -246,11 +288,31 @@ export class ChangeSetService {
 				afterHashes,
 				resolvedIssueCount,
 				createdAt: now,
+				...(changeSet.patch === undefined
+					? {}
+					: {
+							patch: {
+								chapter: Number(changeSet.patch.anchor.chapterId.replace(/\D/gu, "")) || 1,
+								goal: changeSet.patch.goal,
+								original: selectedPatchCandidate(changeSet).original,
+								replacement: selectedPatchCandidate(changeSet).replacement,
+								agentId: changeSet.patch.provenance.agentId,
+								runtimeModelId: changeSet.patch.provenance.runtimeModelId,
+								impact: changeSet.patch.impact,
+							},
+						}),
 			};
 			repository.commits.updateJournalCommit(journalId, { ...journalCommit, resolvedIssueCount });
 			repository.commits.record(commit);
 			const committed: ChangeSet = { ...committing, status: "committed", committedAt: now, updatedAt: now };
 			repository.changesets.update(committed);
+			this.invalidatePatchWorkflow(
+				repository,
+				projectId,
+				changeSet.patch,
+				appliedResult.applied[0]?.afterHash ?? "",
+				now,
+			);
 			repository.commits.updateJournalState(journalId, "committed", now);
 			authorityCommitted = true;
 			// 6. 派生失效（memory/ledgers 重建）
@@ -275,6 +337,44 @@ export class ChangeSetService {
 			repository.changesets.update(failed);
 			throw error;
 		}
+	}
+
+	private readTarget(projectRoot: string, target: string): string {
+		const root = resolve(projectRoot);
+		const candidate = resolve(root, target);
+		const pathFromRoot = relative(root, candidate);
+		if (isAbsolute(pathFromRoot) || pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`))
+			throw new Error("PATH_ESCAPE: change set target escapes the project root");
+		return readFileSync(candidate, "utf8");
+	}
+
+	private invalidatePatchWorkflow(
+		repository: ReturnType<ProjectDatabaseRegistryPort["open"]>,
+		projectId: string,
+		patch: ChangeSet["patch"],
+		afterHash: string,
+		now: string,
+	): void {
+		if (patch === undefined) return;
+		const chapter = Number(patch.anchor.chapterId.replace(/\D/gu, ""));
+		if (!Number.isInteger(chapter) || chapter < 1) return;
+		const metadata = repository.chapterMetadata.get(projectId, chapter);
+		if (metadata !== null)
+			repository.chapterMetadata.update({
+				...metadata,
+				draftRevision: metadata.draftRevision + 1,
+				contentHash: afterHash,
+				mtime: now,
+				workflowStatus: "draft",
+				updatedAt: now,
+			});
+		const workflow = repository.chapterWorkflow.get(projectId, chapter);
+		if (workflow !== null)
+			repository.chapterWorkflow.upsert({
+				...workflow,
+				phase: "draft",
+				updatedAt: now,
+			});
 	}
 
 	// 启动/提交前恢复：残留 journal 必须同时恢复文件和 changeset/history，不允许只改 journal 状态。
@@ -331,6 +431,7 @@ export class ChangeSetService {
 						afterHashes,
 						resolvedIssueCount: commit.resolvedIssueCount ?? 0,
 						createdAt: commit.createdAt,
+						...(commit.patch === undefined ? {} : { patch: commit.patch }),
 					});
 				}
 				if (changeSet !== null && changeSet.status === "committing") {
@@ -366,4 +467,11 @@ function journalStagedFiles(journal: CommitJournalEntry): StagedFileChange[] {
 		afterHash: entry.afterHash ?? "",
 		backupPath: entry.backupPath ?? null,
 	}));
+}
+
+function selectedPatchCandidate(changeSet: ChangeSet): { original: string; replacement: string } {
+	const patch = changeSet.patch;
+	if (patch === undefined) throw new Error("PATCH_REQUIRED");
+	const selected = patch.candidates.find((candidate) => candidate.candidateId === changeSet.selectedCandidateId);
+	return selected ?? patch.candidates[0]!;
 }

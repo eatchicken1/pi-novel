@@ -33,6 +33,7 @@ interface CommitRow {
 	after_hashes_json: string;
 	resolved_issue_count: number;
 	created_at: string;
+	patch_json: string | null;
 }
 
 export class CommitRepository {
@@ -46,7 +47,7 @@ export class CommitRepository {
 		if (!Check(CommitRecordSchema, commit)) throw new Error("Invalid commit record");
 		this.db
 			.prepare(
-				"INSERT INTO commits (commit_id, project_id, change_set_id, actor, summary, affected_files_json, before_hashes_json, after_hashes_json, resolved_issue_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				"INSERT INTO commits (commit_id, project_id, change_set_id, actor, summary, affected_files_json, before_hashes_json, after_hashes_json, resolved_issue_count, created_at, patch_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			)
 			.run(
 				commit.commitId,
@@ -59,6 +60,7 @@ export class CommitRepository {
 				JSON.stringify(commit.afterHashes),
 				commit.resolvedIssueCount,
 				commit.createdAt,
+				commit.patch === undefined ? null : JSON.stringify(commit.patch),
 			);
 	}
 
@@ -77,6 +79,7 @@ export class CommitRepository {
 			afterHashes: JSON.parse(row.after_hashes_json) as Record<string, string>,
 			resolvedIssueCount: row.resolved_issue_count,
 			createdAt: row.created_at,
+			...(row.patch_json === null ? {} : { patch: JSON.parse(row.patch_json) }),
 		}));
 	}
 
@@ -94,6 +97,7 @@ export class CommitRepository {
 			afterHashes: JSON.parse(row.after_hashes_json) as Record<string, string>,
 			resolvedIssueCount: row.resolved_issue_count,
 			createdAt: row.created_at,
+			...(row.patch_json === null ? {} : { patch: JSON.parse(row.patch_json) }),
 		};
 	}
 

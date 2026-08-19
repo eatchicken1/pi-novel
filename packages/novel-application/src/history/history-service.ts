@@ -29,6 +29,7 @@ export class HistoryService {
 			affectedFiles: record.affectedFiles,
 			resolvedIssueCount: record.resolvedIssueCount,
 			createdAt: record.createdAt,
+			...(record.patch === undefined ? {} : { patch: record.patch }),
 		}));
 	}
 

@@ -35,6 +35,7 @@ export interface AppShellContext {
 	onConfigureApiKey(input: ConfigureModelApiKeyInput): Promise<void>;
 	onClearApiKey(providerId: string): Promise<void>;
 	onCreateForgeSession(input: CreateForgeSessionInput): Promise<void>;
+	onEnsureRuntime(agentId: RuntimeAgentId, continuation: () => Promise<void>): Promise<boolean>;
 	onOpenWorkspaceSetup(): void;
 }
 
@@ -188,6 +189,14 @@ export function AppShell() {
 		return false;
 	}
 
+	async function ensureRuntime(agentId: RuntimeAgentId, continuation: () => Promise<void>): Promise<boolean> {
+		if (profiles.some((profile) => profile.agentId === agentId)) return true;
+		pendingAction.current = continuation;
+		setRuntimeAgentId(agentId);
+		setPickerOpen(true);
+		return false;
+	}
+
 	async function guardedForge(input: CreateForgeSessionInput): Promise<void> {
 		const continuation = async () => {
 			if (!(await ensureForgeRuntime())) { pendingAction.current = async () => { await createForgeMutation.mutateAsync(input); }; return; }
@@ -213,6 +222,7 @@ export function AppShell() {
 		onConfigureApiKey: (input) => configureApiKeyMutation.mutateAsync(input).then(() => undefined),
 		onClearApiKey: (providerId) => clearApiKeyMutation.mutateAsync(providerId).then(() => undefined),
 		onCreateForgeSession: guardedForge,
+		onEnsureRuntime: ensureRuntime,
 		onOpenWorkspaceSetup: () => setWorkspaceSetupOpen(true),
 	};
 	const isLibraryArea = location.pathname.startsWith("/library") || location.pathname.startsWith("/project/");
@@ -331,7 +341,7 @@ function useModelsOf(providers: { providerId: string; models: ModelCatalogEntry[
 }
 
 function isImplementedAgent(agentId: string): boolean {
-	return agentId === "forge.explorer" || agentId === "forge.comparator" || agentId === "forge.critic";
+	return agentId === "forge.explorer" || agentId === "forge.comparator" || agentId === "forge.critic" || agentId === "chapter.reviser";
 }
 
 function thinkingLevelLabel(level: string): string {

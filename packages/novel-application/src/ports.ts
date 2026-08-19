@@ -1,5 +1,6 @@
 import type {
 	AgentRuntimeProfile,
+	ChangeSetImpact,
 	ChapterDraft,
 	ChapterSettlement,
 	ChapterWorkflowPhase,
@@ -282,16 +283,7 @@ export interface NovelEnginePort {
 		workspaceRoot: string,
 		projectId: string,
 		input: RevisionImpactInput,
-	): Promise<{
-		severity: "safe-local" | "downstream-review" | "structural-revision" | "authority-change";
-		affectedChapters: number[];
-		affectedCharacters: string[];
-		affectedThreads: string[];
-		affectedClues: string[];
-		affectedPromises: string[];
-		summary: string;
-		analyzedAt: string;
-	} | null>;
+	): Promise<ChangeSetImpact | null>;
 	reviewSources(workspaceRoot: string, projectId: string): Promise<ReviewIssueSource[]>;
 	storyGraphSources(workspaceRoot: string, projectId: string): Promise<StoryGraphSources | null>;
 	// commit 后派生失效：legacy engine 重建 derived state（memory/ledgers/review）。
@@ -414,6 +406,7 @@ export interface CommitJournalCommit {
 	summary: string;
 	createdAt: string;
 	resolvedIssueCount?: number;
+	patch?: CommitRecord["patch"];
 }
 
 export interface CommitJournalEntry {

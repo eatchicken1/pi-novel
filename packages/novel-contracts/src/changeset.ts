@@ -1,6 +1,12 @@
 import { type Static, Type } from "typebox";
 import { ISODateStringSchema } from "./common.ts";
-import { ChangeOperationSchema, ChangeSetImpactSchema, ChangeSetReviewSchema } from "./patch.ts";
+import {
+	ChangeOperationSchema,
+	ChangeSetImpactSchema,
+	ChangeSetReviewSchema,
+	type ManuscriptPatch,
+	ManuscriptPatchSchema,
+} from "./patch.ts";
 
 export const ChangeSetStatusSchema = Type.Union([
 	Type.Literal("proposed"),
@@ -18,6 +24,8 @@ export const ChangeSetKindSchema = Type.Union([
 	Type.Literal("content"),
 	Type.Literal("structure"),
 	Type.Literal("metadata"),
+	Type.Literal("MANUSCRIPT_PATCH"),
+	Type.Literal("RECONCILE_DISCOVERY"),
 ]);
 export type ChangeSetKind = Static<typeof ChangeSetKindSchema>;
 
@@ -40,6 +48,8 @@ export const ChangeSetSchema = Type.Object(
 		createdAt: ISODateStringSchema,
 		updatedAt: ISODateStringSchema,
 		committedAt: Type.Optional(ISODateStringSchema),
+		patch: Type.Optional(ManuscriptPatchSchema),
+		selectedCandidateId: Type.Optional(Type.String({ minLength: 1 })),
 	},
 	{ additionalProperties: false },
 );
@@ -54,10 +64,12 @@ export const CreateChangeSetInputSchema = Type.Object(
 		intent: Type.String({ minLength: 1 }),
 		baseRevision: Type.Union([Type.Null(), Type.String({ minLength: 1 })]),
 		operations: Type.Array(ChangeOperationSchema, { minItems: 1 }),
+		patch: Type.Optional(ManuscriptPatchSchema),
 	},
 	{ additionalProperties: false },
 );
 export type CreateChangeSetInput = Static<typeof CreateChangeSetInputSchema>;
+export type ChangeSetPatch = ManuscriptPatch;
 
 export const ChangeSetListResponseSchema = Type.Object(
 	{ changeSets: Type.Array(ChangeSetSchema) },

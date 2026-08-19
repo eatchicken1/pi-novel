@@ -20,14 +20,21 @@ const CommitBodySchema = Type.Object(
 	{ actor: Type.Union([Type.Literal("user"), Type.Literal("agent"), Type.Literal("system")]) },
 	{ additionalProperties: false },
 );
+const AcceptBodySchema = Type.Object(
+	{ selectedCandidateId: Type.Optional(Type.String({ minLength: 1 })) },
+	{ additionalProperties: false },
+);
 
 function errorCode(error: unknown): { code: string; status: number; message: string } {
 	if (error instanceof Error) {
-		if (error.message === "CHANGESET_NOT_FOUND") return { code: "CHANGESET_NOT_FOUND", status: 404, message: "ChangeSet not found" };
-		if (error.message === "CHANGESET_BASE_STALE") return { code: "CHANGESET_BASE_STALE", status: 409, message: "ChangeSet base is stale; the document changed after the proposal" };
-		if (error.message === "CHANGESET_INVALID_STATE") return { code: "CHANGESET_INVALID_STATE", status: 409, message: "ChangeSet state does not allow this transition" };
-		if (error.message === "IDEMPOTENT_REPLAY") return { code: "IDEMPOTENT_REPLAY", status: 409, message: "Idempotent replay: this idempotency key already produced a result" };
-		if (error.message === "PROJECT_NOT_FOUND") return { code: "PROJECT_NOT_FOUND", status: 404, message: "Project not found" };
+		const code = error.message.split(":", 1)[0];
+		if (code === "CHANGESET_NOT_FOUND") return { code, status: 404, message: "ChangeSet not found" };
+		if (code === "CHANGESET_BASE_STALE") return { code: "CHANGESET_STALE", status: 409, message: "The document changed and the proposed change must be regenerated" };
+		if (code === "CHANGESET_INVALID_STATE") return { code, status: 409, message: "ChangeSet state does not allow this transition" };
+		if (code === "PATCH_CANDIDATE_NOT_FOUND") return { code, status: 400, message: "Patch candidate not found" };
+		if (code === "PATCH_TARGET_CONFLICT") return { code, status: 409, message: "Patch target could not be located uniquely" };
+		if (code === "IDEMPOTENT_REPLAY") return { code: "CHANGESET_ALREADY_COMMITTED", status: 409, message: "This change has already been committed" };
+		if (code === "PROJECT_NOT_FOUND") return { code, status: 404, message: "Project not found" };
 	}
 	return { code: "INTERNAL_ERROR", status: 500, message: "Internal server error" };
 }
@@ -70,12 +77,12 @@ export function registerChangeSetRoutes(app: FastifyInstance, service: ChangeSet
 			}
 		},
 	);
-	app.post<{ Params: { projectId: string; changeSetId: string } }>(
+	app.post<{ Params: { projectId: string; changeSetId: string }; Body: { selectedCandidateId?: string } }>(
 		"/api/projects/:projectId/changesets/:changeSetId/accept",
-		{ schema: { params: ChangeSetParamsSchema, response: { 200: ChangeSetResponseSchema, 404: ApiErrorResponseSchema, 409: ApiErrorResponseSchema } } },
+		{ schema: { params: ChangeSetParamsSchema, body: AcceptBodySchema, response: { 200: ChangeSetResponseSchema, 404: ApiErrorResponseSchema, 409: ApiErrorResponseSchema } } },
 		async (request, reply) => {
 			try {
-				return { changeSet: await service.accept(request.params.projectId, request.params.changeSetId) };
+				return { changeSet: await service.accept(request.params.projectId, request.params.changeSetId, request.body.selectedCandidateId) };
 			} catch (error) {
 				const mapped = errorCode(error);
 				return reply.code(mapped.status).send({ error: { code: mapped.code, message: mapped.message } });

@@ -160,7 +160,12 @@ export type CreateChapterInput = Static<typeof CreateChapterInputSchema>;
 export const CreativeDiscoveryChangeSetSchema = Type.Object(
 	{
 		title: Type.String({ minLength: 1 }),
-		kind: Type.Union([Type.Literal("content"), Type.Literal("structure"), Type.Literal("metadata")]),
+		kind: Type.Union([
+			Type.Literal("content"),
+			Type.Literal("structure"),
+			Type.Literal("metadata"),
+			Type.Literal("RECONCILE_DISCOVERY"),
+		]),
 		intent: Type.String({ minLength: 1 }),
 		baseRevision: Type.Union([Type.Null(), Type.String({ minLength: 1 })]),
 		operations: Type.Array(ChangeOperationSchema, { minItems: 1 }),

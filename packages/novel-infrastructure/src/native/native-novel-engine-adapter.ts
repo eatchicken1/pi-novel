@@ -12,7 +12,7 @@ import type {
 	RevisionImpactInput,
 	StoryGraphSources,
 } from "@earendil-works/pi-novel-application";
-import type { ProjectCapabilities } from "@earendil-works/pi-novel-contracts";
+import type { ChapterSettlement, ProjectCapabilities, RevisionImpact } from "@earendil-works/pi-novel-contracts";
 
 function hash(content: string): string {
 	return createHash("sha256").update(content, "utf8").digest("hex");
@@ -28,6 +28,96 @@ function chapterFile(chapter: number): string {
 
 function chapterTitle(content: string): string | null {
 	return content.match(/^#\s+(.+)$/mu)?.[1]?.trim() ?? null;
+}
+
+function appendSettlementImpact(
+	settlement: ChapterSettlement,
+	items: RevisionImpact["items"],
+	characters: Set<string>,
+	threads: Set<string>,
+	clues: Set<string>,
+	promises: Set<string>,
+): void {
+	for (const change of settlement.knowledgeChanges) {
+		characters.add(change.characterId);
+		items.push({
+			category: "CHARACTER_KNOWLEDGE",
+			certainty: "KNOWN",
+			description: change.change,
+			evidence: {
+				sourceType: "chapter-settlement",
+				sourceId: `${settlement.projectId}:${settlement.chapter}:knowledge`,
+				chapterId: String(settlement.chapter),
+				description: "当前章节已确认的人物认知变化。",
+			},
+		});
+	}
+	for (const change of settlement.relationshipChanges)
+		items.push({
+			category: "RELATIONSHIP",
+			certainty: "KNOWN",
+			description: change.change,
+			evidence: {
+				sourceType: "chapter-settlement",
+				sourceId: `${settlement.projectId}:${settlement.chapter}:relationship`,
+				chapterId: String(settlement.chapter),
+				description: "当前章节已确认的人物关系变化。",
+			},
+		});
+	for (const thread of settlement.threads) {
+		threads.add(thread);
+		items.push({
+			category: "THREAD",
+			certainty: "KNOWN",
+			description: thread,
+			evidence: {
+				sourceType: "chapter-settlement",
+				sourceId: `${settlement.projectId}:${settlement.chapter}:thread`,
+				chapterId: String(settlement.chapter),
+				description: "当前章节已确认的线程变化。",
+			},
+		});
+	}
+	for (const clue of settlement.clues) {
+		clues.add(clue);
+		items.push({
+			category: "CLUE",
+			certainty: "KNOWN",
+			description: clue,
+			evidence: {
+				sourceType: "chapter-settlement",
+				sourceId: `${settlement.projectId}:${settlement.chapter}:clue`,
+				chapterId: String(settlement.chapter),
+				description: "当前章节已确认的线索变化。",
+			},
+		});
+	}
+	for (const promise of settlement.promises) {
+		promises.add(promise);
+		items.push({
+			category: "PROMISE",
+			certainty: "KNOWN",
+			description: promise,
+			evidence: {
+				sourceType: "chapter-settlement",
+				sourceId: `${settlement.projectId}:${settlement.chapter}:promise`,
+				chapterId: String(settlement.chapter),
+				description: "当前章节已确认的 Promise 变化。",
+			},
+		});
+	}
+	for (const timeline of settlement.timelineChanges)
+		items.push({
+			category: "TIMELINE",
+			certainty: "KNOWN",
+			description: timeline,
+			evidence: {
+				sourceType: "chapter-settlement",
+				sourceId: `${settlement.projectId}:${settlement.chapter}:timeline`,
+				chapterId: String(settlement.chapter),
+				description: "当前章节已确认的时间线变化。",
+			},
+		});
 }
 
 export class NativeNovelEngineAdapter implements NovelEnginePort {
@@ -47,8 +137,8 @@ export class NativeNovelEngineAdapter implements NovelEnginePort {
 			chapterReview: "supported",
 			manuscriptReview: "coming_later",
 			storyGraph: "unsupported",
-			revisionImpact: "unsupported",
-			narrativePatch: "unsupported",
+			revisionImpact: "supported",
+			narrativePatch: "supported",
 			canon: "coming_later",
 			history: "supported",
 		};
@@ -139,8 +229,131 @@ export class NativeNovelEngineAdapter implements NovelEnginePort {
 		};
 	}
 
-	async analyzeRevisionImpact(_workspaceRoot: string, _projectId: string, _input: RevisionImpactInput): Promise<null> {
-		return null;
+	async analyzeRevisionImpact(
+		workspaceRoot: string,
+		projectId: string,
+		input: RevisionImpactInput,
+	): Promise<RevisionImpact | null> {
+		const root = projectRoot(workspaceRoot, projectId);
+		if (!existsSync(join(root, "novel.yaml"))) return null;
+		const chapter = input.changedChapter;
+		const metadata = this.registry.open(projectId, root).chapterMetadata;
+		const workflow = this.registry.open(projectId, root).chapterWorkflow;
+		const items: RevisionImpact["items"] = [];
+		const affectedChapters = new Set<number>();
+		const affectedCharacters = new Set<string>();
+		const affectedThreads = new Set<string>();
+		const affectedClues = new Set<string>();
+		const affectedPromises = new Set<string>();
+		if (chapter !== undefined) {
+			affectedChapters.add(chapter);
+			items.push({
+				category: "CURRENT_CHAPTER",
+				certainty: "KNOWN",
+				description: `正文修改发生在第 ${chapter} 章。`,
+				evidence: {
+					sourceType: "chapter",
+					sourceId: String(chapter),
+					chapterId: String(chapter),
+					description: "ChangeSet 的正文目标章节。",
+				},
+			});
+			const current = workflow.get(projectId, chapter)?.settlement;
+			if (current !== null && current !== undefined)
+				appendSettlementImpact(
+					current,
+					items,
+					affectedCharacters,
+					affectedThreads,
+					affectedClues,
+					affectedPromises,
+				);
+			for (const future of metadata.list(projectId).filter((entry) => entry.chapter > chapter)) {
+				const futureSettlement = workflow.get(projectId, future.chapter)?.settlement;
+				if (futureSettlement === null || futureSettlement === undefined) continue;
+				affectedChapters.add(future.chapter);
+				items.push({
+					category: "FUTURE_CHAPTER",
+					certainty: "POSSIBLE",
+					description: `第 ${future.chapter} 章已有确认状态，修改后需要下游复查。`,
+					evidence: {
+						sourceType: "chapter-settlement",
+						sourceId: `${projectId}:${future.chapter}`,
+						chapterId: String(future.chapter),
+						description: "下游章节存在已确认结算。",
+					},
+				});
+			}
+		}
+		if (chapter !== undefined && items.every((item) => item.certainty !== "UNKNOWN") && items.length > 0) {
+			items.push({
+				category: "FUTURE_CHAPTER",
+				certainty: "UNKNOWN",
+				description: "Story Graph 尚未建立，无法确认完整的因果传播。",
+			});
+		}
+		if (chapter !== undefined) {
+			const reviewSources = await this.reviewSources(workspaceRoot, projectId).catch(() => []);
+			for (const source of reviewSources) {
+				if (source.chapter !== null && source.chapter < chapter) continue;
+				const future = source.chapter !== null && source.chapter > chapter;
+				if (source.chapter !== null) affectedChapters.add(source.chapter);
+				const evidence =
+					source.evidence === null
+						? undefined
+						: {
+								sourceType: "review",
+								sourceId: `${source.sourceCode}:${source.chapter ?? "story"}`,
+								...(source.chapter === null ? {} : { chapterId: String(source.chapter) }),
+								description: source.evidence,
+							};
+				items.push({
+					category: future ? "FUTURE_CHAPTER" : source.scope === "chapter" ? "CURRENT_CHAPTER" : "STORY_FACT",
+					certainty: evidence === undefined ? "POSSIBLE" : "KNOWN",
+					description: source.message,
+					...(evidence === undefined ? {} : { evidence }),
+				});
+			}
+		}
+		for (const change of input.knowledgeChanges ?? []) {
+			affectedCharacters.add(change.characterId);
+			items.push({
+				category: "CHARACTER_KNOWLEDGE",
+				certainty: "KNOWN",
+				description: `${change.characterId} 的认知将从“${change.from}”变为“${change.to}”。`,
+				evidence: {
+					sourceType: "input",
+					sourceId: change.factRef,
+					chapterId: chapter === undefined ? undefined : String(chapter),
+					description: "作者提交的知识变化。",
+				},
+			});
+		}
+		for (const truth of input.truthChanges ?? [])
+			items.push({
+				category: "STORY_FACT",
+				certainty: "POSSIBLE",
+				description: `故事事实 ${truth} 可能需要复查。`,
+				evidence: { sourceType: "input", sourceId: truth, description: "作者提交的事实变化。" },
+			});
+		if (items.length === 0)
+			items.push({
+				category: "STORY_FACT",
+				certainty: "UNKNOWN",
+				description: "没有足够的已确认状态证据判断下游影响。",
+			});
+		return {
+			severity: affectedChapters.size > 1 ? "downstream-review" : "safe-local",
+			causalCoverage: "partial",
+			items,
+			affectedChapters: [...affectedChapters].sort((a, b) => a - b),
+			affectedCharacters: [...affectedCharacters],
+			affectedThreads: [...affectedThreads],
+			affectedClues: [...affectedClues],
+			affectedPromises: [...affectedPromises],
+			summary: "当前影响分析基于已确认故事状态；完整因果传播将在 Story Graph 建立后增强。",
+			analyzedAt: new Date().toISOString(),
+		};
 	}
 
 	async reviewSources(workspaceRoot: string, projectId: string): Promise<ReviewIssueSource[]> {

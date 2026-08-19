@@ -108,4 +108,28 @@ describe("native chapter authoring", () => {
 			rmSync(workspaceRoot, { recursive: true, force: true });
 		}
 	});
+
+	it("returns partial impact with known, possible and unknown coverage", async () => {
+		const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-novel-native-impact-"));
+		const projectId = "native-impact";
+		const projectRoot = join(workspaceRoot, projectId);
+		mkdirSync(join(projectRoot, "manuscript"), { recursive: true });
+		writeFileSync(
+			join(projectRoot, "novel.yaml"),
+			`schema_version: 1\nproject_id: ${projectId}\ntitle: Impact\n`,
+			"utf8",
+		);
+		const registry = new ProjectDatabaseRegistry();
+		try {
+			const engine = new NativeNovelEngineAdapter(registry);
+			const impact = await engine.analyzeRevisionImpact(workspaceRoot, projectId, { changedChapter: 1 });
+			expect(impact?.causalCoverage).toBe("partial");
+			expect(impact?.items.some((item) => item.certainty === "KNOWN")).toBe(true);
+			expect(impact?.items.some((item) => item.certainty === "UNKNOWN")).toBe(true);
+			expect(impact?.summary).toContain("Story Graph");
+		} finally {
+			registry.closeAll();
+			rmSync(workspaceRoot, { recursive: true, force: true });
+		}
+	});
 });

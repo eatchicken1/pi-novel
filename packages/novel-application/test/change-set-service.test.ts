@@ -5,6 +5,7 @@ import type { ProjectRecord, WorkspaceOverview } from "@earendil-works/pi-novel-
 import { FileTransaction, ProjectDatabaseRegistry } from "@earendil-works/pi-novel-infrastructure";
 import { describe, expect, it } from "vitest";
 import { ChangeSetService } from "../src/changesets/change-set-service.ts";
+import { createTextAnchor } from "../src/patch/text-anchor.ts";
 import type { NovelEnginePort, ProjectDatabaseRegistryPort } from "../src/ports.ts";
 import type { WorkspaceService } from "../src/workspace/workspace-service.ts";
 
@@ -255,6 +256,84 @@ describe("change set commit pipeline", () => {
 			const history = h.registry.open("p-1", h.projectRoot).commits.list("p-1");
 			expect(history).toHaveLength(1);
 			expect(history[0]?.summary).toBe("edit ch1");
+		} finally {
+			h.cleanup();
+		}
+	});
+
+	it("relocates a manuscript patch after an unrelated prefix edit", async () => {
+		const h = createHarness();
+		try {
+			const original = chapterText(h.projectRoot);
+			const start = original.indexOf("正文内容");
+			const anchor = createTextAnchor({
+				chapterId: "1",
+				content: original,
+				startOffset: start,
+				endOffset: start + 4,
+			});
+			const impact = {
+				severity: "safe-local" as const,
+				causalCoverage: "partial" as const,
+				items: [],
+				affectedChapters: [1],
+				affectedCharacters: [],
+				affectedThreads: [],
+				affectedClues: [],
+				affectedPromises: [],
+				summary: "local",
+				analyzedAt: new Date().toISOString(),
+			};
+			const changeSet = await h.service.create({
+				projectId: "p-1",
+				title: "patch",
+				kind: "MANUSCRIPT_PATCH",
+				source: "agent",
+				intent: "tighten",
+				baseRevision: "1",
+				operations: [
+					{
+						operationId: "patch-op",
+						kind: "replace-text",
+						target: "manuscript/chapter-001.md",
+						baseHash: anchor.baseContentHash,
+						startChar: start,
+						endChar: start + 4,
+						text: "改写",
+						anchor,
+					},
+				],
+				patch: {
+					goal: "tighten",
+					target: "manuscript/chapter-001.md",
+					constraints: ["facts"],
+					operations: [
+						{
+							operationId: "patch-op",
+							kind: "replace-text",
+							target: "manuscript/chapter-001.md",
+							baseHash: anchor.baseContentHash,
+							startChar: start,
+							endChar: start + 4,
+							text: "改写",
+							anchor,
+						},
+					],
+					impact,
+					provenance: { agentId: "chapter.reviser", runtimeModelId: "test/model", thinkingLevel: "off" },
+					baseRevision: 1,
+					baseContentHash: anchor.baseContentHash,
+					anchor,
+					candidates: [
+						{ candidateId: "candidate-1", original: "正文内容", replacement: "改写", explanation: "tighten" },
+					],
+				},
+			});
+			await h.service.accept("p-1", changeSet.changeSetId, "candidate-1");
+			writeFileSync(join(h.projectRoot, "manuscript", "chapter-001.md"), `新增前缀。\n${original}`, "utf8");
+			const result = await h.service.commit("p-1", changeSet.changeSetId, "agent");
+			expect(result.changeSet.status).toBe("committed");
+			expect(chapterText(h.projectRoot)).toContain("新增前缀。\n第一版改写，足够长。");
 		} finally {
 			h.cleanup();
 		}

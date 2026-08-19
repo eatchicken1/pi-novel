@@ -26,11 +26,47 @@ export class TaskService {
 	}
 
 	async create(input: CreateTaskInput, workspaceRoot: string, idempotencyKey?: string): Promise<NovelTask> {
+		const { task, run } = this.createRecord(input, workspaceRoot, idempotencyKey);
+		if (run === null) return task;
+		void this.runTask(task, run, (signal) =>
+			this.runtime
+				.startTask({
+					taskId: task.taskId,
+					workspaceRoot,
+					projectId: input.projectId,
+					intent: input.intent,
+					modelId: input.modelId,
+					signal,
+				})
+				.then(() => ({})),
+		);
+		return task;
+	}
+
+	async createWithRunner(
+		input: CreateTaskInput,
+		workspaceRoot: string,
+		runner: (signal: AbortSignal) => Promise<{ resultRef?: string }>,
+		idempotencyKey?: string,
+	): Promise<NovelTask> {
+		const { task, run } = this.createRecord(input, workspaceRoot, idempotencyKey);
+		if (run === null) return task;
+		void this.runTask(task, run, runner);
+		return task;
+	}
+
+	private createRecord(
+		input: CreateTaskInput,
+		workspaceRoot: string,
+		idempotencyKey?: string,
+	): { task: NovelTask; run: AgentRun | null } {
 		if (idempotencyKey !== undefined && idempotencyKey.length > 0) {
 			const existing = this.idempotency.get(`${workspaceRoot}\u0000${idempotencyKey}`);
 			if (existing !== undefined) {
 				const replay = this.repository.getTask(existing);
-				if (replay !== null) return replay;
+				if (replay !== null) {
+					return { task: replay, run: null };
+				}
 			}
 		}
 		const now = this.clock.now();
@@ -62,24 +98,13 @@ export class TaskService {
 		};
 		this.repository.createAgentRun(run);
 		this.runs.set(task.taskId, run);
-		void this.runTask(task, run, {
-			workspaceRoot,
-			projectId: input.projectId,
-			intent: input.intent,
-			modelId: input.modelId,
-		});
-		return task;
+		return { task, run };
 	}
 
 	private async runTask(
 		task: NovelTask,
 		run: AgentRun,
-		input: {
-			workspaceRoot: string;
-			projectId: string | null;
-			intent: string;
-			modelId?: string;
-		},
+		runner: (signal: AbortSignal) => Promise<{ resultRef?: string }>,
 	): Promise<void> {
 		if (this.cancelled.has(task.taskId)) {
 			this.runs.delete(task.taskId);
@@ -94,20 +119,14 @@ export class TaskService {
 		const controller = new AbortController();
 		this.controllers.set(task.taskId, controller);
 		try {
-			await this.runtime.startTask({
-				taskId: task.taskId,
-				workspaceRoot: input.workspaceRoot,
-				projectId: input.projectId,
-				intent: input.intent,
-				modelId: input.modelId,
-				signal: controller.signal,
-			});
+			const result = await runner(controller.signal);
 			if (this.cancelled.has(task.taskId)) return;
 			const completedAt = this.clock.now();
 			const current = this.repository.getTask(task.taskId);
 			const succeeded: NovelTask = {
 				...(current ?? running),
 				status: "succeeded",
+				...(result.resultRef === undefined ? {} : { resultRef: result.resultRef }),
 				completedAt,
 				updatedAt: completedAt,
 			};
@@ -115,6 +134,8 @@ export class TaskService {
 			const succeededRun = { ...runningRun, status: "succeeded" as const, completedAt };
 			this.repository.updateAgentRun(succeededRun);
 			this.runs.set(task.taskId, succeededRun);
+			if (result.resultRef !== undefined)
+				this.emit(task.taskId, "changeset.created", { resultRef: result.resultRef });
 			this.emit(task.taskId, "task.completed", { taskId: task.taskId });
 		} catch (error) {
 			if (this.cancelled.has(task.taskId)) return;

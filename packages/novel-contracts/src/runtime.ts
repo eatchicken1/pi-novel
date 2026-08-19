@@ -41,6 +41,7 @@ export const IMPLEMENTED_RUNTIME_AGENTS: readonly RuntimeAgentId[] = [
 	"forge.explorer",
 	"forge.comparator",
 	"forge.critic",
+	"chapter.reviser",
 ];
 
 export const AgentRuntimeProfileSchema = Type.Object(

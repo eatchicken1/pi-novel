@@ -1,5 +1,6 @@
 import { type Static, Type } from "typebox";
 import { ISODateStringSchema } from "./common.ts";
+import { RevisionImpactSchema } from "./patch.ts";
 
 export const CommitActorSchema = Type.Union([Type.Literal("user"), Type.Literal("agent"), Type.Literal("system")]);
 export type CommitActor = Static<typeof CommitActorSchema>;
@@ -16,6 +17,20 @@ export const CommitRecordSchema = Type.Object(
 		afterHashes: Type.Record(Type.String(), Type.String()),
 		resolvedIssueCount: Type.Integer({ minimum: 0 }),
 		createdAt: ISODateStringSchema,
+		patch: Type.Optional(
+			Type.Object(
+				{
+					chapter: Type.Integer({ minimum: 1 }),
+					goal: Type.String({ minLength: 1 }),
+					original: Type.String(),
+					replacement: Type.String(),
+					agentId: Type.String({ minLength: 1 }),
+					runtimeModelId: Type.String({ minLength: 1 }),
+					impact: RevisionImpactSchema,
+				},
+				{ additionalProperties: false },
+			),
+		),
 	},
 	{ additionalProperties: false },
 );
@@ -31,6 +46,20 @@ export const HistoryEntrySchema = Type.Object(
 		affectedFiles: Type.Array(Type.String({ minLength: 1 })),
 		resolvedIssueCount: Type.Integer({ minimum: 0 }),
 		createdAt: ISODateStringSchema,
+		patch: Type.Optional(
+			Type.Object(
+				{
+					chapter: Type.Integer({ minimum: 1 }),
+					goal: Type.String({ minLength: 1 }),
+					original: Type.String(),
+					replacement: Type.String(),
+					agentId: Type.String({ minLength: 1 }),
+					runtimeModelId: Type.String({ minLength: 1 }),
+					impact: RevisionImpactSchema,
+				},
+				{ additionalProperties: false },
+			),
+		),
 	},
 	{ additionalProperties: false },
 );

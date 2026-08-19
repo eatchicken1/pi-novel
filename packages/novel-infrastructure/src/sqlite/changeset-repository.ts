@@ -17,6 +17,8 @@ interface ChangeSetRow {
 	created_at: string;
 	updated_at: string;
 	committed_at: string | null;
+	patch_json: string | null;
+	selected_candidate_id: string | null;
 }
 
 function parseChangeSet(row: ChangeSetRow): ChangeSet {
@@ -35,6 +37,8 @@ function parseChangeSet(row: ChangeSetRow): ChangeSet {
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 		...(row.committed_at === null ? {} : { committedAt: row.committed_at }),
+		...(row.patch_json === null ? {} : { patch: JSON.parse(row.patch_json) }),
+		...(row.selected_candidate_id === null ? {} : { selectedCandidateId: row.selected_candidate_id }),
 	};
 	if (!Check(ChangeSetSchema, parsed)) throw new Error("Stored change set failed contract validation");
 	return parsed;
@@ -50,7 +54,7 @@ export class ChangeSetRepository {
 	create(changeSet: ChangeSet): void {
 		this.db
 			.prepare(
-				"INSERT INTO changesets (changeset_id, project_id, title, status, kind, source, intent, base_revision, operations_json, impact_json, review_json, created_at, updated_at, committed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				"INSERT INTO changesets (changeset_id, project_id, title, status, kind, source, intent, base_revision, operations_json, impact_json, review_json, created_at, updated_at, committed_at, patch_json, selected_candidate_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			)
 			.run(
 				changeSet.changeSetId,
@@ -67,13 +71,15 @@ export class ChangeSetRepository {
 				changeSet.createdAt,
 				changeSet.updatedAt,
 				changeSet.committedAt ?? null,
+				changeSet.patch === undefined ? null : JSON.stringify(changeSet.patch),
+				changeSet.selectedCandidateId ?? null,
 			);
 	}
 
 	update(changeSet: ChangeSet): void {
 		this.db
 			.prepare(
-				"UPDATE changesets SET title = ?, status = ?, operations_json = ?, impact_json = ?, review_json = ?, updated_at = ?, committed_at = ? WHERE changeset_id = ?",
+				"UPDATE changesets SET title = ?, status = ?, operations_json = ?, impact_json = ?, review_json = ?, updated_at = ?, committed_at = ?, patch_json = ?, selected_candidate_id = ? WHERE changeset_id = ?",
 			)
 			.run(
 				changeSet.title,
@@ -83,6 +89,8 @@ export class ChangeSetRepository {
 				changeSet.review === undefined ? null : JSON.stringify(changeSet.review),
 				changeSet.updatedAt,
 				changeSet.committedAt ?? null,
+				changeSet.patch === undefined ? null : JSON.stringify(changeSet.patch),
+				changeSet.selectedCandidateId ?? null,
 				changeSet.changeSetId,
 			);
 	}

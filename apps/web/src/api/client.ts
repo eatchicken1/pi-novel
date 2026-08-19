@@ -38,6 +38,8 @@ import type {
 	ProjectCapabilities,
 	ReviewListResponse,
 	HistoryEntry,
+	PatchGenerationInput,
+	NovelTask,
 } from "@earendil-works/pi-novel-contracts";
 
 export type ApiHealth = { status: "ok"; service: "pi-novel-api" };
@@ -107,6 +109,13 @@ export function getApiErrorMessage(error: unknown, fallback = "操作失败"): s
 		FINALIZATION_BLOCKED: "当前章节仍有阻塞问题，暂时不能定稿。",
 		CHAPTER_EXTERNAL_MODIFICATION: "章节文件已在外部修改，请刷新后重试。",
 		CHAPTER_REVISION_STALE: "章节版本已经过期，请刷新后重试。",
+		PATCH_TARGET_CONFLICT: "选中的正文无法唯一定位，请重新加载后再选择。",
+		PATCH_BASE_STALE: "选中的正文版本已经过期，请重新加载后再选择。",
+		CHANGESET_STALE: "正文已经变化，这项修改需要重新生成。",
+		CHANGESET_ALREADY_COMMITTED: "这项修改已经提交。",
+		NARRATIVE_PATCH_UNSUPPORTED: "当前作品暂不支持 AI 正文修改。",
+		CHANGESET_INVALID_STATE: "这项修改当前不能执行，请先完成上一步确认。",
+		CHAPTER_REOPEN_REQUIRED: "继续修改会重新开启章节修订。",
 	};
 	return messages[error.code] ?? (error.message || fallback);
 }
@@ -191,16 +200,25 @@ export async function createChangeSet(projectId: string, input: CreateChangeSetI
 	return (await request<{ changeSet: ChangeSet }>(`/api/projects/${encodeURIComponent(projectId)}/changesets`, { method: "POST", body: JSON.stringify(input) })).changeSet;
 }
 
-export async function acceptChangeSet(projectId: string, changeSetId: string): Promise<ChangeSet> {
-	return (await request<{ changeSet: ChangeSet }>(`/api/projects/${encodeURIComponent(projectId)}/changesets/${encodeURIComponent(changeSetId)}/accept`, { method: "POST" })).changeSet;
+export async function acceptChangeSet(projectId: string, changeSetId: string, selectedCandidateId?: string): Promise<ChangeSet> {
+	return (await request<{ changeSet: ChangeSet }>(`/api/projects/${encodeURIComponent(projectId)}/changesets/${encodeURIComponent(changeSetId)}/accept`, { method: "POST", body: JSON.stringify(selectedCandidateId === undefined ? {} : { selectedCandidateId }) })).changeSet;
 }
 
 export async function commitChangeSet(projectId: string, changeSetId: string): Promise<ChangeSet> {
 	return (await request<{ changeSet: ChangeSet }>(`/api/projects/${encodeURIComponent(projectId)}/changesets/${encodeURIComponent(changeSetId)}/commit`, { method: "POST", headers: { "X-Idempotency-Key": `chapter-discovery-${changeSetId}` }, body: JSON.stringify({ actor: "user" }) })).changeSet;
 }
 
+export async function rejectChangeSet(projectId: string, changeSetId: string): Promise<ChangeSet> {
+	return (await request<{ changeSet: ChangeSet }>(`/api/projects/${encodeURIComponent(projectId)}/changesets/${encodeURIComponent(changeSetId)}/reject`, { method: "POST" })).changeSet;
+}
+
 export async function getChangeSet(projectId: string, changeSetId: string): Promise<ChangeSet> {
 	return (await request<{ changeSet: ChangeSet }>(`/api/projects/${encodeURIComponent(projectId)}/changesets/${encodeURIComponent(changeSetId)}`)).changeSet;
+}
+
+export async function generateManuscriptPatch(projectId: string, chapter: number, input: PatchGenerationInput): Promise<ChangeSet> {
+	const task = (await request<{ task: NovelTask }>(`/api/projects/${encodeURIComponent(projectId)}/chapters/${chapter}/patches`, { method: "POST", headers: { "X-Idempotency-Key": `narrative-patch-${projectId}-${chapter}-${input.anchor.baseContentHash}-${input.anchor.startOffset}-${input.anchor.endOffset}` }, body: JSON.stringify(input) })).task;
+	return waitForNarrativePatchTask(projectId, task);
 }
 
 export async function getModelCatalog(): Promise<ModelCatalog> {
@@ -318,4 +336,50 @@ export async function materializeForgeSession(sessionId: string, input: Material
 
 export async function getForgeTask(taskId: string): Promise<ForgeTask> {
 	return (await request<{ task: ForgeTask }>(`/api/tasks/${encodeURIComponent(taskId)}`)).task;
+}
+
+async function waitForNarrativePatchTask(projectId: string, initial: NovelTask): Promise<ChangeSet> {
+	return new Promise<ChangeSet>((resolve, reject) => {
+		const controller = new AbortController();
+		const token = import.meta.env.VITE_PI_NOVEL_LOCAL_TOKEN;
+		const headers = token ? { "X-Pi-Novel-Token": token } : undefined;
+		void (async () => {
+			try {
+				const response = await fetch(`/api/tasks/${encodeURIComponent(initial.taskId)}/events/stream`, { headers, signal: controller.signal });
+				if (!response.ok || response.body === null) throw new ApiClientError(`Task stream failed: ${response.status}`, response.status);
+				const reader = response.body.getReader();
+				const decoder = new TextDecoder();
+				let buffer = "";
+				const processFrames = async (): Promise<boolean> => {
+					const frames = buffer.split(/\r?\n\r?\n/);
+					buffer = frames.pop() ?? "";
+					for (const frame of frames) {
+						const eventName = frame.match(/^event:\s*(.+)$/m)?.[1];
+						const data = frame.match(/^data:\s*(.+)$/m)?.[1];
+						if (eventName !== "task" || !data) continue;
+						const task = JSON.parse(data) as NovelTask;
+						if (task.status === "succeeded" && task.resultRef !== null) {
+							controller.abort();
+							resolve(await getChangeSet(projectId, task.resultRef));
+							return true;
+						}
+						if (task.status === "failed" || task.status === "cancelled") {
+							controller.abort();
+							reject(new ApiClientError(task.errorMessage ?? "Patch task failed", 500, task.errorMessage ?? "PATCH_TASK_FAILED"));
+							return true;
+						}
+					}
+					return false;
+				};
+				while (!controller.signal.aborted) {
+					const { done, value } = await reader.read();
+					if (value !== undefined) buffer += decoder.decode(value, { stream: !done });
+					if (await processFrames()) return;
+					if (done) throw new Error("PATCH_TASK_STREAM_ENDED");
+				}
+			} catch (error) {
+				if (!controller.signal.aborted) reject(error);
+			}
+		})();
+	});
 }

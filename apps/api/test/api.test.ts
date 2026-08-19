@@ -1,4 +1,5 @@
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -55,7 +56,7 @@ describe("Novel API", () => {
 		expect(ready.json()).toMatchObject({ api: "ready", workspace: { status: "ready" }, runtime: { configured: false } });
 		const capabilities = await app.inject({ method: "GET", url: `/api/projects/${projectId}/capabilities`, headers });
 		expect(capabilities.statusCode).toBe(200);
-		expect(capabilities.json()).toMatchObject({ manuscriptRead: "supported", manuscriptWrite: "supported", chapterWorkflow: "supported", chapterReview: "supported", storyGraph: "unsupported", revisionImpact: "unsupported" });
+		expect(capabilities.json()).toMatchObject({ manuscriptRead: "supported", manuscriptWrite: "supported", chapterWorkflow: "supported", chapterReview: "supported", storyGraph: "unsupported", revisionImpact: "supported", narrativePatch: "supported" });
 	});
 
 	it("refreshes sequential draft hashes and reports external modification", async () => {
@@ -109,6 +110,45 @@ describe("Novel API", () => {
 		const workflowPayload = workflow.json() as { canFinalize: boolean; blockingReasons: Array<{ code: string }> };
 		expect(workflowPayload.canFinalize).toBe(false);
 		expect(workflowPayload.blockingReasons.map((reason) => reason.code)).toEqual(expect.arrayContaining(["CURRENT_REVIEW_BLOCKING", "CURRENT_REVIEW_MAJOR"]));
+	});
+
+	it("guards narrative patch generation by the chapter.reviser runtime", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-novel-api-patch-guard-"));
+		const projectId = "patch-guard-story";
+		await mkdir(join(root, projectId));
+		await writeFile(join(root, projectId, "novel.yaml"), `schema_version: 1\nproject_id: ${projectId}\ntitle: Patch Guard\n`);
+		const app = await createNovelApi({ localToken: token });
+		apps.push(app);
+		const headers = { "x-pi-novel-token": token };
+		await app.inject({ method: "POST", url: "/api/workspace/initialize", headers, payload: { path: root } });
+		await app.inject({ method: "POST", url: `/api/projects/${projectId}/chapters`, headers, payload: { title: "潮汐" } });
+		const resource = (await app.inject({ method: "GET", url: `/api/projects/${projectId}/chapters/1`, headers })).json() as { chapter: { content: string; metadata: { contentHash: string } } };
+		const selected = "潮汐";
+		const startOffset = resource.chapter.content.indexOf(selected);
+		const selectedTextHash = createHash("sha256").update(selected, "utf8").digest("hex");
+		const response = await app.inject({
+			method: "POST",
+			url: `/api/projects/${projectId}/chapters/1/patches`,
+			headers,
+			payload: {
+				goal: "加强戒备感",
+				anchor: {
+					chapterId: "1",
+					baseContentHash: resource.chapter.metadata.contentHash,
+					startOffset,
+					endOffset: startOffset + selected.length,
+					selectedTextHash,
+					prefixContext: "# ",
+					suffixContext: "\\n\\n",
+				},
+				outputCount: 1,
+			},
+		});
+		expect(response.statusCode).toBe(409);
+		expect(response.json()).toMatchObject({ error: { code: "RUNTIME_PROFILE_NOT_CONFIGURED" } });
+		const list = await app.inject({ method: "GET", url: `/api/projects/${projectId}/chapters/1/patches`, headers });
+		expect(list.statusCode).toBe(200);
+		expect(list.json()).toEqual({ changeSets: [] });
 	});
 
 	it("marks settlement stale after a later draft save", async () => {

@@ -4,6 +4,8 @@ export * from "./forge/forge-service.ts";
 export * from "./graph/story-graph-service.ts";
 export * from "./history/history-service.ts";
 export * from "./models/model-catalog-service.ts";
+export * from "./patch/manuscript-patch-service.ts";
+export * from "./patch/text-anchor.ts";
 export * from "./ports.ts";
 export * from "./projects/project-query-service.ts";
 export * from "./projects/project-read-service.ts";

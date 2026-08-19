@@ -6,14 +6,17 @@ import {
 	CommitRecordSchema,
 	ConfigureModelApiKeyInputSchema,
 	ForgeSessionSchema,
+	ManuscriptPatchSchema,
 	NovelTaskSchema,
 	ProjectCheckpointSchema,
 	ProjectManifestSchema,
 	ReviewIssueSchema,
+	RevisionImpactSchema,
 	StoryGraphQuerySchema,
 	StoryGraphSchema,
 	StudioSnapshotSchema,
 	TaskEventSchema,
+	TextAnchorSchema,
 	WorkspaceManifestSchema,
 } from "../src/index.ts";
 
@@ -93,6 +96,71 @@ describe("novel runtime contracts", () => {
 });
 
 describe("product backend contracts", () => {
+	it("validates text anchors, manuscript patches and partial revision impact", () => {
+		const impact = {
+			severity: "safe-local",
+			causalCoverage: "partial",
+			items: [
+				{
+					category: "CURRENT_CHAPTER",
+					certainty: "KNOWN",
+					description: "selected text",
+					evidence: { sourceType: "chapter", sourceId: "1", chapterId: "1", description: "author selection" },
+				},
+			],
+			affectedChapters: [1],
+			affectedCharacters: [],
+			affectedThreads: [],
+			affectedClues: [],
+			affectedPromises: [],
+			summary: "partial",
+			analyzedAt: "2026-08-19T00:00:00.000Z",
+		} as const;
+		expect(Check(RevisionImpactSchema, impact)).toBe(true);
+		expect(
+			Check(TextAnchorSchema, {
+				chapterId: "1",
+				baseContentHash: "a",
+				startOffset: 0,
+				endOffset: 4,
+				selectedTextHash: "b",
+				prefixContext: "",
+				suffixContext: "",
+			}),
+		).toBe(true);
+		expect(
+			Check(ManuscriptPatchSchema, {
+				goal: "tighten",
+				target: "manuscript/chapter-001.md",
+				constraints: ["facts"],
+				operations: [
+					{
+						operationId: "patch-op-1",
+						kind: "replace-text",
+						target: "manuscript/chapter-001.md",
+						baseHash: "a",
+						startChar: 0,
+						endChar: 4,
+						text: "new",
+					},
+				],
+				impact,
+				provenance: { agentId: "chapter.reviser", runtimeModelId: "provider/model", thinkingLevel: "high" },
+				baseRevision: 1,
+				baseContentHash: "a",
+				anchor: {
+					chapterId: "1",
+					baseContentHash: "a",
+					startOffset: 0,
+					endOffset: 4,
+					selectedTextHash: "b",
+					prefixContext: "",
+					suffixContext: "",
+				},
+				candidates: [{ candidateId: "candidate-1", original: "old", replacement: "new", explanation: "tighten" }],
+			}),
+		).toBe(true);
+	});
 	it("ChangeSet with operations, impact and review validates at runtime", () => {
 		expect(
 			Check(ChangeSetSchema, {

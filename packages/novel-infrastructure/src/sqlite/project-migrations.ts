@@ -29,6 +29,10 @@ export function loadProjectMigrations(): ProjectMigration[] {
 			id: "008_chapter_metadata.sql",
 			sql: readFileSync(fileURLToPath(new URL("./migrations/008_chapter_metadata.sql", import.meta.url)), "utf8"),
 		},
+		{
+			id: "009_narrative_patch.sql",
+			sql: readFileSync(fileURLToPath(new URL("./migrations/009_narrative_patch.sql", import.meta.url)), "utf8"),
+		},
 	];
 }
 

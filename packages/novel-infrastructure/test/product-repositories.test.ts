@@ -32,6 +32,7 @@ describe("product repositories", () => {
 			"004_commit_recovery.sql",
 			"007_chapter_workflow.sql",
 			"008_chapter_metadata.sql",
+			"009_narrative_patch.sql",
 		]);
 		const tables = db.db.prepare("PRAGMA table_list").all() as Array<{ name: string }>;
 		const names = new Set(tables.map((row) => row.name));

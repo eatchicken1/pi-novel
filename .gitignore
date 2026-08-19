@@ -27,6 +27,9 @@ packages/ai/src/providers/.model-generation-*/
 # Package specific
 .npm/
 coverage/
+.playwright/
+test-results/
+playwright-report/
 .nyc_output/
 .pi_config/
 tui-debug.log

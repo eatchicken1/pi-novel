@@ -64,6 +64,29 @@ describe("TaskService lifecycle", () => {
 		expect(repository.tasks.get(task.taskId)?.errorMessage).toBe("provider unavailable");
 		expect(repository.runs[0]?.status).toBe("failed");
 	});
+
+	it("does not start a second runner when an in-flight request is replayed", async () => {
+		const repository = new InMemoryTaskRepository();
+		const service = new TaskService(repository, new ControllableRuntime(), clock());
+		let runnerCalls = 0;
+		const runner = async (): Promise<{ resultRef: string }> => {
+			runnerCalls += 1;
+			return { resultRef: "changeset-1" };
+		};
+
+		const first = await service.createWithRunner(input, "D:\\workspace", runner, "patch-1");
+		const replay = await service.createWithRunner(input, "D:\\workspace", runner, "patch-1");
+		await waitFor(() => repository.tasks.get(first.taskId)?.status === "succeeded");
+
+		expect(replay.taskId).toBe(first.taskId);
+		expect(runnerCalls).toBe(1);
+		expect(repository.tasks.get(first.taskId)?.resultRef).toBe("changeset-1");
+		expect(repository.events.map((event) => event.type)).toEqual([
+			"task.started",
+			"changeset.created",
+			"task.completed",
+		]);
+	});
 });
 
 class ControllableRuntime implements AgentRuntimePort {

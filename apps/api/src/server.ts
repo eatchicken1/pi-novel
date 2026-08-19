@@ -83,6 +83,7 @@ import {
 	ForgeService,
 	HistoryService,
 	ModelCatalogService,
+	ManuscriptPatchService,
 	ProjectQueryService,
 	ProjectReadService,
 	ReviewService,
@@ -128,6 +129,7 @@ import { registerTaskRoutes } from "./routes/tasks.ts";
 import { registerChapterWorkflowRoutes } from "./routes/chapter-workflow.ts";
 import { registerBootstrapRoute } from "./routes/bootstrap.ts";
 import { registerCapabilitiesRoute } from "./routes/capabilities.ts";
+import { registerPatchRoutes } from "./routes/patches.ts";
 
 export interface NovelApiOptions {
 	workspaceRoot?: string;
@@ -178,6 +180,7 @@ export async function createNovelApi(options: NovelApiOptions = {}): Promise<Fas
 		clock,
 		reviewProjector: reviewService,
 	});
+	const manuscriptPatches = new ManuscriptPatchService({ workspace: workspaceService, engine, registry, runtime: agentRuntime, model: modelRuntime, changeSets });
 	const chapterWorkflow = new ChapterWorkflowService({ workspace: workspaceService, registry, engine, authoring, review: reviewService, changeSets, clock });
 	const historyService = new HistoryService(workspaceService, registry);
 	const graphService = new StoryGraphService(workspaceService, engine, registry);
@@ -229,6 +232,7 @@ export async function createNovelApi(options: NovelApiOptions = {}): Promise<Fas
 	registerRuntimeRoutes(app, agentRuntime);
 	registerForgeRoutes(app, forgeService, taskService);
 	registerChangeSetRoutes(app, changeSets);
+	registerPatchRoutes(app, manuscriptPatches, changeSets, taskService, () => workspaceService.getWorkspacePaths()?.root ?? null);
 	registerReviewRoutes(app, reviewService);
 	registerHistoryRoutes(app, historyService);
 	registerGraphRoutes(app, graphService);
