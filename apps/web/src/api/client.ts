@@ -34,6 +34,10 @@ import type {
 	FinalizeChapterInput,
 	ChangeSet,
 	CreateChangeSetInput,
+	BootstrapResponse,
+	ProjectCapabilities,
+	ReviewListResponse,
+	HistoryEntry,
 } from "@earendil-works/pi-novel-contracts";
 
 export type ApiHealth = { status: "ok"; service: "pi-novel-api" };
@@ -62,7 +66,7 @@ export class ApiClientError extends Error {
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
 	const headers = new Headers(init?.headers);
-	headers.set("Content-Type", "application/json");
+	if (init?.body !== undefined) headers.set("Content-Type", "application/json");
 	const token = import.meta.env.VITE_PI_NOVEL_LOCAL_TOKEN;
 	if (token) headers.set("X-Pi-Novel-Token", token);
 	const response = await fetch(url, { ...init, headers });
@@ -115,6 +119,10 @@ export async function getHealth(): Promise<ApiHealth> {
 	return request<ApiHealth>("/api/health");
 }
 
+export async function getBootstrap(): Promise<BootstrapResponse> {
+	return request<BootstrapResponse>("/api/bootstrap");
+}
+
 export async function initializeWorkspace(path: string): Promise<WorkspaceOverview> {
 	return (await request<WorkspaceResponse>("/api/workspace/initialize", { method: "POST", body: JSON.stringify({ path }) })).workspace as WorkspaceOverview;
 }
@@ -125,6 +133,22 @@ export async function rescanWorkspace(): Promise<WorkspaceOverview> {
 
 export async function getProjects(): Promise<ProjectRecord[]> {
 	return (await request<ProjectsResponse>("/api/projects")).projects;
+}
+
+export async function getProjectCapabilities(projectId: string): Promise<ProjectCapabilities> {
+	return request<ProjectCapabilities>(`/api/projects/${encodeURIComponent(projectId)}/capabilities`);
+}
+
+export async function getReview(projectId: string): Promise<ReviewListResponse> {
+	return request<ReviewListResponse>(`/api/projects/${encodeURIComponent(projectId)}/review`);
+}
+
+export async function updateReviewIssue(projectId: string, issueId: string, action: "acknowledge" | "dismiss"): Promise<void> {
+	await request<{ issue: { issueId: string; status: string } }>(`/api/projects/${encodeURIComponent(projectId)}/review/${encodeURIComponent(issueId)}/${action}`, { method: "POST" });
+}
+
+export async function getHistory(projectId: string): Promise<HistoryEntry[]> {
+	return (await request<{ entries: HistoryEntry[] }>(`/api/projects/${encodeURIComponent(projectId)}/history`)).entries;
 }
 
 export async function getChapters(projectId: string): Promise<ChapterSummary[]> {
@@ -173,6 +197,10 @@ export async function acceptChangeSet(projectId: string, changeSetId: string): P
 
 export async function commitChangeSet(projectId: string, changeSetId: string): Promise<ChangeSet> {
 	return (await request<{ changeSet: ChangeSet }>(`/api/projects/${encodeURIComponent(projectId)}/changesets/${encodeURIComponent(changeSetId)}/commit`, { method: "POST", headers: { "X-Idempotency-Key": `chapter-discovery-${changeSetId}` }, body: JSON.stringify({ actor: "user" }) })).changeSet;
+}
+
+export async function getChangeSet(projectId: string, changeSetId: string): Promise<ChangeSet> {
+	return (await request<{ changeSet: ChangeSet }>(`/api/projects/${encodeURIComponent(projectId)}/changesets/${encodeURIComponent(changeSetId)}`)).changeSet;
 }
 
 export async function getModelCatalog(): Promise<ModelCatalog> {

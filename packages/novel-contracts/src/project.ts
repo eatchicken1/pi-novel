@@ -7,6 +7,31 @@ export const NativeProjectIdSchema = Type.String({ minLength: 1, pattern: "^[^\\
 export const ProjectKindSchema = Type.Union([Type.Literal("native"), Type.Literal("legacy")]);
 export type ProjectKind = Static<typeof ProjectKindSchema>;
 
+export const CapabilityStatusSchema = Type.Union([
+	Type.Literal("supported"),
+	Type.Literal("read_only"),
+	Type.Literal("coming_later"),
+	Type.Literal("unsupported"),
+]);
+export type CapabilityStatus = Static<typeof CapabilityStatusSchema>;
+
+export const ProjectCapabilitiesSchema = Type.Object(
+	{
+		manuscriptRead: CapabilityStatusSchema,
+		manuscriptWrite: CapabilityStatusSchema,
+		chapterWorkflow: CapabilityStatusSchema,
+		chapterReview: CapabilityStatusSchema,
+		manuscriptReview: CapabilityStatusSchema,
+		storyGraph: CapabilityStatusSchema,
+		revisionImpact: CapabilityStatusSchema,
+		narrativePatch: CapabilityStatusSchema,
+		canon: CapabilityStatusSchema,
+		history: CapabilityStatusSchema,
+	},
+	{ additionalProperties: false },
+);
+export type ProjectCapabilities = Static<typeof ProjectCapabilitiesSchema>;
+
 export const ProjectStatusSchema = Type.Union([
 	Type.Literal("discovered"),
 	Type.Literal("ready"),

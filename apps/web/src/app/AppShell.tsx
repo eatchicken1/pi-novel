@@ -13,7 +13,7 @@ import type {
 	SetRuntimeProfileInput,
 	WorkspaceOverview,
 } from "@earendil-works/pi-novel-contracts";
-import { clearModelApiKey, configureModelApiKey, createForgeSession, getApiErrorMessage, getHealth, getModelCatalog, getProjects, getRuntimeProfiles, getWorkspace, initializeWorkspace, rescanWorkspace, setRuntimeProfile } from "../api/client.ts";
+import { clearModelApiKey, configureModelApiKey, createForgeSession, getApiErrorMessage, getBootstrap, getHealth, getModelCatalog, getProjects, getRuntimeProfiles, getWorkspace, initializeWorkspace, rescanWorkspace, setRuntimeProfile } from "../api/client.ts";
 import { novelQueryKeys } from "../api/query-keys.ts";
 import { AuthModelPanel } from "../features/settings/AuthModelPanel.tsx";
 import { WorkspaceSetupDialog } from "../features/workspace/WorkspaceOnboarding.tsx";
@@ -61,6 +61,7 @@ export function AppShell() {
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
 	const [runtimeAgentId, setRuntimeAgentId] = useState<RuntimeAgentId>("forge.explorer");
+	const pendingAction = useRef<(() => Promise<void>) | null>(null);
 	const defaultRuntimeAgentId = runtimeAgentForPath(location.pathname);
 	useEffect(() => {
 		if (!pickerOpen && !providerPanelOpen) return;
@@ -82,6 +83,7 @@ export function AppShell() {
 		if (defaultRuntimeAgentId) setRuntimeAgentId(defaultRuntimeAgentId);
 	}, [defaultRuntimeAgentId]);
 	const healthQuery = useQuery({ queryKey: ["health"], queryFn: getHealth, retry: false });
+	const bootstrapQuery = useQuery({ queryKey: novelQueryKeys.bootstrap, queryFn: getBootstrap, retry: false, enabled: healthQuery.data?.status === "ok" });
 	const workspaceQuery = useQuery({
 		queryKey: novelQueryKeys.workspace,
 		queryFn: async () => {
@@ -102,10 +104,14 @@ export function AppShell() {
 	const profilesQuery = useQuery({ queryKey: novelQueryKeys.runtimeProfiles, queryFn: getRuntimeProfiles, enabled: Boolean(workspaceQuery.data) });
 	const initializeMutation = useMutation({
 		mutationFn: async (path: string) => ({ path, workspace: await initializeWorkspace(path) }),
-		onSuccess: async ({ path, workspace }) => {
+		 onSuccess: async ({ path, workspace }) => {
 			window.localStorage.setItem("pi-novel:workspace-path", path);
 			queryClient.setQueryData(novelQueryKeys.workspace, workspace);
 			queryClient.setQueryData(novelQueryKeys.projects, workspace.projects);
+			queryClient.setQueryData(novelQueryKeys.bootstrap, { api: "ready", workspace: { status: "ready", summary: workspace }, runtime: { configured: false } });
+			const continuation = pendingAction.current;
+			pendingAction.current = null;
+			if (continuation !== null) { await continuation(); return; }
 			await navigate("/");
 		},
 	});
@@ -118,7 +124,13 @@ export function AppShell() {
 	});
 	const configureApiKeyMutation = useMutation({
 		mutationFn: configureModelApiKey,
-		onSuccess: (catalog) => queryClient.setQueryData(novelQueryKeys.models, catalog),
+		onSuccess: (catalog) => {
+		queryClient.setQueryData(novelQueryKeys.models, catalog);
+		if (pendingAction.current !== null) {
+			setProviderPanelOpen(false);
+			setPickerOpen(true);
+		}
+	},
 	});
 	const clearApiKeyMutation = useMutation({
 		mutationFn: clearModelApiKey,
@@ -133,15 +145,15 @@ export function AppShell() {
 		onSuccess: (session) => navigate(`/forge/${session.forgeSessionId}`),
 	});
 
-	const workspace = workspaceQuery.data;
+	const workspace = bootstrapQuery.data?.workspace.summary ?? workspaceQuery.data;
 	const catalog = catalogQuery.data ?? EMPTY_CATALOG;
 	const profiles = profilesQuery.data ?? [];
 	const overview = workspace ? { ...workspace, projects: projectsQuery.data ?? workspace.projects } : null;
-	const bootstrapState = healthQuery.isPending || (healthQuery.data?.status === "ok" && workspaceQuery.isPending)
+	const bootstrapState = healthQuery.isPending || (healthQuery.data?.status === "ok" && bootstrapQuery.isPending)
 		? "BOOTING"
 		: healthQuery.isError
 			? "API_OFFLINE"
-			: workspaceQuery.isError && (workspaceQuery.error instanceof Error && "status" in workspaceQuery.error && workspaceQuery.error.status === 401)
+			: bootstrapQuery.isError && (bootstrapQuery.error instanceof Error && "status" in bootstrapQuery.error && bootstrapQuery.error.status === 401)
 				? "SESSION_INVALID"
 				: overview === null
 					? "WORKSPACE_UNSET"
@@ -158,6 +170,32 @@ export function AppShell() {
 	async function applyProfile(agentId: RuntimeAgentId, input: SetRuntimeProfileInput): Promise<void> {
 		await setProfileMutation.mutateAsync({ agentId, input });
 		setPickerOpen(false);
+		const continuation = pendingAction.current;
+		pendingAction.current = null;
+		if (continuation !== null) await continuation();
+	}
+
+	async function ensureWorkspace(): Promise<boolean> {
+		if (overview !== null) return true;
+		setWorkspaceSetupOpen(true);
+		return false;
+	}
+
+	async function ensureForgeRuntime(): Promise<boolean> {
+		if (profiles.some((profile) => profile.agentId === "forge.explorer")) return true;
+		setRuntimeAgentId("forge.explorer");
+		setPickerOpen(true);
+		return false;
+	}
+
+	async function guardedForge(input: CreateForgeSessionInput): Promise<void> {
+		const continuation = async () => {
+			if (!(await ensureForgeRuntime())) { pendingAction.current = async () => { await createForgeMutation.mutateAsync(input); }; return; }
+			await createForgeMutation.mutateAsync(input);
+		};
+		if (!(await ensureWorkspace())) { pendingAction.current = continuation; return; }
+		if (!(await ensureForgeRuntime())) { pendingAction.current = continuation; return; }
+		await continuation();
 	}
 
 	const context: AppShellContext = {
@@ -174,7 +212,7 @@ export function AppShell() {
 		onRescan: () => rescanMutation.mutateAsync().then(() => undefined),
 		onConfigureApiKey: (input) => configureApiKeyMutation.mutateAsync(input).then(() => undefined),
 		onClearApiKey: (providerId) => clearApiKeyMutation.mutateAsync(providerId).then(() => undefined),
-		onCreateForgeSession: (input) => createForgeMutation.mutateAsync(input).then(() => undefined),
+		onCreateForgeSession: guardedForge,
 		onOpenWorkspaceSetup: () => setWorkspaceSetupOpen(true),
 	};
 	const isLibraryArea = location.pathname.startsWith("/library") || location.pathname.startsWith("/project/");

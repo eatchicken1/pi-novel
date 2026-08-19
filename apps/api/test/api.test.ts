@@ -38,6 +38,102 @@ describe("Novel API", () => {
 		expect(missing.json()).toEqual({ error: { code: "PROJECT_NOT_FOUND", message: "Project not found" } });
 	});
 
+	it("keeps bootstrap usable without a workspace and exposes project capabilities", async () => {
+		const app = await createNovelApi({ localToken: token });
+		apps.push(app);
+		const headers = { "x-pi-novel-token": token };
+		const unset = await app.inject({ method: "GET", url: "/api/bootstrap", headers });
+		expect(unset.statusCode).toBe(200);
+		expect(unset.json()).toMatchObject({ api: "ready", workspace: { status: "unset", summary: null }, runtime: { configured: false } });
+		const root = await mkdtemp(join(tmpdir(), "pi-novel-api-capabilities-"));
+		const projectId = "native-capabilities";
+		await mkdir(join(root, projectId));
+		await writeFile(join(root, projectId, "novel.yaml"), `schema_version: 1\nproject_id: ${projectId}\ntitle: Capabilities\n`);
+		const initialized = await app.inject({ method: "POST", url: "/api/workspace/initialize", headers, payload: { path: root } });
+		expect(initialized.statusCode).toBe(200);
+		const ready = await app.inject({ method: "GET", url: "/api/bootstrap", headers });
+		expect(ready.json()).toMatchObject({ api: "ready", workspace: { status: "ready" }, runtime: { configured: false } });
+		const capabilities = await app.inject({ method: "GET", url: `/api/projects/${projectId}/capabilities`, headers });
+		expect(capabilities.statusCode).toBe(200);
+		expect(capabilities.json()).toMatchObject({ manuscriptRead: "supported", manuscriptWrite: "supported", chapterWorkflow: "supported", chapterReview: "supported", storyGraph: "unsupported", revisionImpact: "unsupported" });
+	});
+
+	it("refreshes sequential draft hashes and reports external modification", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-novel-api-save-"));
+		const projectId = "save-story";
+		await mkdir(join(root, projectId));
+		await writeFile(join(root, projectId, "novel.yaml"), `schema_version: 1\nproject_id: ${projectId}\ntitle: Save Story\n`);
+		const app = await createNovelApi({ localToken: token });
+		apps.push(app);
+		const headers = { "x-pi-novel-token": token };
+		await app.inject({ method: "POST", url: "/api/workspace/initialize", headers, payload: { path: root } });
+		await app.inject({ method: "POST", url: `/api/projects/${projectId}/chapters`, headers, payload: { title: "潮汐" } });
+		const initialResponse = await app.inject({ method: "GET", url: `/api/projects/${projectId}/chapters/1`, headers });
+		const initial = (initialResponse.json() as { chapter: { metadata: { contentHash: string }; workflow: { draft: { draftRevision: number } } } }).chapter;
+		const first = await app.inject({ method: "PUT", url: `/api/projects/${projectId}/chapters/1/draft`, headers, payload: { content: "# 潮汐\n\n第一稿。\n", baseContentHash: initial.metadata.contentHash, revision: initial.workflow.draft.draftRevision + 1 } });
+		const firstDraft = first.json() as { contentHash: string; draftRevision: number };
+		const second = await app.inject({ method: "PUT", url: `/api/projects/${projectId}/chapters/1/draft`, headers, payload: { content: "# 潮汐\n\n第二稿。\n", baseContentHash: firstDraft.contentHash, revision: firstDraft.draftRevision + 1 } });
+		expect(second.statusCode).toBe(200);
+		const secondDraft = second.json() as { contentHash: string; draftRevision: number };
+		expect(secondDraft.contentHash).not.toBe(firstDraft.contentHash);
+		await writeFile(join(root, projectId, "manuscript", "chapter-001.md"), "# 外部版本\n\n");
+		const conflict = await app.inject({ method: "PUT", url: `/api/projects/${projectId}/chapters/1/draft`, headers, payload: { content: "# 本地版本\n\n", baseContentHash: secondDraft.contentHash, revision: secondDraft.draftRevision + 1 } });
+		expect(conflict.statusCode).toBe(409);
+		expect(conflict.json()).toMatchObject({ error: { code: "CHAPTER_EXTERNAL_MODIFICATION" } });
+	});
+
+	it("preserves review acknowledgement and blocks finalization for current chapter issues", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-novel-api-review-"));
+		const projectId = "review-story";
+		await mkdir(join(root, projectId));
+		await writeFile(join(root, projectId, "novel.yaml"), `schema_version: 1\nproject_id: ${projectId}\ntitle: Review Story\n`);
+		const app = await createNovelApi({ localToken: token });
+		apps.push(app);
+		const headers = { "x-pi-novel-token": token };
+		await app.inject({ method: "POST", url: "/api/workspace/initialize", headers, payload: { path: root } });
+		await app.inject({ method: "POST", url: `/api/projects/${projectId}/chapters`, headers, payload: { title: "无标题测试" } });
+		const resource = (await app.inject({ method: "GET", url: `/api/projects/${projectId}/chapters/1`, headers })).json() as { chapter: { metadata: { contentHash: string }; workflow: { draft: { draftRevision: number } } } };
+		const draft = (await app.inject({ method: "PUT", url: `/api/projects/${projectId}/chapters/1/draft`, headers, payload: { content: "没有 Markdown 标题的正文。\n", baseContentHash: resource.chapter.metadata.contentHash, revision: resource.chapter.workflow.draft.draftRevision + 1 } })).json() as { contentHash: string; draftRevision: number };
+		const review = await app.inject({ method: "GET", url: `/api/projects/${projectId}/review`, headers });
+		const issue = (review.json() as { current: Array<{ issueId: string; sourceCode: string }> }).current.find((candidate) => candidate.sourceCode === "NATIVE_CHAPTER_TITLE_MISSING");
+		expect(issue).toBeDefined();
+		const acknowledged = await app.inject({ method: "POST", url: `/api/projects/${projectId}/review/${issue?.issueId}/acknowledge`, headers });
+		expect(acknowledged.json()).toMatchObject({ issue: { status: "acknowledged" } });
+		const refreshed = await app.inject({ method: "GET", url: `/api/projects/${projectId}/review`, headers });
+		const refreshedIssue = (refreshed.json() as { issues: Array<{ issueId: string; status: string }> }).issues.find((candidate) => candidate.issueId === issue?.issueId);
+		expect(refreshedIssue?.status).toBe("acknowledged");
+		const reconciled = await app.inject({ method: "POST", url: `/api/projects/${projectId}/chapters/1/reconcile`, headers, payload: draft });
+		expect(reconciled.statusCode).toBe(200);
+		await app.inject({ method: "POST", url: `/api/projects/${projectId}/chapters/1/settlement`, headers, payload: { draftRevision: draft.draftRevision, contentHash: draft.contentHash, summary: { pov: "", time: "", locations: [], characters: [], events: [], newFacts: [], relationshipChanges: [], cluesIntroduced: [], cluesResolved: [], itemsChanged: [], openQuestions: [] }, knowledgeChanges: [], relationshipChanges: [], objects: [], threads: [], promises: [], clues: [], professionalState: [], timelineChanges: [], confirmation: "USER_CONFIRMED" } });
+		const workflow = await app.inject({ method: "GET", url: `/api/projects/${projectId}/chapters/1/workflow`, headers });
+		const workflowPayload = workflow.json() as { canFinalize: boolean; blockingReasons: Array<{ code: string }> };
+		expect(workflowPayload.canFinalize).toBe(false);
+		expect(workflowPayload.blockingReasons.map((reason) => reason.code)).toEqual(expect.arrayContaining(["CURRENT_REVIEW_BLOCKING", "CURRENT_REVIEW_MAJOR"]));
+	});
+
+	it("marks settlement stale after a later draft save", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-novel-api-settlement-"));
+		const projectId = "settlement-story";
+		await mkdir(join(root, projectId));
+		await writeFile(join(root, projectId, "novel.yaml"), `schema_version: 1\nproject_id: ${projectId}\ntitle: Settlement Story\n`);
+		const app = await createNovelApi({ localToken: token });
+		apps.push(app);
+		const headers = { "x-pi-novel-token": token };
+		await app.inject({ method: "POST", url: "/api/workspace/initialize", headers, payload: { path: root } });
+		await app.inject({ method: "POST", url: `/api/projects/${projectId}/chapters`, headers, payload: { title: "潮汐" } });
+		const initial = (await app.inject({ method: "GET", url: `/api/projects/${projectId}/chapters/1`, headers })).json() as { chapter: { metadata: { contentHash: string }; workflow: { draft: { draftRevision: number } } } };
+		const first = (await app.inject({ method: "PUT", url: `/api/projects/${projectId}/chapters/1/draft`, headers, payload: { content: "# 潮汐\n\n第一稿。\n", baseContentHash: initial.chapter.metadata.contentHash, revision: initial.chapter.workflow.draft.draftRevision + 1 } })).json() as { contentHash: string; draftRevision: number };
+		await app.inject({ method: "POST", url: `/api/projects/${projectId}/chapters/1/reconcile`, headers, payload: first });
+		await app.inject({ method: "POST", url: `/api/projects/${projectId}/chapters/1/settlement`, headers, payload: { draftRevision: first.draftRevision, contentHash: first.contentHash, summary: { pov: "", time: "", locations: [], characters: [], events: [], newFacts: [], relationshipChanges: [], cluesIntroduced: [], cluesResolved: [], itemsChanged: [], openQuestions: [] }, knowledgeChanges: [], relationshipChanges: [], objects: [], threads: [], promises: [], clues: [], professionalState: [], timelineChanges: [], confirmation: "USER_CONFIRMED" } });
+		const second = (await app.inject({ method: "PUT", url: `/api/projects/${projectId}/chapters/1/draft`, headers, payload: { content: "# 潮汐\n\n第二稿。\n", baseContentHash: first.contentHash, revision: first.draftRevision + 1 } })).json() as { contentHash: string; draftRevision: number };
+		expect(second.contentHash).not.toBe(first.contentHash);
+		const workflow = await app.inject({ method: "GET", url: `/api/projects/${projectId}/chapters/1/workflow`, headers });
+		const workflowPayload = workflow.json() as { settlementStale: boolean; canFinalize: boolean; blockingReasons: Array<{ code: string }> };
+		expect(workflowPayload.settlementStale).toBe(true);
+		expect(workflowPayload.canFinalize).toBe(false);
+		expect(workflowPayload.blockingReasons.map((reason) => reason.code)).toEqual(expect.arrayContaining(["RECONCILIATION_REQUIRED", "SETTLEMENT_STALE"]));
+	});
+
 	it("runs the native chapter authoring workflow through the HTTP API", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-novel-api-native-chapter-"));
 		const projectId = "native-story";

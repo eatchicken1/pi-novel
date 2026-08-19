@@ -13,6 +13,7 @@ import type {
 	ForgeTask,
 	MaterializeForgeInput,
 	ModelCatalog,
+	ProjectCapabilities,
 	ProjectRecord,
 	ProjectScanResult,
 	ReconcileInput,
@@ -268,6 +269,7 @@ export interface StoryGraphSources {
 }
 
 export interface NovelEnginePort {
+	getCapabilities(workspaceRoot: string, projectId: string): Promise<ProjectCapabilities | null>;
 	getStatus(workspaceRoot: string, projectId: string): Promise<NovelEngineStatus | null>;
 	listChapters(workspaceRoot: string, projectId: string, kind: "native" | "legacy"): Promise<ChapterSummaryView[]>;
 	readChapter(

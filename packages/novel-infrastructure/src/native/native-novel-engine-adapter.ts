@@ -12,6 +12,7 @@ import type {
 	RevisionImpactInput,
 	StoryGraphSources,
 } from "@earendil-works/pi-novel-application";
+import type { ProjectCapabilities } from "@earendil-works/pi-novel-contracts";
 
 function hash(content: string): string {
 	return createHash("sha256").update(content, "utf8").digest("hex");
@@ -34,6 +35,23 @@ export class NativeNovelEngineAdapter implements NovelEnginePort {
 
 	constructor(registry: ProjectDatabaseRegistryPort) {
 		this.registry = registry;
+	}
+
+	async getCapabilities(workspaceRoot: string, projectId: string): Promise<ProjectCapabilities | null> {
+		const root = projectRoot(workspaceRoot, projectId);
+		if (!existsSync(join(root, "novel.yaml"))) return null;
+		return {
+			manuscriptRead: "supported",
+			manuscriptWrite: "supported",
+			chapterWorkflow: "supported",
+			chapterReview: "supported",
+			manuscriptReview: "coming_later",
+			storyGraph: "unsupported",
+			revisionImpact: "unsupported",
+			narrativePatch: "unsupported",
+			canon: "coming_later",
+			history: "supported",
+		};
 	}
 
 	async getStatus(workspaceRoot: string, projectId: string): Promise<NovelEngineStatus | null> {
@@ -125,8 +143,43 @@ export class NativeNovelEngineAdapter implements NovelEnginePort {
 		return null;
 	}
 
-	async reviewSources(_workspaceRoot: string, _projectId: string): Promise<ReviewIssueSource[]> {
-		return [];
+	async reviewSources(workspaceRoot: string, projectId: string): Promise<ReviewIssueSource[]> {
+		const chapters = await this.listChapters(workspaceRoot, projectId, "native");
+		const issues: ReviewIssueSource[] = [];
+		for (const chapter of chapters) {
+			const document = await this.readChapter(workspaceRoot, projectId, "native", chapter.chapter);
+			if (document === null) continue;
+			if (document.text.trim().length === 0) {
+				issues.push({
+					sourceCode: "NATIVE_CHAPTER_EMPTY",
+					severity: "error",
+					priority: "P0",
+					scope: "chapter",
+					repairScope: "prose",
+					blockingForCurrentAction: true,
+					chapter: chapter.chapter,
+					scene: null,
+					landingChapter: chapter.chapter,
+					message: `第 ${chapter.chapter} 章还没有正文。`,
+					evidence: null,
+				});
+			} else if (!/^#\s+.+$/mu.test(document.text)) {
+				issues.push({
+					sourceCode: "NATIVE_CHAPTER_TITLE_MISSING",
+					severity: "warning",
+					priority: "P1",
+					scope: "chapter",
+					repairScope: "prose",
+					blockingForCurrentAction: true,
+					chapter: chapter.chapter,
+					scene: null,
+					landingChapter: chapter.chapter,
+					message: `第 ${chapter.chapter} 章缺少 Markdown 标题。`,
+					evidence: document.text.slice(0, 120),
+				});
+			}
+		}
+		return issues;
 	}
 
 	async storyGraphSources(_workspaceRoot: string, _projectId: string): Promise<StoryGraphSources | null> {

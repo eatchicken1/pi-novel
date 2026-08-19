@@ -1,7 +1,11 @@
 export const novelQueryKeys = {
+	bootstrap: ["bootstrap"] as const,
 	workspace: ["workspace"] as const,
 	projects: ["projects"] as const,
 	chapters: (projectId: string) => ["projects", projectId, "chapters"] as const,
+	capabilities: (projectId: string) => ["projects", projectId, "capabilities"] as const,
+	review: (projectId: string) => ["projects", projectId, "review"] as const,
+	changeSet: (projectId: string, changeSetId: string) => ["projects", projectId, "changesets", changeSetId] as const,
 	chapter: (projectId: string, chapter: number) => ["projects", projectId, "chapters", chapter] as const,
 	models: ["models"] as const,
 	runtimeProfiles: ["runtime", "profiles"] as const,

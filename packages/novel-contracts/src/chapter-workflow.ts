@@ -235,6 +235,14 @@ export const ChapterWorkflowSnapshotSchema = Type.Object(
 		settlement: Type.Union([Type.Null(), ChapterSettlementSchema]),
 		canSettle: Type.Boolean(),
 		canFinalize: Type.Boolean(),
+		settlementStale: Type.Boolean(),
+		nextAction: Type.String({ minLength: 1 }),
+		blockingReasons: Type.Array(
+			Type.Object(
+				{ code: Type.String({ minLength: 1 }), message: Type.String({ minLength: 1 }) },
+				{ additionalProperties: false },
+			),
+		),
 		recommendation: Type.Union([
 			Type.Literal("draft"),
 			Type.Literal("reconcile"),

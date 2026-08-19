@@ -126,6 +126,8 @@ import { registerHistoryRoutes } from "./routes/history.ts";
 import { registerGraphRoutes } from "./routes/graph.ts";
 import { registerTaskRoutes } from "./routes/tasks.ts";
 import { registerChapterWorkflowRoutes } from "./routes/chapter-workflow.ts";
+import { registerBootstrapRoute } from "./routes/bootstrap.ts";
+import { registerCapabilitiesRoute } from "./routes/capabilities.ts";
 
 export interface NovelApiOptions {
 	workspaceRoot?: string;
@@ -218,8 +220,10 @@ export async function createNovelApi(options: NovelApiOptions = {}): Promise<Fas
 		return reply.code(statusCode).send({ error: { code, message: code === "INTERNAL_ERROR" ? "Internal server error" : error.message } });
 	});
 	registerHealthRoute(app);
+	registerBootstrapRoute(app, workspaceService, agentRuntime);
 	registerWorkspaceRoutes(app, workspaceService);
 	registerProjectRoutes(app, new ProjectQueryService(workspaceService));
+	registerCapabilitiesRoute(app, workspaceService, engine);
 	registerProductProjectRoutes(app, reads, studioService, chapterWorkflow);
 	registerModelRoutes(app, modelCatalogService, workspaceService);
 	registerRuntimeRoutes(app, agentRuntime);

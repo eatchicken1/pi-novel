@@ -1,10 +1,15 @@
 import { ArrowLeft, FileText, Layers3 } from "lucide-react";
 import { NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import type { ProjectRecord } from "@earendil-works/pi-novel-contracts";
+import type { ProjectCapabilities } from "@earendil-works/pi-novel-contracts";
+import { useQuery } from "@tanstack/react-query";
+import { getProjectCapabilities } from "../../api/client.ts";
+import { novelQueryKeys } from "../../api/query-keys.ts";
 import { useAppShellContext } from "../../app/AppShell.tsx";
 
 interface StudioShellContext {
 	project: ProjectRecord;
+	capabilities: ProjectCapabilities | null;
 }
 
 export function useStudioShellContext(): StudioShellContext {
@@ -27,6 +32,14 @@ export function StudioShell() {
 	const { overview } = useAppShellContext();
 	const navigate = useNavigate();
 	const project = overview?.projects.find((entry) => entry.projectId === projectId) ?? null;
+	const capabilitiesQuery = useQuery({ queryKey: novelQueryKeys.capabilities(projectId ?? ""), queryFn: () => getProjectCapabilities(projectId ?? ""), enabled: projectId !== undefined });
 	if (!project) return <div className="studio-empty"><Layers3 size={24} /><h2>项目不可用</h2><p>这个项目可能已从 Workspace 扫描结果中移除。</p><button className="quiet-button" type="button" onClick={() => navigate("/library")}><ArrowLeft size={14} /> 返回作品库</button></div>;
-	return <div className="studio-page"><div className="studio-topbar"><div className="studio-title"><div className={`project-mark ${project.kind}`}><FileText size={16} /></div><div><strong>{project.title}</strong><span>{project.kind === "legacy" ? "只读作品 · 写入保护" : "可编辑作品"}</span></div></div><nav className="studio-tabs" aria-label="Studio 视图">{STUDIO_MODES.map((entry) => <NavLink key={entry.mode} to={entry.path} className={({ isActive }) => (isActive ? "active" : "")} aria-label={`打开${entry.label}视图`}>{entry.label}</NavLink>)}</nav><button className="icon-button studio-back-button" type="button" aria-label="返回作品库" title="返回作品库" onClick={() => navigate("/library")}><ArrowLeft size={16} /></button></div><Outlet context={{ project } satisfies StudioShellContext} /></div>;
+	const capabilities = capabilitiesQuery.data ?? null;
+	const visibleModes = STUDIO_MODES.filter((entry) => capabilityForMode(capabilities, entry.mode) !== "unsupported");
+	return <div className="studio-page"><div className="studio-topbar"><button className="quiet-button studio-back-button" type="button" onClick={() => navigate("/library")}><ArrowLeft size={14} /> 作品</button><div className="studio-title"><div className="project-mark"><FileText size={16} /></div><div><strong>{project.title}</strong><span>作者工作区</span></div></div><nav className="studio-tabs" aria-label="Studio 视图">{visibleModes.map((entry) => { const status = capabilityForMode(capabilities, entry.mode); return <NavLink key={entry.mode} to={entry.path} className={({ isActive }) => `${isActive ? "active" : ""} ${status === "coming_later" ? "disabled" : ""}`} aria-label={`打开${entry.label}视图`} onClick={(event) => { if (status === "coming_later") event.preventDefault(); }}>{entry.label}{status === "coming_later" && <small>稍后</small>}</NavLink>; })}</nav><span className="studio-runtime-label">Writer · High</span></div><Outlet context={{ project, capabilities } satisfies StudioShellContext} /></div>;
+}
+
+function capabilityForMode(capabilities: ProjectCapabilities | null, mode: StudioMode) {
+	if (capabilities === null) return "supported" as const;
+	return mode === "manuscript" ? capabilities.manuscriptRead : mode === "structure" ? capabilities.storyGraph : mode === "canon" ? capabilities.canon : mode === "review" ? capabilities.chapterReview : capabilities.history;
 }

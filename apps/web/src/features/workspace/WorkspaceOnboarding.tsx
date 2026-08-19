@@ -17,6 +17,7 @@ export function WorkspaceSetupDialog({ onInitialize, onClose }: WorkspaceSetupDi
 		setIsSubmitting(true);
 		try {
 			await onInitialize(path.trim());
+			onClose();
 		} catch (submitError) {
 			setError(submitError instanceof Error ? submitError.message : "Workspace 初始化失败");
 		} finally {

@@ -12,7 +12,7 @@ import type {
 	StoryGraphSourceEvent,
 	StoryGraphSources,
 } from "@earendil-works/pi-novel-application";
-import type { ChangeSetImpact } from "@earendil-works/pi-novel-contracts";
+import type { ChangeSetImpact, ProjectCapabilities } from "@earendil-works/pi-novel-contracts";
 import { NovelProjectStore } from "../../../../.pi/extensions/novel-agent/services/project-store.ts";
 
 function sha256(content: string): string {
@@ -72,6 +72,22 @@ function fairnessLandingChapter(
 // 写路径一律走 ChangeSet → Commit（invalidateDerived 只做派生重建）。
 export class LegacyNovelEngineAdapter implements NovelEnginePort {
 	private readonly stores = new Map<string, NovelProjectStore>();
+
+	async getCapabilities(workspaceRoot: string, projectId: string): Promise<ProjectCapabilities | null> {
+		if (!(await this.projectExists(workspaceRoot, projectId))) return null;
+		return {
+			manuscriptRead: "supported",
+			manuscriptWrite: "read_only",
+			chapterWorkflow: "unsupported",
+			chapterReview: "supported",
+			manuscriptReview: "supported",
+			storyGraph: "supported",
+			revisionImpact: "supported",
+			narrativePatch: "unsupported",
+			canon: "supported",
+			history: "supported",
+		};
+	}
 
 	private storeFor(workspaceRoot: string): NovelProjectStore {
 		const existing = this.stores.get(workspaceRoot);

@@ -85,19 +85,22 @@ export class ReviewService {
 		filter: { severity?: string; scope?: string; chapter?: number; status?: string } = {},
 	): Promise<ReviewListResponse> {
 		const repository = await this.handle(projectId);
+		await this.refresh(projectId);
 		const issues = repository.list(projectId, filter);
-		const current = issues.filter((issue) => issue.scope === "scene" || issue.scope === "chapter");
-		const future = issues.filter(
-			(issue) =>
-				issue.scope === "future-chapter" ||
-				(issue.landingChapter !== null && issue.landingChapter > (filter.chapter ?? 0)),
-		);
 		const structural = issues.filter(
 			(issue) =>
 				issue.scope === "movement" ||
 				issue.scope === "story-design" ||
 				issue.scope === "manuscript" ||
 				["event-graph", "architecture", "foundation", "manuscript"].includes(issue.repairScope),
+		);
+		const current = issues.filter(
+			(issue) => (issue.scope === "scene" || issue.scope === "chapter") && !structural.includes(issue),
+		);
+		const future = issues.filter(
+			(issue) =>
+				issue.scope === "future-chapter" ||
+				(issue.landingChapter !== null && issue.landingChapter > (filter.chapter ?? 0)),
 		);
 		const suggestions = issues.filter(
 			(issue) =>

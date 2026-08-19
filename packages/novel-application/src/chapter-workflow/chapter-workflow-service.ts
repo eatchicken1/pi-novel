@@ -116,8 +116,8 @@ export class ChapterWorkflowService {
 			projectId,
 			chapter,
 			phase: "draft",
-			reconcile: null,
-			settlement: null,
+			reconcile: this.repository(projectId, project.rootPath).get(projectId, chapter)?.reconcile ?? null,
+			settlement: this.repository(projectId, project.rootPath).get(projectId, chapter)?.settlement ?? null,
 			updatedAt: now,
 		});
 		return draft;
@@ -172,6 +172,7 @@ export class ChapterWorkflowService {
 			stored.settlement.contentHash === draft.contentHash
 				? stored.settlement
 				: null;
+		const settlementStale = stored?.settlement !== null && stored?.settlement !== undefined && settlement === null;
 		const readiness = await this.readiness(projectId, chapter);
 		const finalized =
 			(await this.engine.getStatus(workspaceRoot, projectId).catch(() => null))?.finalizedChapters.includes(
@@ -198,6 +199,39 @@ export class ChapterWorkflowService {
 			readiness.canFinalize &&
 			settlement !== null &&
 			!(await this.hasBlockingChangeSet(projectId, chapter));
+		const blockingReasons: Array<{ code: string; message: string }> = [];
+		if (!readiness.canFinalize) {
+			if (readiness.blockingCount > 0)
+				blockingReasons.push({
+					code: "CURRENT_REVIEW_BLOCKING",
+					message: `还有 ${readiness.blockingCount} 个当前问题需要处理。`,
+				});
+			if (readiness.majorLocalCount > 0)
+				blockingReasons.push({
+					code: "CURRENT_REVIEW_MAJOR",
+					message: `还有 ${readiness.majorLocalCount} 个当前章节的重要问题。`,
+				});
+		}
+		if (!canSettle) {
+			if (reconcile === null)
+				blockingReasons.push({ code: "RECONCILIATION_REQUIRED", message: "请先检查正文与当前故事状态。" });
+			if (
+				reconcile?.status === "creative-discovery-accepted" &&
+				reconcile.changeSetId !== null &&
+				!(await this.changeSetCommitted(projectId, reconcile.changeSetId))
+			)
+				blockingReasons.push({ code: "CHANGESET_NOT_COMMITTED", message: "有一项故事变化等待确认。" });
+		}
+		if (settlementStale)
+			blockingReasons.push({
+				code: "SETTLEMENT_STALE",
+				message: "正文在确认本章状态后又被修改，需要重新检查本章变化。",
+			});
+		if (settlement === null && canSettle)
+			blockingReasons.push({ code: "SETTLEMENT_REQUIRED", message: "请确认本章产生的故事变化。" });
+		if (await this.hasBlockingChangeSet(projectId, chapter))
+			blockingReasons.push({ code: "CHANGESET_PENDING", message: "有一项影响本章的故事变化尚未完成。" });
+		const nextAction = finalized ? "本章已完成" : (blockingReasons[0]?.message ?? "本章已经准备完成，可以正式定稿。");
 		const recommendation = finalized
 			? "finished"
 			: draft === null
@@ -218,6 +252,9 @@ export class ChapterWorkflowService {
 			settlement,
 			canSettle,
 			canFinalize,
+			settlementStale,
+			nextAction,
+			blockingReasons,
 			recommendation,
 			updatedAt: stored?.updatedAt ?? this.clock.now(),
 		};

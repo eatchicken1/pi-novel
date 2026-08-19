@@ -50,3 +50,19 @@ export const WorkspaceResponseSchema = Type.Object(
 	{ workspace: Type.Union([Type.Null(), WorkspaceOverviewSchema]) },
 	{ additionalProperties: false },
 );
+
+export const BootstrapResponseSchema = Type.Object(
+	{
+		api: Type.Literal("ready"),
+		workspace: Type.Object(
+			{
+				status: Type.Union([Type.Literal("ready"), Type.Literal("unset")]),
+				summary: Type.Union([WorkspaceOverviewSchema, Type.Null()]),
+			},
+			{ additionalProperties: false },
+		),
+		runtime: Type.Object({ configured: Type.Boolean() }, { additionalProperties: false }),
+	},
+	{ additionalProperties: false },
+);
+export type BootstrapResponse = Static<typeof BootstrapResponseSchema>;

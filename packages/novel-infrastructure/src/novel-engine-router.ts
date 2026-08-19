@@ -34,6 +34,10 @@ export class NovelEngineRouter implements NovelEnginePort {
 		throw new Error("PROJECT_NOT_FOUND");
 	}
 
+	getCapabilities(root: string, projectId: string) {
+		return this.adapter(root, projectId).getCapabilities(root, projectId);
+	}
+
 	getStatus(root: string, projectId: string) {
 		return this.adapter(root, projectId).getStatus(root, projectId);
 	}
