@@ -3,12 +3,15 @@ import { Type } from "typebox";
 import {
 	ApiErrorResponseSchema,
 	ChapterDocumentSchema,
+	ChapterResourceSchema,
 	ChapterSummarySchema,
 	ProjectDetailSchema,
 	ProjectStatusSnapshotSchema,
 	StudioSnapshotSchema,
+	CreateChapterInputSchema,
+	type CreateChapterInput,
 } from "@earendil-works/pi-novel-contracts";
-import type { ProjectReadService, StudioService } from "@earendil-works/pi-novel-application";
+import type { ChapterWorkflowService, ProjectReadService, StudioService } from "@earendil-works/pi-novel-application";
 
 const ParamsSchema = Type.Object({ projectId: Type.String({ minLength: 1 }) }, { additionalProperties: false });
 const ChapterParamsSchema = Type.Object(
@@ -21,6 +24,7 @@ export function registerProductProjectRoutes(
 	app: FastifyInstance,
 	reads: ProjectReadService,
 	studio: StudioService,
+	chapterWorkflow: ChapterWorkflowService,
 ): void {
 	app.get<{ Params: { projectId: string } }>(
 		"/api/projects/:projectId/detail",
@@ -57,13 +61,28 @@ export function registerProductProjectRoutes(
 	);
 	app.get<{ Params: { projectId: string; chapter: string } }>(
 		"/api/projects/:projectId/chapters/:chapter",
-		{ schema: { params: ChapterParamsSchema, response: { 200: Type.Object({ chapter: ChapterDocumentSchema }, { additionalProperties: false }), 404: ApiErrorResponseSchema } } },
+		{ schema: { params: ChapterParamsSchema, response: { 200: Type.Object({ chapter: ChapterResourceSchema }, { additionalProperties: false }), 404: ApiErrorResponseSchema } } },
 		async (request, reply) => {
 			try {
-				return { chapter: await reads.chapter(request.params.projectId, Number(request.params.chapter)) };
+				const chapter = await reads.chapter(request.params.projectId, Number(request.params.chapter));
+				const workflow = await chapterWorkflow.getSnapshot(request.params.projectId, Number(request.params.chapter));
+				return { chapter: { metadata: { chapter: chapter.chapter, title: chapter.title, wordCount: [...chapter.text].length, contentHash: chapter.contentHash, revision: chapter.revision, finalized: workflow.phase === "finalized", updatedAt: chapter.updatedAt }, content: chapter.text, workflow } };
 			} catch (error) {
 				const code = error instanceof Error && error.message === "CHAPTER_NOT_FOUND" ? "CHAPTER_NOT_FOUND" : "PROJECT_NOT_FOUND";
 				return reply.code(404).send({ error: { code, message: code === "CHAPTER_NOT_FOUND" ? "Chapter not found" : "Project not found" } });
+			}
+		},
+	);
+	app.post<{ Params: { projectId: string }; Body: CreateChapterInput }>(
+		"/api/projects/:projectId/chapters",
+		{ schema: { params: ParamsSchema, body: CreateChapterInputSchema, response: { 200: Type.Object({ chapter: ChapterDocumentSchema }, { additionalProperties: false }), 404: ApiErrorResponseSchema, 409: ApiErrorResponseSchema } } },
+		async (request, reply) => {
+			try {
+				return { chapter: await chapterWorkflow.createChapter(request.params.projectId, request.body) };
+			} catch (error) {
+				const code = error instanceof Error ? error.message : "INTERNAL_ERROR";
+				const status = code === "PROJECT_NOT_FOUND" || code === "CHAPTER_NOT_FOUND" ? 404 : 409;
+				return reply.code(status).send({ error: { code, message: code === "CHAPTER_ALREADY_EXISTS" ? "Chapter already exists" : "Unable to create chapter" } });
 			}
 		},
 	);

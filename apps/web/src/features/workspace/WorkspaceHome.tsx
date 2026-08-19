@@ -3,14 +3,15 @@ import { useState } from "react";
 import type { CreateForgeSessionInput, ProjectRecord, WorkspaceOverview } from "@earendil-works/pi-novel-contracts";
 
 interface WorkspaceHomeProps {
-	overview: WorkspaceOverview;
+	overview: WorkspaceOverview | null;
 	onNavigate: (path: string) => void;
 	onOpenProject: (project: ProjectRecord) => void;
 	onRescan: () => Promise<void>;
 	onCreateForgeSession: (input: CreateForgeSessionInput) => Promise<void>;
+	onOpenWorkspaceSetup: () => void;
 }
 
-export function WorkspaceHome({ overview, onNavigate, onOpenProject, onRescan, onCreateForgeSession }: WorkspaceHomeProps) {
+export function WorkspaceHome({ overview, onNavigate, onOpenProject, onRescan, onCreateForgeSession, onOpenWorkspaceSetup }: WorkspaceHomeProps) {
 	const [seed, setSeed] = useState("");
 	const [genre, setGenre] = useState("");
 	const [isCreating, setIsCreating] = useState(false);
@@ -32,6 +33,7 @@ export function WorkspaceHome({ overview, onNavigate, onOpenProject, onRescan, o
 		} catch (cause) { setError(cause instanceof Error ? cause.message : "故事工作区创建失败"); } finally { setIsCreating(false); }
 	}
 
+	if (overview === null) return <div className="page-stack"><section className="page-heading"><div><p className="eyebrow">01 / WORKSPACE</p><h1>起笔台</h1><p>先留下故事种子，Workspace 可稍后设置。</p></div></section><section className="home-grid"><div className="card forge-card"><div className="card-kicker"><WandSparkles size={16} /> 新故事</div><h2>今天想写一个怎样的故事？</h2><p className="muted">先记录想法，设置工作区后即可保存并继续。</p><textarea value={seed} onChange={(event) => setSeed(event.target.value)} placeholder="描述故事核心" /><div className="forge-footer"><span>{error ?? "Workspace 尚未设置"}</span><button className="primary-button" type="button" onClick={onOpenWorkspaceSetup}>选择工作区 <ArrowRight size={15} /></button></div></div></section></div>;
 	return (
 		<div className="page-stack">
 			<section className="page-heading"><div><p className="eyebrow">01 / WORKSPACE</p><h1>工作区 & 首页 <span>Library + Forge</span></h1><p>从这里管理所有小说，或开始创建新的故事。</p></div><button className="quiet-button" type="button" onClick={rescan} disabled={isScanning}><RefreshCw size={15} className={isScanning ? "spin" : ""} /> {isScanning ? "扫描中" : "重新扫描"}</button></section>

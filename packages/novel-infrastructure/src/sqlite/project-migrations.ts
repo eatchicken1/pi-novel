@@ -21,6 +21,14 @@ export function loadProjectMigrations(): ProjectMigration[] {
 			id: "004_commit_recovery.sql",
 			sql: readFileSync(fileURLToPath(new URL("./migrations/004_commit_recovery.sql", import.meta.url)), "utf8"),
 		},
+		{
+			id: "007_chapter_workflow.sql",
+			sql: readFileSync(fileURLToPath(new URL("./migrations/007_chapter_workflow.sql", import.meta.url)), "utf8"),
+		},
+		{
+			id: "008_chapter_metadata.sql",
+			sql: readFileSync(fileURLToPath(new URL("./migrations/008_chapter_metadata.sql", import.meta.url)), "utf8"),
+		},
 	];
 }
 

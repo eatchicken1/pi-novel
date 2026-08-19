@@ -1,4 +1,5 @@
 import type { StudioSnapshot } from "@earendil-works/pi-novel-contracts";
+import type { ChapterWorkflowService } from "../chapter-workflow/chapter-workflow-service.ts";
 import type { NovelEnginePort, ProjectDatabaseRegistryPort, TaskRepositoryPort } from "../ports.ts";
 import type { ProjectReadService } from "../projects/project-read-service.ts";
 import type { ReviewService } from "../review/review-service.ts";
@@ -12,6 +13,7 @@ export class StudioService {
 	private readonly registry: ProjectDatabaseRegistryPort;
 	private readonly tasks: TaskRepositoryPort;
 	private readonly engine: NovelEnginePort;
+	private readonly chapterWorkflow?: ChapterWorkflowService;
 
 	constructor(dependencies: {
 		workspace: WorkspaceService;
@@ -20,6 +22,7 @@ export class StudioService {
 		registry: ProjectDatabaseRegistryPort;
 		tasks: TaskRepositoryPort;
 		engine: NovelEnginePort;
+		chapterWorkflow?: ChapterWorkflowService;
 	}) {
 		this.workspace = dependencies.workspace;
 		this.reads = dependencies.reads;
@@ -27,6 +30,7 @@ export class StudioService {
 		this.registry = dependencies.registry;
 		this.tasks = dependencies.tasks;
 		this.engine = dependencies.engine;
+		this.chapterWorkflow = dependencies.chapterWorkflow;
 	}
 
 	async getSnapshot(projectId: string, activeChapter?: number): Promise<StudioSnapshot> {
@@ -42,6 +46,11 @@ export class StudioService {
 		const reviewSummary = await this.review.summary(projectId);
 		const status = await this.engine.getStatus(overview.manifest.rootPath, projectId).catch(() => null);
 		const recommendedNextActions: Array<{ tool: string; reason: string; chapter?: number }> = [];
+		const workflowChapter = activeChapter ?? status?.nextChapter ?? null;
+		const activeWorkflow =
+			workflowChapter === null || this.chapterWorkflow === undefined
+				? null
+				: await this.chapterWorkflow.getSnapshot(projectId, workflowChapter).catch(() => null);
 		if (status?.memoryStatus === "stale") {
 			recommendedNextActions.push({ tool: "repair_narrative_memory", reason: "派生内存过期，先重建" });
 		} else if (status?.nextChapter !== null && status?.nextChapter !== undefined) {
@@ -60,12 +69,17 @@ export class StudioService {
 			activeTasks: [...new Map(activeTasks.map((task) => [task.taskId, task])).values()],
 			reviewSummary,
 			workflowStatus:
-				status?.memoryStatus === "stale"
-					? "needs-repair"
-					: pendingChangeSets.length > 0
-						? "review-pending"
-						: "drafting",
+				activeWorkflow?.phase === "finalized"
+					? "finalized"
+					: activeWorkflow?.recommendation === "reconcile"
+						? "reconcile-required"
+						: status?.memoryStatus === "stale"
+							? "needs-repair"
+							: pendingChangeSets.length > 0
+								? "review-pending"
+								: "drafting",
 			recommendedNextActions,
+			activeWorkflow,
 		};
 	}
 }

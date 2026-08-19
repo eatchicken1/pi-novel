@@ -79,16 +79,17 @@ export class ReviewRepository {
 	upsert(issue: ReviewIssue): { created: boolean } {
 		const dedupKey = reviewIssueDedupKey(issue);
 		const existing = this.db
-			.prepare("SELECT issue_id FROM review_issues WHERE project_id = ? AND dedup_key = ?")
-			.get(issue.projectId, dedupKey) as { issue_id: string } | undefined;
+			.prepare("SELECT issue_id, status FROM review_issues WHERE project_id = ? AND dedup_key = ?")
+			.get(issue.projectId, dedupKey) as { issue_id: string; status: string } | undefined;
 		if (existing !== undefined) {
+			const preservedStatus = existing.status === "acknowledged" || existing.status === "dismissed";
 			this.db
 				.prepare(
-					"UPDATE review_issues SET last_seen_at = ?, status = ?, severity = ?, priority = ?, message = ?, blocking_for_current_action = ?, landing_chapter = ?, repair_scope = ? WHERE issue_id = ?",
+					"UPDATE review_issues SET last_seen_at = ?, status = ?, resolved_at = NULL, severity = ?, priority = ?, message = ?, blocking_for_current_action = ?, landing_chapter = ?, repair_scope = ? WHERE issue_id = ?",
 				)
 				.run(
 					issue.lastSeenAt,
-					issue.status,
+					preservedStatus ? existing.status : issue.status,
 					issue.severity,
 					issue.priority,
 					issue.message,
@@ -160,10 +161,10 @@ export class ReviewRepository {
 			.run(status, resolvedAt, issueId);
 	}
 
-	markResolvedBySource(projectId: string, sourceCodes: string[], now: string): number {
+	markResolvedByDedupKeys(projectId: string, dedupKeys: string[], now: string): number {
 		// 本次投影中已消失的来源 → resolved（不在 seen 列表中的 open/acknowledged issue）。
 		const result =
-			sourceCodes.length === 0
+			dedupKeys.length === 0
 				? this.db
 						.prepare(
 							"UPDATE review_issues SET status = 'resolved', resolved_at = ? WHERE project_id = ? AND status IN ('open', 'acknowledged')",
@@ -171,22 +172,27 @@ export class ReviewRepository {
 						.run(now, projectId)
 				: this.db
 						.prepare(
-							`UPDATE review_issues SET status = 'resolved', resolved_at = ? WHERE project_id = ? AND source_code NOT IN (${sourceCodes.map(() => "?").join(", ")}) AND status IN ('open', 'acknowledged')`,
+							`UPDATE review_issues SET status = 'resolved', resolved_at = ? WHERE project_id = ? AND dedup_key NOT IN (${dedupKeys.map(() => "?").join(", ")}) AND status IN ('open', 'acknowledged')`,
 						)
-						.run(now, projectId, ...sourceCodes);
+						.run(now, projectId, ...dedupKeys);
 		return Number(result.changes);
 	}
 
 	summary(projectId: string): ReviewSummary {
 		const row = this.db
 			.prepare(
-				"SELECT SUM(CASE WHEN status IN ('open','acknowledged') THEN 1 ELSE 0 END) AS open_count, SUM(CASE WHEN status IN ('open','acknowledged') AND blocking_for_current_action = 1 THEN 1 ELSE 0 END) AS blocking_count, SUM(CASE WHEN status IN ('open','acknowledged') AND severity = 'error' THEN 1 ELSE 0 END) AS error_count, SUM(CASE WHEN status IN ('open','acknowledged') AND severity = 'warning' THEN 1 ELSE 0 END) AS warning_count, MAX(last_seen_at) AS latest_run FROM review_issues WHERE project_id = ?",
+				"SELECT SUM(CASE WHEN status IN ('open','acknowledged') THEN 1 ELSE 0 END) AS open_count, SUM(CASE WHEN status IN ('open','acknowledged') AND blocking_for_current_action = 1 THEN 1 ELSE 0 END) AS blocking_count, SUM(CASE WHEN status IN ('open','acknowledged') AND severity = 'error' THEN 1 ELSE 0 END) AS error_count, SUM(CASE WHEN status IN ('open','acknowledged') AND severity = 'warning' THEN 1 ELSE 0 END) AS warning_count, SUM(CASE WHEN status IN ('open','acknowledged') AND blocking_for_current_action = 1 AND priority IN ('P0','P1') AND scope IN ('scene','chapter') THEN 1 ELSE 0 END) AS major_local_count, SUM(CASE WHEN status IN ('open','acknowledged') AND scope IN ('scene','chapter') THEN 1 ELSE 0 END) AS current_count, SUM(CASE WHEN status IN ('open','acknowledged') AND scope = 'future-chapter' THEN 1 ELSE 0 END) AS future_count, SUM(CASE WHEN status IN ('open','acknowledged') AND (scope IN ('movement','story-design','manuscript') OR repair_scope IN ('event-graph','architecture','foundation','manuscript')) THEN 1 ELSE 0 END) AS structural_count, SUM(CASE WHEN status IN ('open','acknowledged') AND blocking_for_current_action = 0 AND priority IN ('P3','P4') AND scope NOT IN ('movement','story-design','manuscript') AND repair_scope NOT IN ('event-graph','architecture','foundation','manuscript') THEN 1 ELSE 0 END) AS suggestion_count, MAX(last_seen_at) AS latest_run FROM review_issues WHERE project_id = ?",
 			)
 			.get(projectId) as {
 			open_count: number | null;
 			blocking_count: number | null;
 			error_count: number | null;
 			warning_count: number | null;
+			major_local_count: number | null;
+			current_count: number | null;
+			future_count: number | null;
+			structural_count: number | null;
+			suggestion_count: number | null;
 			latest_run: string | null;
 		};
 		return {
@@ -195,6 +201,12 @@ export class ReviewRepository {
 			errorCount: Number(row.error_count ?? 0),
 			warningCount: Number(row.warning_count ?? 0),
 			latestRunAt: row.latest_run,
+			majorLocalCount: Number(row.major_local_count ?? 0),
+			currentCount: Number(row.current_count ?? 0),
+			futureCount: Number(row.future_count ?? 0),
+			structuralCount: Number(row.structural_count ?? 0),
+			suggestionCount: Number(row.suggestion_count ?? 0),
+			canFinalize: Number(row.blocking_count ?? 0) === 0 && Number(row.major_local_count ?? 0) === 0,
 		};
 	}
 }

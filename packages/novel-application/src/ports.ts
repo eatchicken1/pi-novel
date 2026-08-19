@@ -1,8 +1,13 @@
 import type {
 	AgentRuntimeProfile,
+	ChapterDraft,
+	ChapterSettlement,
+	ChapterWorkflowPhase,
 	CommitRecord,
 	ConfigureModelApiKeyInput,
+	CreateChapterInput,
 	DirectionCandidate,
+	FinalizeChapterInput,
 	ForgeArtifact,
 	ForgeSession,
 	ForgeTask,
@@ -10,7 +15,10 @@ import type {
 	ModelCatalog,
 	ProjectRecord,
 	ProjectScanResult,
+	ReconcileInput,
+	ReconcileReport,
 	RuntimeInvocation,
+	SaveDraftInput,
 	StoryDirectionComparison,
 	TaskEvent,
 	WorkspaceManifest,
@@ -288,11 +296,92 @@ export interface NovelEnginePort {
 	invalidateDerived(workspaceRoot: string, projectId: string): Promise<void>;
 }
 
+// 章节写入能力独立于 NovelEnginePort：普通读取/分析不会意外触发正文或长期记忆写入。
+export interface ChapterAuthoringPort {
+	createChapter(
+		workspaceRoot: string,
+		projectId: string,
+		kind: "native" | "legacy",
+		input: CreateChapterInput,
+	): Promise<ChapterDocumentView>;
+	saveDraft(
+		workspaceRoot: string,
+		projectId: string,
+		kind: "native" | "legacy",
+		chapter: number,
+		input: SaveDraftInput,
+	): Promise<ChapterDraft>;
+	readDraft(
+		workspaceRoot: string,
+		projectId: string,
+		kind: "native" | "legacy",
+		chapter: number,
+	): Promise<ChapterDraft | null>;
+	reconcileChapter(
+		workspaceRoot: string,
+		projectId: string,
+		kind: "native" | "legacy",
+		chapter: number,
+		input: ReconcileInput,
+	): Promise<ReconcileReport>;
+	finalizeChapter(
+		workspaceRoot: string,
+		projectId: string,
+		kind: "native" | "legacy",
+		chapter: number,
+		input: FinalizeChapterInput,
+		settlement: ChapterSettlement,
+	): Promise<{ projectId: string; chapter: number; memoryCommitted: boolean; transactionId: string }>;
+}
+
+export interface ChapterWorkflowReadiness {
+	canFinalize: boolean;
+	blockingCount: number;
+	majorLocalCount: number;
+}
+
 export interface ProjectDatabaseHandle {
 	changesets: ChangeSetRepositoryPort;
 	commits: CommitRepositoryPort;
 	review: ReviewRepositoryPort;
 	graph: StoryGraphRepositoryPort;
+	chapterWorkflow: ChapterWorkflowRepositoryPort;
+	chapterMetadata: ChapterMetadataRepositoryPort;
+}
+
+export interface ChapterMetadata {
+	projectId: string;
+	chapter: number;
+	orderIndex: number;
+	title: string;
+	filePath: string;
+	draftRevision: number;
+	contentHash: string;
+	mtime: string;
+	workflowStatus: "draft" | "finalized";
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface ChapterMetadataRepositoryPort {
+	list(projectId: string): ChapterMetadata[];
+	get(projectId: string, chapter: number): ChapterMetadata | null;
+	create(metadata: ChapterMetadata): void;
+	update(metadata: ChapterMetadata): void;
+}
+
+export interface ChapterWorkflowRecord {
+	projectId: string;
+	chapter: number;
+	phase: ChapterWorkflowPhase;
+	reconcile: ReconcileReport | null;
+	settlement: ChapterSettlement | null;
+	updatedAt: string;
+}
+
+export interface ChapterWorkflowRepositoryPort {
+	get(projectId: string, chapter: number): ChapterWorkflowRecord | null;
+	upsert(record: ChapterWorkflowRecord): void;
 }
 
 export interface ProjectDatabaseRegistryPort {
@@ -360,7 +449,7 @@ export interface ReviewRepositoryPort {
 		status: import("@earendil-works/pi-novel-contracts").ReviewIssueStatus,
 		resolvedAt: string | null,
 	): void;
-	markResolvedBySource(projectId: string, sourceCodes: string[], now: string): number;
+	markResolvedByDedupKeys(projectId: string, dedupKeys: string[], now: string): number;
 	summary(projectId: string): import("@earendil-works/pi-novel-contracts").ReviewSummary;
 }
 

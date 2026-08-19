@@ -78,6 +78,7 @@ import cors from "@fastify/cors";
 import fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import {
 	AgentRuntimeService,
+	ChapterWorkflowService,
 	ChangeSetService,
 	ForgeService,
 	HistoryService,
@@ -96,6 +97,11 @@ import {
 	ForgeArtifactStore,
 	ForgeRepository,
 	LegacyNovelEngineAdapter,
+	LegacyChapterAuthoringAdapter,
+	NativeChapterAuthoringAdapter,
+	NativeNovelEngineAdapter,
+	NovelEngineRouter,
+	ChapterAuthoringRouter,
 	LegacyStoryExplorationAdapter,
 	FileTransaction,
 	MaterializationJournalRepository,
@@ -119,6 +125,7 @@ import { registerReviewRoutes } from "./routes/review.ts";
 import { registerHistoryRoutes } from "./routes/history.ts";
 import { registerGraphRoutes } from "./routes/graph.ts";
 import { registerTaskRoutes } from "./routes/tasks.ts";
+import { registerChapterWorkflowRoutes } from "./routes/chapter-workflow.ts";
 
 export interface NovelApiOptions {
 	workspaceRoot?: string;
@@ -155,7 +162,8 @@ export async function createNovelApi(options: NovelApiOptions = {}): Promise<Fas
 	const clock: ClockPort = { now: () => new Date().toISOString() };
 	const idGenerator = { id: () => globalThis.crypto.randomUUID() };
 	const registry = new ProjectDatabaseRegistry();
-	const engine = new LegacyNovelEngineAdapter();
+	const engine = new NovelEngineRouter(new NativeNovelEngineAdapter(registry), new LegacyNovelEngineAdapter());
+	const authoring = new ChapterAuthoringRouter(new NativeChapterAuthoringAdapter(registry), new LegacyChapterAuthoringAdapter());
 	const reads = new ProjectReadService(workspaceService, engine);
 	const reviewService = new ReviewService({ workspace: workspaceService, engine, registry, id: idGenerator });
 	const changeSets = new ChangeSetService({
@@ -168,10 +176,11 @@ export async function createNovelApi(options: NovelApiOptions = {}): Promise<Fas
 		clock,
 		reviewProjector: reviewService,
 	});
+	const chapterWorkflow = new ChapterWorkflowService({ workspace: workspaceService, registry, engine, authoring, review: reviewService, changeSets, clock });
 	const historyService = new HistoryService(workspaceService, registry);
 	const graphService = new StoryGraphService(workspaceService, engine, registry);
 	const taskRepository = taskRepositoryFor(workspaceService);
-	const studioService = new StudioService({ workspace: workspaceService, reads, review: reviewService, registry, tasks: taskRepository, engine });
+	const studioService = new StudioService({ workspace: workspaceService, reads, review: reviewService, registry, tasks: taskRepository, engine, chapterWorkflow });
 	const taskService = new TaskService(taskRepository, new UnavailableAgentRuntime(), clock);
 	if (options.workspaceRoot) {
 		const overview = await workspaceService.open(options.workspaceRoot);
@@ -211,7 +220,7 @@ export async function createNovelApi(options: NovelApiOptions = {}): Promise<Fas
 	registerHealthRoute(app);
 	registerWorkspaceRoutes(app, workspaceService);
 	registerProjectRoutes(app, new ProjectQueryService(workspaceService));
-	registerProductProjectRoutes(app, reads, studioService);
+	registerProductProjectRoutes(app, reads, studioService, chapterWorkflow);
 	registerModelRoutes(app, modelCatalogService, workspaceService);
 	registerRuntimeRoutes(app, agentRuntime);
 	registerForgeRoutes(app, forgeService, taskService);
@@ -220,6 +229,7 @@ export async function createNovelApi(options: NovelApiOptions = {}): Promise<Fas
 	registerHistoryRoutes(app, historyService);
 	registerGraphRoutes(app, graphService);
 	registerTaskRoutes(app, taskService, () => workspaceService.getWorkspacePaths()?.root ?? null);
+	registerChapterWorkflowRoutes(app, chapterWorkflow);
 	app.addHook("onClose", async () => {
 		taskRepository.close();
 		workspaceService.close();

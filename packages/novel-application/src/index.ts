@@ -1,4 +1,5 @@
 export * from "./changesets/change-set-service.ts";
+export * from "./chapter-workflow/chapter-workflow-service.ts";
 export * from "./forge/forge-service.ts";
 export * from "./graph/story-graph-service.ts";
 export * from "./history/history-service.ts";

@@ -2,6 +2,21 @@ import type { ReviewIssue, ReviewListResponse, ReviewSummary } from "@earendil-w
 import type { NovelEnginePort, ProjectDatabaseRegistryPort } from "../ports.ts";
 import type { WorkspaceService } from "../workspace/workspace-service.ts";
 
+function reviewIssueDedupKey(issue: {
+	sourceCode: string;
+	scope: string;
+	chapter: number | null;
+	landingChapter: number | null;
+	scene: string | null;
+}): string {
+	const scopeKey =
+		issue.scope === "chapter" || issue.scope === "scene" || issue.scope === "future-chapter"
+			? `${issue.scope}:${issue.chapter ?? "?"}`
+			: issue.scope;
+	const landing = issue.landingChapter === null ? "-" : String(issue.landingChapter);
+	return `${issue.sourceCode}|${scopeKey}|landing:${landing}|${issue.scene ?? "-"}`;
+}
+
 // Review projection：从持久化检查报告派生，不重跑 checker；
 // resolved 只能由 refresh（重新投影）自动更新，用户只能 acknowledge/dismiss。
 export class ReviewService {
@@ -36,7 +51,7 @@ export class ReviewService {
 		const repository = this.registry.open(projectId, project.rootPath).review;
 		const sources = await this.engine.reviewSources(overview.manifest.rootPath, projectId).catch(() => []);
 		const now = new Date().toISOString();
-		const seenSourceCodes = new Set<string>();
+		const seenDedupKeys = new Set<string>();
 		for (const source of sources) {
 			const issue: ReviewIssue = {
 				issueId: this.id.id(),
@@ -58,10 +73,10 @@ export class ReviewService {
 				resolvedAt: null,
 			};
 			repository.upsert(issue);
-			seenSourceCodes.add(source.sourceCode);
+			seenDedupKeys.add(reviewIssueDedupKey(issue));
 		}
 		// 已消失的来源 → resolved（不允许用户假装 resolved，只有重投影能改）
-		repository.markResolvedBySource(projectId, [...seenSourceCodes], now);
+		repository.markResolvedByDedupKeys(projectId, [...seenDedupKeys], now);
 		return repository.summary(projectId);
 	}
 
@@ -70,7 +85,43 @@ export class ReviewService {
 		filter: { severity?: string; scope?: string; chapter?: number; status?: string } = {},
 	): Promise<ReviewListResponse> {
 		const repository = await this.handle(projectId);
-		return { issues: repository.list(projectId, filter), summary: repository.summary(projectId) };
+		const issues = repository.list(projectId, filter);
+		const current = issues.filter((issue) => issue.scope === "scene" || issue.scope === "chapter");
+		const future = issues.filter(
+			(issue) =>
+				issue.scope === "future-chapter" ||
+				(issue.landingChapter !== null && issue.landingChapter > (filter.chapter ?? 0)),
+		);
+		const structural = issues.filter(
+			(issue) =>
+				issue.scope === "movement" ||
+				issue.scope === "story-design" ||
+				issue.scope === "manuscript" ||
+				["event-graph", "architecture", "foundation", "manuscript"].includes(issue.repairScope),
+		);
+		const suggestions = issues.filter(
+			(issue) =>
+				!issue.blockingForCurrentAction &&
+				(issue.priority === "P3" || issue.priority === "P4") &&
+				!structural.includes(issue),
+		);
+		const summary = repository.summary(projectId);
+		const recommendation =
+			summary.canFinalize === true
+				? summary.currentCount === 0
+					? "ready-to-finalize"
+					: "ready-to-settle"
+				: "continue-revision";
+		return {
+			issues,
+			summary,
+			current,
+			future,
+			structural,
+			suggestions,
+			canFinalize: summary.canFinalize,
+			recommendation,
+		};
 	}
 
 	async acknowledge(projectId: string, issueId: string): Promise<ReviewIssue> {

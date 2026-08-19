@@ -1,5 +1,6 @@
 import { type Static, Type } from "typebox";
 import { ChangeSetSchema } from "./changeset.ts";
+import { ChapterWorkflowSnapshotSchema } from "./chapter-workflow.ts";
 import { ISODateStringSchema } from "./common.ts";
 import { ProjectRecordSchema } from "./project.ts";
 import { ReviewSummarySchema } from "./review.ts";
@@ -74,6 +75,16 @@ export const ChapterDocumentSchema = Type.Object(
 );
 export type ChapterDocument = Static<typeof ChapterDocumentSchema>;
 
+export const ChapterResourceSchema = Type.Object(
+	{
+		metadata: ChapterSummarySchema,
+		content: Type.String(),
+		workflow: Type.Union([Type.Null(), ChapterWorkflowSnapshotSchema]),
+	},
+	{ additionalProperties: false },
+);
+export type ChapterResource = Static<typeof ChapterResourceSchema>;
+
 export const StudioSnapshotSchema = Type.Object(
 	{
 		project: ProjectRecordSchema,
@@ -85,6 +96,7 @@ export const StudioSnapshotSchema = Type.Object(
 		activeTasks: Type.Array(NovelTaskSchema),
 		reviewSummary: ReviewSummarySchema,
 		workflowStatus: Type.String({ minLength: 1 }),
+		activeWorkflow: Type.Optional(Type.Union([Type.Null(), ChapterWorkflowSnapshotSchema])),
 		recommendedNextActions: Type.Array(
 			Type.Object(
 				{

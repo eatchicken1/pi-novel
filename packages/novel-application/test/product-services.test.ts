@@ -202,6 +202,61 @@ describe("product services", () => {
 		}
 	});
 
+	it("R6: refresh keeps issue identity per landing and preserves acknowledged state", async () => {
+		const env = createEnv();
+		try {
+			env.reviewSources.push(
+				{
+					sourceCode: "SAME_RULE",
+					severity: "warning",
+					priority: "P1",
+					scope: "chapter",
+					repairScope: "chapter-plan",
+					blockingForCurrentAction: true,
+					chapter: 1,
+					scene: null,
+					landingChapter: null,
+					message: "第一章问题",
+					evidence: null,
+				},
+				{
+					sourceCode: "SAME_RULE",
+					severity: "warning",
+					priority: "P1",
+					scope: "chapter",
+					repairScope: "chapter-plan",
+					blockingForCurrentAction: true,
+					chapter: 2,
+					scene: null,
+					landingChapter: null,
+					message: "第二章问题",
+					evidence: null,
+				},
+			);
+			const service = new ReviewService({
+				workspace: env.workspace,
+				engine: env.engine as unknown as NovelEnginePort,
+				registry: env.registry,
+				id: { id: () => `iss-${Math.random()}` },
+			});
+			await service.refresh("p-1");
+			const first = (await service.list("p-1")).issues.find((issue) => issue.chapter === 1);
+			expect(first).toBeDefined();
+			await service.acknowledge("p-1", first?.issueId ?? "");
+			env.reviewSources[0] = { ...env.reviewSources[0]!, message: "第一章问题已更新" };
+			await service.refresh("p-1");
+			const afterAcknowledgement = (await service.list("p-1")).issues;
+			expect(afterAcknowledgement.find((issue) => issue.chapter === 1)?.status).toBe("acknowledged");
+			env.reviewSources.splice(0, 1);
+			await service.refresh("p-1");
+			const after = (await service.list("p-1")).issues;
+			expect(after.find((issue) => issue.chapter === 1)?.status).toBe("resolved");
+			expect(after.find((issue) => issue.chapter === 2)?.status).toBe("open");
+		} finally {
+			env.cleanup();
+		}
+	});
+
 	it("G1-G4: story graph projection derives nodes/edges with chapter and type filters", async () => {
 		const env = createEnv();
 		try {

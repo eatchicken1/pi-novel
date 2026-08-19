@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type {
 	ChapterDocumentView,
 	ChapterSummaryView,
@@ -20,6 +21,21 @@ function sha256(content: string): string {
 
 function chapterFileName(chapter: number): string {
 	return `chapter-${String(chapter).padStart(3, "0")}.md`;
+}
+
+function legacyProjectRoot(root: string, projectId: string): string {
+	if (existsSync(join(root, "project.json"))) return root;
+	if (existsSync(join(root, projectId, "project.json"))) return join(root, projectId);
+	return join(root, "novels", projectId);
+}
+
+function legacyWorkspaceRoot(root: string, _projectId: string): string {
+	if (!existsSync(join(root, "project.json"))) return root;
+	return dirname(root).endsWith("novels") ? dirname(dirname(root)) : dirname(root);
+}
+
+function isDirectLegacyProjectRoot(root: string): boolean {
+	return existsSync(join(root, "project.json")) && !dirname(root).endsWith("novels");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -66,10 +82,12 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 	}
 
 	private async projectExists(workspaceRoot: string, projectId: string): Promise<boolean> {
-		return existsSync(join(workspaceRoot, "novels", projectId, "project.json"));
+		return existsSync(join(legacyProjectRoot(workspaceRoot, projectId), "project.json"));
 	}
 
 	async getStatus(workspaceRoot: string, projectId: string): Promise<NovelEngineStatus | null> {
+		if (isDirectLegacyProjectRoot(workspaceRoot)) return this.fallbackStatus(workspaceRoot, projectId);
+		workspaceRoot = legacyWorkspaceRoot(workspaceRoot, projectId);
 		if (!(await this.projectExists(workspaceRoot, projectId))) return null;
 		try {
 			const status = await this.storeFor(workspaceRoot).getNovelStatus({ projectId });
@@ -92,7 +110,7 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 
 	private fallbackStatus(workspaceRoot: string, projectId: string): NovelEngineStatus | null {
 		try {
-			const project = safeParse(join(workspaceRoot, "novels", projectId, "project.json"));
+			const project = safeParse(join(legacyProjectRoot(workspaceRoot, projectId), "project.json"));
 			if (!isRecord(project)) return null;
 			const nextChapter = typeof project.nextChapter === "number" ? project.nextChapter : null;
 			const finalizedChapters = Array.isArray(project.finalizedChapters)
@@ -125,10 +143,8 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 		projectId: string,
 		kind: "native" | "legacy",
 	): Promise<ChapterSummaryView[]> {
-		const directory =
-			kind === "legacy"
-				? join(workspaceRoot, "novels", projectId, "chapters")
-				: join(workspaceRoot, projectId, "manuscript");
+		if (kind !== "legacy") return [];
+		const directory = join(legacyProjectRoot(workspaceRoot, projectId), "chapters");
 		let files: string[] = [];
 		try {
 			files = readdirSync(directory);
@@ -148,9 +164,7 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 			if (kind === "legacy") {
 				const summary = safeParse(
 					join(
-						workspaceRoot,
-						"novels",
-						projectId,
+						legacyProjectRoot(workspaceRoot, projectId),
 						"summaries",
 						`chapter-${String(chapter).padStart(3, "0")}.json`,
 					),
@@ -160,10 +174,6 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 					revision = typeof summary.draftRevision === "number" ? summary.draftRevision : 1;
 					updatedAt = typeof summary.finalizedAt === "string" ? summary.finalizedAt : new Date(0).toISOString();
 				}
-			} else {
-				try {
-					updatedAt = new Date(0).toISOString();
-				} catch {}
 			}
 			chapters.push({
 				chapter,
@@ -184,24 +194,26 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 		kind: "native" | "legacy",
 		chapter: number,
 	): Promise<ChapterDocumentView | null> {
-		const directory =
-			kind === "legacy"
-				? join(workspaceRoot, "novels", projectId, "chapters")
-				: join(workspaceRoot, projectId, "manuscript");
-		const path = join(directory, chapterFileName(chapter));
+		if (kind !== "legacy") return null;
+		const path = join(legacyProjectRoot(workspaceRoot, projectId), "chapters", chapterFileName(chapter));
 		if (!existsSync(path)) return null;
 		const text = readFileSync(path, "utf8");
 		let title: string | null = null;
 		let revision = 1;
 		if (kind === "legacy") {
 			const summary = safeParse(
-				join(workspaceRoot, "novels", projectId, "summaries", `chapter-${String(chapter).padStart(3, "0")}.json`),
+				join(
+					legacyProjectRoot(workspaceRoot, projectId),
+					"summaries",
+					`chapter-${String(chapter).padStart(3, "0")}.json`,
+				),
 			);
 			if (isRecord(summary)) {
 				title = typeof summary.title === "string" ? summary.title : null;
 				revision = typeof summary.draftRevision === "number" ? summary.draftRevision : 1;
 			}
 		}
+		const metadata = await stat(path).catch(() => null);
 		return {
 			projectId,
 			chapter,
@@ -209,7 +221,7 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 			text,
 			contentHash: sha256(text),
 			revision,
-			updatedAt: new Date(0).toISOString(),
+			updatedAt: metadata?.mtime.toISOString() ?? new Date(0).toISOString(),
 		};
 	}
 
@@ -237,7 +249,7 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 	}
 
 	async reviewSources(workspaceRoot: string, projectId: string): Promise<ReviewIssueSource[]> {
-		const projectRoot = join(workspaceRoot, "novels", projectId);
+		const projectRoot = legacyProjectRoot(workspaceRoot, projectId);
 		if (!existsSync(join(projectRoot, "project.json"))) return [];
 		const sources: ReviewIssueSource[] = [];
 		const now = new Date().toISOString();
@@ -333,7 +345,7 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 	}
 
 	async storyGraphSources(workspaceRoot: string, projectId: string): Promise<StoryGraphSources | null> {
-		const projectRoot = join(workspaceRoot, "novels", projectId);
+		const projectRoot = legacyProjectRoot(workspaceRoot, projectId);
 		if (!existsSync(join(projectRoot, "project.json"))) return null;
 		const events: StoryGraphSourceEvent[] = [];
 		const map = safeParse(join(projectRoot, "outline", "unified", "event-map.json"));
@@ -430,6 +442,8 @@ export class LegacyNovelEngineAdapter implements NovelEnginePort {
 	}
 
 	async invalidateDerived(workspaceRoot: string, projectId: string): Promise<void> {
+		if (isDirectLegacyProjectRoot(workspaceRoot)) return;
+		workspaceRoot = legacyWorkspaceRoot(workspaceRoot, projectId);
 		if (!(await this.projectExists(workspaceRoot, projectId))) return;
 		try {
 			await this.storeFor(workspaceRoot).repairNarrativeMemory({ projectId });

@@ -1,4 +1,29 @@
-# Chapter Workflow（Round 9）（plan_chapter / draft_chapter）
+# Chapter Workflow（plan / draft / reconcile / settlement / finalize）
+
+## 产品层章节流程
+
+章节正文的自动保存和正式定稿是两个不同动作：
+
+```text
+Plan → Draft → Reconcile → Diagnose/Revise → Chapter Settlement → Finalize
+```
+
+- `save draft` 只保存当前正文版本，并清空绑定旧草稿的 Reconcile/Settlement；不提交长期记忆。
+- `reconcile` 把计划兑现报告和作者显式创作发现投影为差异。系统不能证明的文学改写不自动判错。
+- 作者可以选择“正文偏了”或“接受创作发现”。接受创作发现必须生成 Story ChangeSet，并在 ChangeSet 提交后才能结算。
+- `settlement` 是作者确认本章实际状态变化的动作，包含人物认知、关系、物件、线程、Promise、线索、职业状态和时间线。
+- `finalize` 必须绑定最新 draft revision/content hash，且要求 Settlement 已确认；只有引擎定稿成功后才提交 Narrative Memory。
+
+产品 API：
+
+- `PUT /api/projects/:projectId/chapters/:chapter/draft`
+- `GET /api/projects/:projectId/chapters/:chapter/workflow`
+- `POST /api/projects/:projectId/chapters/:chapter/reconcile`
+- `POST /api/projects/:projectId/chapters/:chapter/reconcile/decision`
+- `POST /api/projects/:projectId/chapters/:chapter/settlement`
+- `POST /api/projects/:projectId/chapters/:chapter/finalize`
+
+Review 的未来章节 P0、结构问题和当前章节问题分开计算。只有当前章节的 blocking/major local issue 会阻止本章 Finalize。
 
 ## plan_chapter
 

@@ -30,6 +30,8 @@ describe("product repositories", () => {
 			"001_project_initial.sql",
 			"003_project_product.sql",
 			"004_commit_recovery.sql",
+			"007_chapter_workflow.sql",
+			"008_chapter_metadata.sql",
 		]);
 		const tables = db.db.prepare("PRAGMA table_list").all() as Array<{ name: string }>;
 		const names = new Set(tables.map((row) => row.name));
@@ -43,6 +45,7 @@ describe("product repositories", () => {
 			"story_nodes",
 			"story_edges",
 			"artifacts",
+			"chapter_metadata",
 		]) {
 			expect(names.has(table), table).toBe(true);
 		}

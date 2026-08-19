@@ -19,7 +19,24 @@ import type {
 	TaskEvent,
 	UpdateForgeSessionInput,
 	WorkspaceOverview,
+	ChapterResource,
+	ChapterSummary,
+	ChapterDocument,
+	ChapterDraft,
+	CreateChapterInput,
+	ChapterWorkflowSnapshot,
+	SaveDraftInput,
+	ReconcileInput,
+	ReconcileReport,
+	ReconcileDecisionInput,
+	ChapterSettlement,
+	SettlementInput,
+	FinalizeChapterInput,
+	ChangeSet,
+	CreateChangeSetInput,
 } from "@earendil-works/pi-novel-contracts";
+
+export type ApiHealth = { status: "ok"; service: "pi-novel-api" };
 
 interface WorkspaceResponse {
 	workspace: WorkspaceOverview | null;
@@ -77,12 +94,25 @@ export function getApiErrorMessage(error: unknown, fallback = "操作失败"): s
 		FORGE_SESSION_LOCKED: "当前故事阶段已锁定，不能再修改故事设置。",
 		FORGE_DNA_REQUIRED: "请先完成创作 DNA，再开始探索方向。",
 		FORGE_SESSION_NOT_FOUND: "找不到这个故事工作区。",
+		DRAFT_STALE: "正文已经发生变化，请刷新章节后重试。",
+		RECONCILIATION_REQUIRED: "请先完成正文与计划对齐。",
+		RECONCILIATION_NOT_DIVERGENT: "当前没有需要处理的分歧。",
+		CHANGESET_REQUIRED: "接受创作发现需要先生成故事变更。",
+		CHANGESET_NOT_COMMITTED: "请先提交已接受的故事变更。",
+		SETTLEMENT_REQUIRED: "请先确认本章结算。",
+		FINALIZATION_BLOCKED: "当前章节仍有阻塞问题，暂时不能定稿。",
+		CHAPTER_EXTERNAL_MODIFICATION: "章节文件已在外部修改，请刷新后重试。",
+		CHAPTER_REVISION_STALE: "章节版本已经过期，请刷新后重试。",
 	};
 	return messages[error.code] ?? (error.message || fallback);
 }
 
 export async function getWorkspace(): Promise<WorkspaceOverview | null> {
 	return (await request<WorkspaceResponse>("/api/workspace")).workspace;
+}
+
+export async function getHealth(): Promise<ApiHealth> {
+	return request<ApiHealth>("/api/health");
 }
 
 export async function initializeWorkspace(path: string): Promise<WorkspaceOverview> {
@@ -95,6 +125,54 @@ export async function rescanWorkspace(): Promise<WorkspaceOverview> {
 
 export async function getProjects(): Promise<ProjectRecord[]> {
 	return (await request<ProjectsResponse>("/api/projects")).projects;
+}
+
+export async function getChapters(projectId: string): Promise<ChapterSummary[]> {
+	return (await request<{ chapters: ChapterSummary[] }>(`/api/projects/${encodeURIComponent(projectId)}/chapters`)).chapters;
+}
+
+export async function getChapterResource(projectId: string, chapter: number): Promise<ChapterResource> {
+	return (await request<{ chapter: ChapterResource }>(`/api/projects/${encodeURIComponent(projectId)}/chapters/${chapter}`)).chapter;
+}
+
+export async function createChapter(projectId: string, input: CreateChapterInput): Promise<ChapterDocument> {
+	return (await request<{ chapter: ChapterDocument }>(`/api/projects/${encodeURIComponent(projectId)}/chapters`, { method: "POST", body: JSON.stringify(input) })).chapter;
+}
+
+export async function saveChapterDraft(projectId: string, chapter: number, input: SaveDraftInput): Promise<ChapterDraft> {
+	return request<ChapterDraft>(`/api/projects/${encodeURIComponent(projectId)}/chapters/${chapter}/draft`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export async function getChapterWorkflow(projectId: string, chapter: number): Promise<ChapterWorkflowSnapshot> {
+	return request<ChapterWorkflowSnapshot>(`/api/projects/${encodeURIComponent(projectId)}/chapters/${chapter}/workflow`);
+}
+
+export async function reconcileChapter(projectId: string, chapter: number, input: ReconcileInput): Promise<ReconcileReport> {
+	return request<ReconcileReport>(`/api/projects/${encodeURIComponent(projectId)}/chapters/${chapter}/reconcile`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function decideChapterReconcile(projectId: string, chapter: number, input: ReconcileDecisionInput): Promise<{ report: ReconcileReport; changeSetId: string | null }> {
+	return request<{ report: ReconcileReport; changeSetId: string | null }>(`/api/projects/${encodeURIComponent(projectId)}/chapters/${chapter}/reconcile/decision`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function settleChapter(projectId: string, chapter: number, input: SettlementInput): Promise<ChapterSettlement> {
+	return request<ChapterSettlement>(`/api/projects/${encodeURIComponent(projectId)}/chapters/${chapter}/settlement`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function finalizeChapter(projectId: string, chapter: number, input: FinalizeChapterInput): Promise<{ projectId: string; chapter: number; memoryCommitted: boolean; transactionId: string }> {
+	return request<{ projectId: string; chapter: number; memoryCommitted: boolean; transactionId: string }>(`/api/projects/${encodeURIComponent(projectId)}/chapters/${chapter}/finalize`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function createChangeSet(projectId: string, input: CreateChangeSetInput): Promise<ChangeSet> {
+	return (await request<{ changeSet: ChangeSet }>(`/api/projects/${encodeURIComponent(projectId)}/changesets`, { method: "POST", body: JSON.stringify(input) })).changeSet;
+}
+
+export async function acceptChangeSet(projectId: string, changeSetId: string): Promise<ChangeSet> {
+	return (await request<{ changeSet: ChangeSet }>(`/api/projects/${encodeURIComponent(projectId)}/changesets/${encodeURIComponent(changeSetId)}/accept`, { method: "POST" })).changeSet;
+}
+
+export async function commitChangeSet(projectId: string, changeSetId: string): Promise<ChangeSet> {
+	return (await request<{ changeSet: ChangeSet }>(`/api/projects/${encodeURIComponent(projectId)}/changesets/${encodeURIComponent(changeSetId)}/commit`, { method: "POST", headers: { "X-Idempotency-Key": `chapter-discovery-${changeSetId}` }, body: JSON.stringify({ actor: "user" }) })).changeSet;
 }
 
 export async function getModelCatalog(): Promise<ModelCatalog> {

@@ -13,15 +13,15 @@ import type {
 	SetRuntimeProfileInput,
 	WorkspaceOverview,
 } from "@earendil-works/pi-novel-contracts";
-import { clearModelApiKey, configureModelApiKey, createForgeSession, getApiErrorMessage, getModelCatalog, getProjects, getRuntimeProfiles, getWorkspace, initializeWorkspace, rescanWorkspace, setRuntimeProfile } from "../api/client.ts";
+import { clearModelApiKey, configureModelApiKey, createForgeSession, getApiErrorMessage, getHealth, getModelCatalog, getProjects, getRuntimeProfiles, getWorkspace, initializeWorkspace, rescanWorkspace, setRuntimeProfile } from "../api/client.ts";
 import { novelQueryKeys } from "../api/query-keys.ts";
 import { AuthModelPanel } from "../features/settings/AuthModelPanel.tsx";
-import { WorkspaceOnboarding } from "../features/workspace/WorkspaceOnboarding.tsx";
+import { WorkspaceSetupDialog } from "../features/workspace/WorkspaceOnboarding.tsx";
 
 const EMPTY_CATALOG: ModelCatalog = { providers: [] };
 
 export interface AppShellContext {
-	overview: WorkspaceOverview;
+	overview: WorkspaceOverview | null;
 	catalog: ModelCatalog;
 	profiles: AgentRuntimeProfile[];
 	runtimeAgentId: RuntimeAgentId;
@@ -35,6 +35,7 @@ export interface AppShellContext {
 	onConfigureApiKey(input: ConfigureModelApiKeyInput): Promise<void>;
 	onClearApiKey(providerId: string): Promise<void>;
 	onCreateForgeSession(input: CreateForgeSessionInput): Promise<void>;
+	onOpenWorkspaceSetup(): void;
 }
 
 export function useAppShellContext(): AppShellContext {
@@ -58,6 +59,7 @@ export function AppShell() {
 	const [providerPanelOpen, setProviderPanelOpen] = useState(false);
 	const [providerPanelInitial, setProviderPanelInitial] = useState<string | undefined>(undefined);
 	const [pickerOpen, setPickerOpen] = useState(false);
+	const [workspaceSetupOpen, setWorkspaceSetupOpen] = useState(false);
 	const [runtimeAgentId, setRuntimeAgentId] = useState<RuntimeAgentId>("forge.explorer");
 	const defaultRuntimeAgentId = runtimeAgentForPath(location.pathname);
 	useEffect(() => {
@@ -79,6 +81,7 @@ export function AppShell() {
 	useEffect(() => {
 		if (defaultRuntimeAgentId) setRuntimeAgentId(defaultRuntimeAgentId);
 	}, [defaultRuntimeAgentId]);
+	const healthQuery = useQuery({ queryKey: ["health"], queryFn: getHealth, retry: false });
 	const workspaceQuery = useQuery({
 		queryKey: novelQueryKeys.workspace,
 		queryFn: async () => {
@@ -87,6 +90,8 @@ export function AppShell() {
 			const savedPath = window.localStorage.getItem("pi-novel:workspace-path");
 			return savedPath ? initializeWorkspace(savedPath) : null;
 		},
+		retry: false,
+		enabled: healthQuery.data?.status === "ok",
 	});
 	const projectsQuery = useQuery({
 		queryKey: novelQueryKeys.projects,
@@ -132,6 +137,15 @@ export function AppShell() {
 	const catalog = catalogQuery.data ?? EMPTY_CATALOG;
 	const profiles = profilesQuery.data ?? [];
 	const overview = workspace ? { ...workspace, projects: projectsQuery.data ?? workspace.projects } : null;
+	const bootstrapState = healthQuery.isPending || (healthQuery.data?.status === "ok" && workspaceQuery.isPending)
+		? "BOOTING"
+		: healthQuery.isError
+			? "API_OFFLINE"
+			: workspaceQuery.isError && (workspaceQuery.error instanceof Error && "status" in workspaceQuery.error && workspaceQuery.error.status === 401)
+				? "SESSION_INVALID"
+				: overview === null
+					? "WORKSPACE_UNSET"
+					: "READY";
 	useEffect(() => {
 		if (workspace?.manifest.rootPath) void queryClient.invalidateQueries({ queryKey: novelQueryKeys.models });
 	}, [queryClient, workspace?.manifest.rootPath]);
@@ -144,11 +158,6 @@ export function AppShell() {
 	async function applyProfile(agentId: RuntimeAgentId, input: SetRuntimeProfileInput): Promise<void> {
 		await setProfileMutation.mutateAsync({ agentId, input });
 		setPickerOpen(false);
-	}
-
-	if (workspaceQuery.isPending) return <div className="loading-screen"><Sparkles size={18} /> 正在连接 Workspace…</div>;
-	if (!overview) {
-		return <WorkspaceOnboarding apiUnavailable={workspaceQuery.isError} onInitialize={(path) => initializeMutation.mutateAsync(path).then(() => undefined)} />;
 	}
 
 	const context: AppShellContext = {
@@ -166,26 +175,35 @@ export function AppShell() {
 		onConfigureApiKey: (input) => configureApiKeyMutation.mutateAsync(input).then(() => undefined),
 		onClearApiKey: (providerId) => clearApiKeyMutation.mutateAsync(providerId).then(() => undefined),
 		onCreateForgeSession: (input) => createForgeMutation.mutateAsync(input).then(() => undefined),
+		onOpenWorkspaceSetup: () => setWorkspaceSetupOpen(true),
 	};
 	const isLibraryArea = location.pathname.startsWith("/library") || location.pathname.startsWith("/project/");
 	const isSettings = location.pathname === "/settings";
 	return (
 		<div className="app-shell">
+			<BootstrapBanner state={bootstrapState} onReconnect={() => { void healthQuery.refetch(); void workspaceQuery.refetch(); }} />
 			<div className="shell-body">
 				<aside className="app-rail">
-					<div className="rail-workspace"><div className="rail-brand"><Sparkles size={15} /> Pi-Novel</div><div className="rail-path"><span>工作区</span><strong>{compactPath(overview.manifest.rootPath)}</strong><Compass size={14} /></div></div>
+					<div className="rail-workspace"><div className="rail-brand"><Sparkles size={15} /> Pi-Novel</div><div className="rail-path"><span>工作区</span><strong>{overview ? compactPath(overview.manifest.rootPath) : "尚未设置"}</strong><Compass size={14} /></div></div>
 					<nav className="rail-nav"><NavItem icon={<FileText size={16} />} label="起笔" active={location.pathname === "/"} onClick={() => navigate("/")} /><NavItem icon={<BookOpen size={16} />} label="作品" active={isLibraryArea} onClick={() => navigate("/library")} /><NavItem icon={<Settings2 size={16} />} label="设置" active={isSettings} onClick={() => navigate("/settings")} /></nav>
 					<div className="rail-user"><div className="avatar"><UserRound size={15} /></div><div><strong>本地作者</strong><span>运行时统一入口</span></div></div>
 				</aside>
 				<main className="main-content">
-					<div className="workspace-toolbar"><div className="toolbar-context"><span className="toolbar-kicker">PI-NOVEL WORKSPACE</span><strong>{compactPath(overview.manifest.rootPath)}</strong></div><div className="toolbar-actions"><span className="policy-note"><span className="status-dot green" /> 作者为权威</span><RuntimePickerTrigger activeAgentId={defaultRuntimeAgentId ? runtimeAgentId : null} agentId={runtimeAgentId} catalog={catalog} profiles={profiles} open={pickerOpen} onToggle={() => setPickerOpen((open) => !open)} /></div></div>
+					<div className="workspace-toolbar"><div className="toolbar-context"><span className="toolbar-kicker">PI-NOVEL WORKSPACE</span><strong>{overview ? compactPath(overview.manifest.rootPath) : "尚未设置"}</strong></div><div className="toolbar-actions"><span className="policy-note"><span className="status-dot green" /> 作者为权威</span><RuntimePickerTrigger activeAgentId={defaultRuntimeAgentId ? runtimeAgentId : null} agentId={runtimeAgentId} catalog={catalog} profiles={profiles} open={pickerOpen} onToggle={() => setPickerOpen((open) => !open)} /></div></div>
 					<Outlet context={context} />
 				</main>
 			</div>
 			{pickerOpen && <RuntimePicker catalog={catalog} profiles={profiles} agentId={runtimeAgentId} onAgentChange={setRuntimeAgentId} onApply={applyProfile} onManageProviders={() => { setPickerOpen(false); setProviderPanelInitial(undefined); setProviderPanelOpen(true); }} onClose={() => setPickerOpen(false)} />}
 			{providerPanelOpen && <AuthModelPanel catalog={catalog} initialProviderId={providerPanelInitial} onConfigureApiKey={(input) => configureApiKeyMutation.mutateAsync(input).then(() => undefined)} onClearApiKey={(providerId) => clearApiKeyMutation.mutateAsync(providerId).then(() => undefined)} onClose={() => { setProviderPanelOpen(false); setProviderPanelInitial(undefined); }} />}
+			{workspaceSetupOpen && <WorkspaceSetupDialog onInitialize={(path) => initializeMutation.mutateAsync(path).then(() => setWorkspaceSetupOpen(false))} onClose={() => setWorkspaceSetupOpen(false)} />}
 		</div>
 	);
+}
+
+function BootstrapBanner({ state, onReconnect }: { state: "BOOTING" | "API_OFFLINE" | "SESSION_INVALID" | "WORKSPACE_UNSET" | "READY"; onReconnect: () => void }) {
+	if (state === "READY") return null;
+	const message = state === "BOOTING" ? "正在连接本地服务…" : state === "API_OFFLINE" ? "本地服务未连接。" : state === "SESSION_INVALID" ? "本地会话已失效。" : "Workspace 尚未设置。";
+	return <div className={`bootstrap-banner ${state.toLowerCase()}`} role="status"><span>{message}</span>{state !== "BOOTING" && <button className="text-button" type="button" onClick={onReconnect}>重新连接</button>}</div>;
 }
 
 function RuntimePickerTrigger({ activeAgentId, agentId, catalog, profiles, open, onToggle }: { activeAgentId: RuntimeAgentId | null; agentId: RuntimeAgentId; catalog: ModelCatalog; profiles: AgentRuntimeProfile[]; open: boolean; onToggle: () => void }) {

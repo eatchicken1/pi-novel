@@ -3,6 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LegacyNovelEngineAdapter } from "../src/legacy/novel-engine-adapter.ts";
+import { NativeNovelEngineAdapter } from "../src/native/native-novel-engine-adapter.ts";
+import { NovelEngineRouter } from "../src/novel-engine-router.ts";
+import { ProjectDatabaseRegistry } from "../src/sqlite/project-database-registry.ts";
 
 function createLegacyProject(): { root: string; projectId: string; cleanup(): void } {
 	const root = mkdtempSync(join(tmpdir(), "pi-novel-legacy-"));
@@ -180,6 +183,25 @@ describe("legacy novel engine adapter", () => {
 			expect(await adapter.analyzeRevisionImpact(fixture.root, "missing", {})).toBeNull();
 		} finally {
 			fixture.cleanup();
+		}
+	});
+
+	it("routes a direct legacy project without rewriting it as novels/<id>", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-novel-direct-legacy-"));
+		const projectId = "direct-legacy";
+		mkdirSync(join(root, "chapters"), { recursive: true });
+		writeFileSync(
+			join(root, "project.json"),
+			JSON.stringify({ projectId, title: "Direct Legacy", nextChapter: 3, finalizedChapters: [1, 2] }),
+			"utf8",
+		);
+		const registry = new ProjectDatabaseRegistry();
+		try {
+			const router = new NovelEngineRouter(new NativeNovelEngineAdapter(registry), new LegacyNovelEngineAdapter());
+			expect((await router.getStatus(root, projectId))?.nextChapter).toBe(3);
+		} finally {
+			registry.closeAll();
+			rmSync(root, { recursive: true, force: true });
 		}
 	});
 });

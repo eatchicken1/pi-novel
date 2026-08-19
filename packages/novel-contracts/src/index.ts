@@ -1,4 +1,5 @@
 export * from "./changeset.ts";
+export * from "./chapter-workflow.ts";
 export * from "./common.ts";
 export * from "./forge.ts";
 export * from "./history.ts";

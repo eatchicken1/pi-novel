@@ -76,13 +76,34 @@ export const ReviewSummarySchema = Type.Object(
 		errorCount: Type.Integer({ minimum: 0 }),
 		warningCount: Type.Integer({ minimum: 0 }),
 		latestRunAt: Type.Union([Type.Null(), ISODateStringSchema]),
+		currentCount: Type.Optional(Type.Integer({ minimum: 0 })),
+		futureCount: Type.Optional(Type.Integer({ minimum: 0 })),
+		structuralCount: Type.Optional(Type.Integer({ minimum: 0 })),
+		suggestionCount: Type.Optional(Type.Integer({ minimum: 0 })),
+		majorLocalCount: Type.Optional(Type.Integer({ minimum: 0 })),
+		canFinalize: Type.Optional(Type.Boolean()),
 	},
 	{ additionalProperties: false },
 );
 export type ReviewSummary = Static<typeof ReviewSummarySchema>;
 
 export const ReviewListResponseSchema = Type.Object(
-	{ issues: Type.Array(ReviewIssueSchema), summary: ReviewSummarySchema },
+	{
+		issues: Type.Array(ReviewIssueSchema),
+		summary: ReviewSummarySchema,
+		current: Type.Optional(Type.Array(ReviewIssueSchema)),
+		future: Type.Optional(Type.Array(ReviewIssueSchema)),
+		structural: Type.Optional(Type.Array(ReviewIssueSchema)),
+		suggestions: Type.Optional(Type.Array(ReviewIssueSchema)),
+		canFinalize: Type.Optional(Type.Boolean()),
+		recommendation: Type.Optional(
+			Type.Union([
+				Type.Literal("continue-revision"),
+				Type.Literal("ready-to-settle"),
+				Type.Literal("ready-to-finalize"),
+			]),
+		),
+	},
 	{ additionalProperties: false },
 );
 

@@ -2,6 +2,8 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ProjectDatabaseHandle, ProjectDatabaseRegistryPort } from "@earendil-works/pi-novel-application";
 import { ChangeSetRepository } from "./changeset-repository.ts";
+import { ChapterMetadataRepository } from "./chapter-metadata-repository.ts";
+import { ChapterWorkflowRepository } from "./chapter-workflow-repository.ts";
 import { CommitRepository } from "./commit-repository.ts";
 import { ProjectDatabase } from "./project-database.ts";
 import { ReviewRepository } from "./review-repository.ts";
@@ -42,6 +44,8 @@ export class ProjectDatabaseRegistry implements ProjectDatabaseRegistryPort {
 			commits: new CommitRepository(database.db),
 			review: new ReviewRepository(database.db),
 			graph: new StoryGraphRepository(database.db),
+			chapterWorkflow: new ChapterWorkflowRepository(database.db),
+			chapterMetadata: new ChapterMetadataRepository(database.db),
 		};
 	}
 
